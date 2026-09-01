@@ -10,6 +10,9 @@ Offizielle Webplattform und Desktop-Sammlungsoberfläche für DomiDex TCG. Die W
 - exakte TCGdex-/Cardmarket-Zuordnung; keine erfundenen Preise
 - Echtzeit-Synchronisierung mit `users/{uid}/collectionEntries/{syncId}`
 - geschützter Adminbereich für öffentliche Website-Inhalte
+- geschütztes Scanner Control Center unter `/admin/scanner-lab` mit normalisierten Analysezonen, Profilversionen, explizitem Production-Publish und Rollback
+- lokaler, paginierter Referenzbrowser für das deutsche TCGdex-Kalibrierungsarchiv; Bilder und absolute Pfade werden nicht veröffentlicht
+- Master-Set-Binder mit allen Set-Karten, Besitzstatus, exakter Preiszuordnung und direktem Hinzufügen zur bestehenden Sammlung
 - Firestore-Regeln mit strikter Benutzertrennung und `admin`-Custom-Claim
 
 ## Lokal starten
@@ -23,6 +26,18 @@ npm run dev
 ```
 
 Die öffentlichen Firebase-Webwerte der registrierten Web-App kommen in `.env.local`. Private Schlüssel, Service-Account-Dateien und Tokens dürfen nicht in das Repository eingecheckt werden.
+
+### Lokales Scanner-Referenzarchiv
+
+Für das Scanner Control Center werden die privaten lokalen Quellen ausschließlich serverseitig konfiguriert:
+
+```env
+DOMIDEX_SCANNER_INDEX_PATH=
+DOMIDEX_SCANNER_IMAGE_DIR=
+DOMIDEX_TCGDEX_DATABASE_DIR=
+```
+
+Danach erzeugt `npm run scanner:index` den lokalen Master-Index unter `.domidex/`. Der Generator erhält `localId` vollständig als String, verbindet Bild- und Kartendaten und meldet fehlende Dateien, Metadaten, Duplikate und Einzelfehler. `.domidex/`, die Referenzbilder und die lokalen Pfade bleiben vom Repository und Deployment ausgeschlossen.
 
 ## Qualitätsprüfung
 
@@ -55,7 +70,7 @@ Der vollständige Feld- und Sicherheitsvertrag steht in [docs/FIREBASE_COLLECTIO
 4. `npm run admin:bootstrap` setzt den Custom Claim `admin: true`.
 5. Ab- und erneut anmelden, damit ein frisches ID-Token geladen wird.
 
-Der Adminbereich kann nur öffentliche Website-Inhalte bearbeiten. Private Sammlungen anderer Nutzer sind weder in der UI noch über die Regeln zugänglich.
+Der Adminbereich verwaltet öffentliche Website-Inhalte und Scannerprofile. Private Sammlungen anderer Nutzer sind weder in der UI noch über die Regeln zugänglich. Scannerprofile werden als Draft, Testing, Candidate, Production oder Deprecated versioniert; normales Speichern veröffentlicht niemals eine Production-Version.
 
 ## Umgebungsvariablen
 

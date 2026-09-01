@@ -53,6 +53,15 @@ export interface TcgVariant {
 
 export interface TcgCardSummary { id: string; localId: string; name: string; image?: string; }
 
+export interface TcgSetDetail {
+  id: string;
+  name: string;
+  logo?: string;
+  symbol?: string;
+  cardCount?: { official?: number; total?: number };
+  cards: TcgCardSummary[];
+}
+
 export interface TcgCardDetail extends TcgCardSummary {
   image?: string;
   rarity?: string;

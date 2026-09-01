@@ -1,6 +1,7 @@
-import type { TcgCardDetail, TcgCardSummary } from './domain';
+import type { TcgCardDetail, TcgCardSummary, TcgSetDetail } from './domain';
 
 const cardCache = new Map<string, Promise<TcgCardDetail>>();
+const setCache = new Map<string, Promise<TcgSetDetail>>();
 
 export async function searchCards(query: string): Promise<TcgCardSummary[]> {
   const normalized = query.trim();
@@ -25,6 +26,15 @@ export function loadCard(id: string): Promise<TcgCardDetail> {
     });
   cardCache.set(safe, request);
   return request;
+}
+
+export function loadSet(id: string): Promise<TcgSetDetail> {
+  const safe = id.trim().toLowerCase(); const existing = setCache.get(safe); if (existing) return existing;
+  const request = fetch(`/api/sets/${encodeURIComponent(safe)}`).then((response) => {
+    if (!response.ok) throw new Error('Das vollständige Set konnte nicht geladen werden.');
+    return response.json() as Promise<TcgSetDetail>;
+  }).catch((error) => { setCache.delete(safe); throw error; });
+  setCache.set(safe, request); return request;
 }
 
 export function imageUrl(base?: string, quality: 'low' | 'high' = 'high') {

@@ -175,6 +175,53 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Scanner Control Center: drafts, candidates, benchmarks and audit data remain
+    // private to explicitly claimed administrators. Signed-in clients may only read
+    // the immutable production profile referenced by the release manifest.
+    match /scannerProfiles/{profileId} {
+      allow read, create, update: if admin();
+      allow delete: if false;
+    }
+
+    match /scannerProfileVersions/{versionId} {
+      allow read: if admin() || (signedIn() && resource.data.status == 'production');
+      allow create, update: if admin()
+        && request.resource.data.profileId is string
+        && request.resource.data.profileId.size() > 0
+        && request.resource.data.profileId.size() <= 120
+        && request.resource.data.profileVersion is int
+        && request.resource.data.profileVersion > 0
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.status in ['draft', 'testing', 'candidate', 'production', 'deprecated']
+        && request.resource.data.zones is list
+        && request.resource.data.zones.size() <= 64;
+      allow delete: if false;
+    }
+
+    match /scannerReleaseManifest/{manifestId} {
+      allow read: if signedIn() && manifestId == 'production';
+      allow create, update: if admin() && manifestId == 'production'
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.profiles is map
+        && request.resource.data.compatibility is map;
+      allow delete: if false;
+    }
+
+    match /scannerBenchmarks/{benchmarkId} {
+      allow read, create, update: if admin();
+      allow delete: if false;
+    }
+
+    match /scannerLayouts/{layoutId} {
+      allow read, create, update: if admin();
+      allow delete: if false;
+    }
+
+    match /scannerAudit/{auditId} {
+      allow read, create: if admin();
+      allow update, delete: if false;
+    }
+
     // Default deny. Admin SDK is the only moderation/publication/claim-management path.
     match /{document=**} { allow read, write: if false; }
   }

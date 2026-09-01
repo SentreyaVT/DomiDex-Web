@@ -49,6 +49,22 @@ describe('DomiDex Web Firestore rules', () => {
     await assertSucceeds(setDoc(doc(environment.authenticatedContext('admin', { admin: true }).firestore(), 'siteContent/public'), siteContent()));
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'users/owner/collectionEntries/web-entry')));
   });
+
+  it('keeps scanner drafts private and exposes only production to signed-in clients', async () => {
+    const admin = environment.authenticatedContext('admin', { admin: true }).firestore();
+    const user = environment.authenticatedContext('user').firestore();
+    const draft = doc(admin, 'scannerProfileVersions/profile-v1');
+    await assertSucceeds(setDoc(draft, scannerVersion('draft')));
+    await assertFails(getDoc(doc(user, 'scannerProfileVersions/profile-v1')));
+    const production = doc(admin, 'scannerProfileVersions/profile-v2');
+    await assertSucceeds(setDoc(production, scannerVersion('production', 2)));
+    await assertSucceeds(getDoc(doc(user, 'scannerProfileVersions/profile-v2')));
+    await assertFails(setDoc(doc(user, 'scannerProfileVersions/rogue'), scannerVersion('production')));
+    await assertSucceeds(setDoc(doc(admin, 'scannerReleaseManifest/production'), { schemaVersion: 1, profiles: {}, compatibility: {} }));
+    await assertSucceeds(getDoc(doc(user, 'scannerReleaseManifest/production')));
+    await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'scannerReleaseManifest/production')));
+  });
 });
 
 function siteContent() { return { heroTitle:'Deine Sammlung.',heroSubtitle:'Sicher synchronisiert.',statusBanner:'Pre-Beta',currentVersion:'1.0-pre-beta',currentBuild:'17',releaseStatus:'Pre-Beta',discordUrl:'',discordText:'Community',githubUrl:'https://github.com/nandedomi/DomiDex',kickstarterUrl:'',kickstarterCta:'Coming Soon',updates:[],roadmap:[] }; }
+function scannerVersion(status: string, version = 1) { return { profileId: 'profile', profileVersion: version, schemaVersion: 1, status, zones: [] }; }

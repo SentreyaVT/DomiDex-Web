@@ -12,10 +12,11 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts tests/domain.test.ts",
+    "test": "vitest run --config vitest.config.ts tests/domain.test.ts tests/scanner-profile.test.ts tests/binder.test.ts",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.config.ts tests/firestore.rules.test.ts\"",
     "test:android-contract": "firebase emulators:exec --only firestore \"node --test --test-concurrency=1 tests/android-contract.rules.test.mjs\"",
-    "admin:bootstrap": "node scripts/set-admin-claim.mjs"
+    "admin:bootstrap": "node scripts/set-admin-claim.mjs",
+    "scanner:index": "node --env-file-if-exists=.env.local scripts/build-scanner-reference-index.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
