@@ -2,16 +2,17 @@
 
 import {
   BadgeEuro, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, CloudOff, FolderSearch,
-  LayoutDashboard, LibraryBig, LoaderCircle, LogOut, Minus, Plus, Search, Settings, ShieldCheck,
-  Sparkles, Trash2, X,
+  LayoutDashboard, LibraryBig, LoaderCircle, LogOut, Minus, Plus, ScanLine, Search, Settings,
+  ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from './auth-provider';
 import { addExactCard, changeQuantity, subscribeCollection } from '@/lib/collection';
 import { exactTrendPrice, type CollectionEntry, type TcgCardDetail, type TcgCardSummary } from '@/lib/domain';
-import { buildBinderSlots, type BinderSlot } from '@/lib/binder';
+import { buildBinderSlots, paginateBinderSlots, type BinderSlot } from '@/lib/binder';
 import { imageUrl, loadCard, loadSet, searchCards } from '@/lib/tcgdex';
+import { adminNavigation } from '@/lib/admin-navigation';
 
 type View = 'overview' | 'binder' | 'collection' | 'search' | 'portfolio' | 'settings';
 
@@ -76,7 +77,7 @@ export function WebApp() {
         <a className="brand" href="/"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span></span></a>
         <nav aria-label="Web-App Navigation">
           {navigation.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} onClick={() => setView(key)} key={key}><Icon />{label}</button>)}
-          {isAdmin && <a href="/admin"><ShieldCheck />Administration</a>}
+          {isAdmin && <div className="admin-navigation"><small>ADMIN</small>{adminNavigation(isAdmin).map((item) => { const Icon = item.kind === 'dashboard' ? ShieldCheck : ScanLine; return <a href={item.href} key={item.href}><Icon />{item.label}</a>; })}</div>}
         </nav>
         <div className="sidebar-account"><CircleUserRound /><div><strong>{user.displayName ?? 'DomiDex Nutzer'}</strong><small>{user.email}</small></div></div>
       </aside>
@@ -130,13 +131,13 @@ function BinderView({ binders, prices, user, onError }: { binders: BinderGroup[]
   }, [binder?.sourceSetId, onError]);
   if (!binder) return <div className="app-view"><div className="view-title"><div><p>BINDER</p><h1>Deine Binder.</h1></div></div><Empty title="Noch kein Binder" text="Sobald eine Karte hinzugefügt wird, erscheint ihr Set-Binder automatisch hier." /></div>;
   const summaries = setCards.length ? setCards : binder.entries.map((entry) => ({ id: entry.sourceCardId ?? entry.syncId, localId: entry.collectorNumber, name: entry.name, image: entry.imageUrl ?? undefined }));
-  const slots = buildBinderSlots(summaries, binder.entries); const pages = chunk(slots, 8); const visible = pages[page] ?? [];
+  const slots = buildBinderSlots(summaries, binder.entries); const pages = paginateBinderSlots(slots); const visible = pages[page] ?? [];
   return <div className="app-view binder-view">
     <div className="view-title"><div><p>MASTER-SET BINDER</p><h1>{binder.name}</h1><span>{binder.entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten · {slots.filter((slot) => slot.owned.length).length}/{slots.length || binder.entries.length} Plätze · {formatPrice(binder.entries.reduce((sum, entry) => sum + ((prices[entry.syncId] ?? 0) * entry.quantity), 0))}</span></div><select value={binderIndex} onChange={(event) => setBinderIndex(Number(event.target.value))}>{binders.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}</select></div>
     <section className={`interactive-binder ${open ? 'is-open' : ''}`}>
       {!open ? <button className="binder-cover" onClick={() => setOpen(true)}><img src="/domidex-logo.jpg" alt="" /><small>DOMIDEX BINDER</small><strong>{binder.name}</strong><span>Öffnen</span></button> : <>
         {setLoading ? <div className="binder-set-loading"><LoaderCircle className="spin" /><span>Alle Set-Karten werden geladen …</span></div> : <div className="binder-book"><div className="pocket-page">{[0,1,2,3].map((slot) => <BinderPocket slot={visible[slot]} onSelect={setSelected} key={slot} />)}</div><div className="binder-spine"><i/><i/><i/><i/></div><div className="pocket-page">{[4,5,6,7].map((slot) => <BinderPocket slot={visible[slot]} onSelect={setSelected} key={slot} />)}</div></div>}
-        <div className="page-controls"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></button><span>Seite {page + 1} / {Math.max(1, pages.length)}</span><button disabled={page >= pages.length - 1} onClick={() => setPage((value) => value + 1)}><ChevronRight /></button><button className="close-binder" onClick={() => setOpen(false)}>Binder schließen</button></div>
+        <div className="page-controls"><button aria-label="Vorherige Binderseite" disabled={page === 0} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></button><span>Seite {page + 1} / {Math.max(1, pages.length)}</span><button aria-label="Nächste Binderseite" disabled={page >= pages.length - 1} onClick={() => setPage((value) => value + 1)}><ChevronRight /></button><button className="close-binder" onClick={() => setOpen(false)}>Binder schließen</button></div>
       </>}
     </section>
     {selected && <BinderCardDialog slot={selected} entries={binder.entries} prices={prices} user={user} busy={busy} setBusy={setBusy} onClose={() => setSelected(null)} onError={onError} />}
@@ -193,5 +194,4 @@ interface BinderGroup { id: string; name: string; sourceSetId: string | null; en
 function groupBinders(entries: CollectionEntry[]): BinderGroup[] { return Object.values(entries.reduce<Record<string,BinderGroup>>((groups,entry) => { const current=groups[entry.binderId]??{id:entry.binderId,name:entry.binderName,sourceSetId:entry.sourceSetId,entries:[]}; if (!current.sourceSetId && entry.sourceSetId) current.sourceSetId=entry.sourceSetId; current.entries.push(entry); groups[entry.binderId]=current; return groups;},{})).sort((a,b)=>a.name.localeCompare(b.name,'de')); }
 function bestVariant(card: TcgCardDetail, finish: string, variant: string) { const variants=card.variants_detailed?.length?card.variants_detailed:[{type:'Normal',size:'Standard',pricing:card.pricing}]; return variants.find((item)=>normalizeFinish(item.type)===finish && (!variant || variant.includes(item.size??'Standard')))??variants.find((item)=>normalizeFinish(item.type)===finish); }
 function normalizeFinish(value:string){if(/reverse/i.test(value))return'Reverse Holo';if(/holo/i.test(value))return'Holo';return'Normal';}
-function chunk<T>(items:T[],size:number){return Array.from({length:Math.ceil(items.length/size)},(_,index)=>items.slice(index*size,(index+1)*size));}
 function formatPrice(value:number){return new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(value);}

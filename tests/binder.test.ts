@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBinderSlots } from '@/lib/binder';
+import { buildBinderSlots, paginateBinderSlots } from '@/lib/binder';
 import type { CollectionEntry } from '@/lib/domain';
 
 describe('master-set binder mapping', () => {
@@ -22,5 +22,14 @@ describe('master-set binder mapping', () => {
     const slots = buildBinderSlots(cards, [entry]);
     expect(slots[0].owned).toEqual([]);
     expect(slots[1].owned).toEqual([entry]);
+  });
+
+  it('keeps every master-set card reachable across binder pages', () => {
+    const cards = Array.from({ length: 207 }, (_, index) => ({ id: `sv03.5-${index + 1}`, localId: String(index + 1), name: `Karte ${index + 1}` }));
+    const slots = buildBinderSlots(cards, []);
+    const pages = paginateBinderSlots(slots);
+    expect(pages).toHaveLength(26);
+    expect(pages.flat().map((slot) => slot.card.id)).toEqual(cards.map((card) => card.id));
+    expect(pages.at(-1)).toHaveLength(7);
   });
 });

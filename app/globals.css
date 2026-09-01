@@ -138,3 +138,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 /* Master-set binder states */
 .binder-pocket.missing-card{cursor:pointer;background:#0c0d13}.binder-pocket.missing-card img{opacity:.25;filter:grayscale(.45) saturate(.55);transition:opacity .2s,filter .2s}.binder-pocket.missing-card:hover img{opacity:.48;filter:grayscale(.1) saturate(.8)}.binder-pocket.missing-card>small{position:absolute;left:7px;right:7px;bottom:7px;padding:4px;border-radius:5px;background:rgba(4,5,9,.85);color:#b58add;font-size:6px}.binder-pocket.empty-pocket{display:grid;place-items:center;align-content:center;color:#3f3d48}.binder-pocket.empty-pocket b{font-size:23px}.binder-pocket.empty-pocket small{font-size:7px}.binder-set-loading{height:420px;display:grid;place-items:center;align-content:center;gap:10px;color:#817c8d;font-size:9px}.binder-set-loading svg,.binder-detail-loading svg,.binder-add-button svg{width:15px}.binder-detail-loading{min-height:130px;display:flex;gap:8px;align-items:center;color:#827e8e;font-size:9px}.missing-preview img{opacity:.62}.binder-variant{display:grid;gap:6px;margin:19px 0}.binder-variant span{font-size:8px;color:#777484}.binder-variant select{height:39px;padding:0 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:#151622;color:#fff}.binder-add-button{width:100%;height:42px;display:flex;justify-content:center;align-items:center;gap:7px;border:1px solid rgba(164,94,234,.35);border-radius:9px;background:#7130d7;color:#fff;font-size:10px}.binder-add-button:disabled{opacity:.5}
+
+/* Focused admin navigation and binder viewport corrections. */
+.admin-navigation{display:grid;gap:5px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)}
+.admin-navigation>small{padding:0 13px 3px;color:#9f63ec;font-size:7px;letter-spacing:.16em}
+.admin-navigation a{color:#b58bdd!important}
+.desktop-content{min-height:100dvh;overflow:visible}
+.binder-view{min-height:calc(100dvh - 72px);padding-bottom:80px}
+.interactive-binder.is-open{align-content:start;overflow:visible}
+.page-controls{position:relative;z-index:5;width:100%;justify-content:center;flex-wrap:wrap}
+
+@media(max-width:1100px){.admin-navigation>small{display:none}.desktop-sidebar .admin-navigation a{justify-content:center;padding:0;font-size:0}}
+@media(max-width:760px){.desktop-sidebar .admin-navigation{display:contents}.desktop-sidebar .admin-navigation a{display:flex}.binder-view{padding-bottom:120px}.page-controls{padding:0 6px 10px}}

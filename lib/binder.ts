@@ -17,3 +17,8 @@ export function buildBinderSlots(cards: TcgCardSummary[], entries: CollectionEnt
   }
   return slots;
 }
+
+export function paginateBinderSlots(slots: BinderSlot[], pageSize = 8): BinderSlot[][] {
+  if (!Number.isInteger(pageSize) || pageSize < 1) throw new Error('Ungültige Binderseitengröße.');
+  return Array.from({ length: Math.ceil(slots.length / pageSize) }, (_, index) => slots.slice(index * pageSize, (index + 1) * pageSize));
+}
