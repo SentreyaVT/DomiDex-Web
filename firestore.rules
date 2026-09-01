@@ -1,0 +1,181 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function own(uid) { return signedIn() && request.auth.uid == uid; }
+    function admin() { return signedIn() && request.auth.token.admin == true; }
+    function nullableString(value, maximum) {
+      return value == null || (value is string && value.size() <= maximum);
+    }
+    function nullableInt(value) { return value == null || value is int; }
+    function validScanEvidence(uid, fingerprint) {
+      let data = request.resource.data;
+      return own(uid)
+        && fingerprint.matches('[a-f0-9]{64}')
+        && data.keys().hasOnly([
+          'fingerprint', 'confirmedCardId', 'sourceSetId', 'cardNumber', 'setCode',
+          'ocrTokens', 'visualFingerprint', 'candidateIds', 'originalConfidence',
+          'corrected', 'scannerVersion', 'knowledgeVersion', 'observedAtClient', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'fingerprint', 'confirmedCardId', 'cardNumber', 'ocrTokens', 'candidateIds',
+          'originalConfidence', 'corrected', 'scannerVersion', 'knowledgeVersion',
+          'observedAtClient', 'updatedAt'
+        ])
+        && data.fingerprint == fingerprint
+        && data.confirmedCardId is string && data.confirmedCardId.size() > 0 && data.confirmedCardId.size() <= 400
+        && nullableString(data.sourceSetId, 120)
+        && data.cardNumber is string && data.cardNumber.size() > 0 && data.cardNumber.size() <= 24
+        && nullableString(data.setCode, 20)
+        && data.ocrTokens is list && data.ocrTokens.size() <= 24
+        && nullableString(data.visualFingerprint, 64)
+        && data.candidateIds is list && data.candidateIds.size() <= 8
+        && data.originalConfidence is int && data.originalConfidence >= 0 && data.originalConfidence <= 100
+        && data.corrected is bool
+        && data.scannerVersion is string && data.scannerVersion.size() > 0 && data.scannerVersion.size() <= 40
+        && data.knowledgeVersion == 1
+        && data.observedAtClient is int && data.observedAtClient > 0
+        && data.updatedAt == request.time;
+    }
+    function validCollectionEntry(uid, entryId) {
+      let data = request.resource.data;
+      return own(uid)
+        && data.keys().hasOnly([
+          'syncId', 'ownerUid', 'revision', 'lastMutationId', 'updatedAt',
+          'updatedAtClient', 'deleted', 'deletedAtClient', 'name', 'setId',
+          'setName', 'collectorNumber', 'language', 'finish', 'variant', 'rarity',
+          'quantity', 'condition', 'notes', 'acquisitionPriceMinor',
+          'acquisitionCurrency', 'acquisitionDateEpochDay', 'externalProductSource',
+          'externalProductId', 'imageUrl', 'effectOverride', 'binderId',
+          'sourceSetId', 'sourceCardId', 'binderSetKey', 'binderName', 'binderHeroAsset'
+        ])
+        && data.keys().hasAll([
+          'syncId', 'ownerUid', 'revision', 'lastMutationId', 'updatedAt',
+          'updatedAtClient', 'deleted', 'name', 'setId', 'setName', 'quantity',
+          'binderId', 'binderSetKey', 'binderName'
+        ])
+        && data.syncId == entryId
+        && data.syncId is string && data.syncId.matches('[A-Za-z0-9._-]{1,128}')
+        && data.ownerUid == uid
+        && data.revision is int && data.revision > 0
+        && data.lastMutationId is string && data.lastMutationId.matches('[A-Za-z0-9._-]{1,128}')
+        && data.updatedAt == request.time
+        && data.updatedAtClient is int && data.updatedAtClient > 0
+        && data.deleted is bool
+        && nullableInt(data.deletedAtClient)
+        && (!data.deleted || data.deletedAtClient is int)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.setId is string && data.setId.size() <= 120
+        && data.setName is string && data.setName.size() > 0 && data.setName.size() <= 200
+        && nullableString(data.collectorNumber, 80)
+        && nullableString(data.language, 30)
+        && nullableString(data.finish, 80)
+        && nullableString(data.variant, 80)
+        && nullableString(data.rarity, 80)
+        && data.quantity is int && data.quantity > 0 && data.quantity <= 10000
+        && nullableString(data.condition, 120)
+        && nullableString(data.notes, 4000)
+        && nullableInt(data.acquisitionPriceMinor)
+        && nullableString(data.acquisitionCurrency, 8)
+        && nullableInt(data.acquisitionDateEpochDay)
+        && nullableString(data.externalProductSource, 80)
+        && nullableInt(data.externalProductId)
+        && nullableString(data.imageUrl, 2000)
+        && nullableString(data.effectOverride, 80)
+        && nullableString(data.sourceSetId, 120)
+        && nullableString(data.sourceCardId, 120)
+        && ((data.sourceSetId == null && data.sourceCardId == null)
+          || (data.sourceSetId is string && data.sourceCardId is string
+            && data.sourceSetId.matches('[a-z0-9._-]{1,120}')
+            && data.sourceCardId.matches('[a-z0-9._-]{1,120}')))
+        && data.binderId is string && data.binderId.size() > 0 && data.binderId.size() <= 160
+        && data.binderSetKey is string && data.binderSetKey.size() > 0 && data.binderSetKey.size() <= 160
+        && data.binderName is string && data.binderName.size() > 0 && data.binderName.size() <= 200
+        && nullableString(data.binderHeroAsset, 2000);
+    }
+
+    match /users/{uid}/collectionEntries/{entryId} {
+      allow read: if own(uid);
+      allow create: if validCollectionEntry(uid, entryId)
+        && request.resource.data.revision == 1;
+      allow update: if validCollectionEntry(uid, entryId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.syncId == resource.data.syncId
+        && request.resource.data.revision == resource.data.revision + 1
+        && (!resource.data.deleted || request.resource.data.deleted);
+      // Deletes are replicated as tombstones so an offline device cannot resurrect a card.
+      allow delete: if false;
+    }
+
+    // One idempotent vote per authenticated user and deterministic scan fingerprint.
+    // Only the trusted backend aggregates these private observations.
+    match /users/{uid}/scanEvidence/{fingerprint} {
+      allow create, update: if validScanEvidence(uid, fingerprint)
+        && (resource == null || request.resource.data.fingerprint == resource.data.fingerprint);
+      allow get: if own(uid);
+      allow list, delete: if false;
+    }
+
+    // Shared, identity-free aggregate. Android clients can read one relevant document only;
+    // writes and STABLE transitions are exclusively performed through the Admin SDK.
+    match /scanKnowledge/{fingerprint} {
+      allow get: if signedIn() && fingerprint.matches('[a-f0-9]{64}');
+      allow list, create, update, delete: if false;
+    }
+
+    match /communitySubmissions/{submissionId} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['submitterUid', 'status', 'createdAt', 'appVersion', 'imagePath', 'cardHint'])
+        && request.resource.data.submitterUid == request.auth.uid
+        && request.resource.data.status == 'PENDING_UPLOAD'
+        && request.resource.data.imagePath == 'community-submissions/' + request.auth.uid + '/' + submissionId + '/front.jpg'
+        && request.resource.data.appVersion is string && request.resource.data.cardHint is string;
+      allow update: if own(resource.data.submitterUid)
+        && resource.data.status in ['PENDING_UPLOAD', 'PENDING_REVIEW']
+        && request.resource.data.status == 'WITHDRAW_REQUESTED'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      allow get: if own(resource.data.submitterUid);
+      allow list, delete: if false;
+    }
+
+    match /supportRequests/{requestId} {
+      // Metadata only: never camera/screen streams, raw logs, or diagnostics.
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['requesterUid', 'status', 'createdAt', 'appVersion'])
+        && request.resource.data.requesterUid == request.auth.uid
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.appVersion is string;
+      allow get: if own(resource.data.requesterUid);
+      allow list, update, delete: if false;
+    }
+
+    // Public product copy contains no user data or secrets. Only an authenticated
+    // Firebase administrator may change it; private collections are never exposed here.
+    match /siteContent/{documentId} {
+      allow read: if documentId == 'public';
+      allow create, update: if documentId == 'public' && admin()
+        && request.resource.data.keys().hasOnly([
+          'heroTitle', 'heroSubtitle', 'statusBanner', 'currentVersion', 'currentBuild',
+          'releaseStatus', 'discordUrl', 'discordText', 'githubUrl', 'kickstarterUrl',
+          'kickstarterCta', 'updates', 'roadmap'
+        ])
+        && request.resource.data.heroTitle is string && request.resource.data.heroTitle.size() <= 240
+        && request.resource.data.heroSubtitle is string && request.resource.data.heroSubtitle.size() <= 1000
+        && request.resource.data.statusBanner is string && request.resource.data.statusBanner.size() <= 400
+        && request.resource.data.currentVersion is string && request.resource.data.currentVersion.size() <= 40
+        && request.resource.data.currentBuild is string && request.resource.data.currentBuild.size() <= 40
+        && request.resource.data.releaseStatus is string && request.resource.data.releaseStatus.size() <= 40
+        && request.resource.data.discordUrl is string && request.resource.data.discordUrl.size() <= 2000
+        && request.resource.data.discordText is string && request.resource.data.discordText.size() <= 1000
+        && request.resource.data.githubUrl is string && request.resource.data.githubUrl.size() <= 2000
+        && request.resource.data.kickstarterUrl is string && request.resource.data.kickstarterUrl.size() <= 2000
+        && request.resource.data.kickstarterCta is string && request.resource.data.kickstarterCta.size() <= 100
+        && request.resource.data.updates is list && request.resource.data.updates.size() <= 50
+        && request.resource.data.roadmap is list && request.resource.data.roadmap.size() <= 80;
+      allow delete: if false;
+    }
+
+    // Default deny. Admin SDK is the only moderation/publication/claim-management path.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
