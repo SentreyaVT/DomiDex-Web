@@ -1,12 +1,15 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
-import { loadScannerIndex } from '@/lib/server/scanner-references';
+import { loadLocalScannerBridge, loadScannerIndex } from '@/lib/server/scanner-references';
 
 export async function GET(request: Request) {
   try {
     await requireAdminToken(request.headers.get('authorization'));
+    const requestUrl = new URL(request.url);
+    const bridge = await loadLocalScannerBridge(`scanner-references${requestUrl.search}`);
+    if (bridge?.ok) return new Response(bridge.body, { status: bridge.status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
     const index = await loadScannerIndex();
     if (!index) return Response.json({ connected: false, cards: [], total: 0, stats: null, message: 'Lokales Referenzarchiv ist auf diesem Server nicht verbunden.' });
-    const url = new URL(request.url); const query = (url.searchParams.get('q') ?? '').trim().toLocaleLowerCase('de');
+    const url = requestUrl; const query = (url.searchParams.get('q') ?? '').trim().toLocaleLowerCase('de');
     const setId = (url.searchParams.get('setId') ?? '').trim().toLowerCase();
     const layout = (url.searchParams.get('layoutFamily') ?? '').trim().toLowerCase();
     const category = (url.searchParams.get('category') ?? '').trim().toLowerCase();

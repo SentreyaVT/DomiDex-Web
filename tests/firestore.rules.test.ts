@@ -64,6 +64,16 @@ describe('DomiDex Web Firestore rules', () => {
     await assertSucceeds(getDoc(doc(user, 'scannerReleaseManifest/production')));
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'scannerReleaseManifest/production')));
   });
+
+  it('keeps technical scan reports private to administrators', async () => {
+    const admin = environment.authenticatedContext('admin', { admin: true }).firestore();
+    const user = environment.authenticatedContext('user').firestore();
+    const report = doc(admin, 'scannerReports/scan-1');
+    await assertSucceeds(setDoc(report, { scanId: 'scan-1', reviewStatus: 'NEW' }));
+    await assertSucceeds(getDoc(report));
+    await assertFails(getDoc(doc(user, 'scannerReports/scan-1')));
+    await assertFails(setDoc(doc(user, 'scannerReports/scan-2'), { scanId: 'scan-2', reviewStatus: 'NEW' }));
+  });
 });
 
 function siteContent() { return { heroTitle:'Deine Sammlung.',heroSubtitle:'Sicher synchronisiert.',statusBanner:'Pre-Beta',currentVersion:'1.0-pre-beta',currentBuild:'17',releaseStatus:'Pre-Beta',discordUrl:'',discordText:'Community',githubUrl:'https://github.com/nandedomi/DomiDex',kickstarterUrl:'',kickstarterCta:'Coming Soon',updates:[],roadmap:[] }; }

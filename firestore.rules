@@ -212,6 +212,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Raw scan reports are technical diagnostics. They are written by trusted
+    // backend code and reviewed only by explicitly claimed administrators.
+    match /scannerReports/{reportId} {
+      allow read, create, update: if admin();
+      allow delete: if false;
+    }
+
     match /scannerLayouts/{layoutId} {
       allow read, create, update: if admin();
       allow delete: if false;

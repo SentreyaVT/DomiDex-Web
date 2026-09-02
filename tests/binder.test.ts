@@ -24,6 +24,14 @@ describe('master-set binder mapping', () => {
     expect(slots[1].owned).toEqual([entry]);
   });
 
+  it('maps a known Android variant suffix to the canonical master-set slot', () => {
+    const cards = [{ id: 'me04-089', localId: '089', name: 'Testkarte' }];
+    const entry = { sourceCardId: 'me04-089-reverse-holo', collectorNumber: '089', name: 'Testkarte' } as CollectionEntry;
+    const slots = buildBinderSlots(cards, [entry]);
+    expect(slots).toHaveLength(1);
+    expect(slots[0].owned).toEqual([entry]);
+  });
+
   it('keeps every master-set card reachable across binder pages', () => {
     const cards = Array.from({ length: 207 }, (_, index) => ({ id: `sv03.5-${index + 1}`, localId: String(index + 1), name: `Karte ${index + 1}` }));
     const slots = buildBinderSlots(cards, []);

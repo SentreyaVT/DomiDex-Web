@@ -33,3 +33,12 @@ export async function loadReferenceImage(file: string) {
     return await fs.readFile(target);
   } catch { return null; }
 }
+
+export async function loadLocalScannerBridge(pathname: string) {
+  const base = process.env.DOMIDEX_LOCAL_SCANNER_BRIDGE_URL?.trim();
+  const secret = process.env.DOMIDEX_LOCAL_SCANNER_BRIDGE_SECRET?.trim();
+  if (!base || !secret) return null;
+  try {
+    return await fetch(new URL(pathname, base), { headers: { 'X-DomiDex-Local-Secret': secret } });
+  } catch { return null; }
+}

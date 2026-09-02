@@ -141,3 +141,7 @@ export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): numbe
   const value = holo ? pricing['trend-holo'] : pricing.trend;
   return typeof value === 'number' && value > 0 ? value : null;
 }
+
+export function canonicalTcgCardId(value: string) {
+  return value.trim().replace(/-(?:reverse-holo|reverse|holo|normal)$/i, '');
+}
