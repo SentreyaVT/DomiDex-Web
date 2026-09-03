@@ -4,6 +4,8 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
     function admin() { return signedIn() && request.auth.token.get('admin', false) == true; }
+    function appUser() { return signedIn() && (request.auth.token.get('appAccess', false) == true || request.auth.token.get('admin', false) == true); }
+    function ownApp(uid) { return own(uid) && appUser(); }
     function pretester() { return signedIn() && (request.auth.token.get('pretester', false) == true || request.auth.token.get('admin', false) == true); }
     function nullableString(value, maximum) {
       return value == null || (value is string && value.size() <= maximum);
@@ -19,7 +21,7 @@ service cloud.firestore {
           'imageSha256', 'imageContentType', 'imageSizeBytes', 'attempts', 'ocrTokens',
           'guessedName', 'guessedSet', 'guessedNumber', 'confidence', 'zoneConfidence',
           'profileId', 'profileVersion', 'failureReason', 'reviewStatus', 'referenceCardId',
-          'referenceCardKey', 'reviewNote', 'reviewedAt', 'reviewedBy'
+          'referenceCardKey', 'reviewNote', 'reviewedAt'
         ])
         && data.keys().hasAll([
           'schemaVersion', 'scanId', 'createdAt', 'captureType', 'captureImagePath',
@@ -52,7 +54,7 @@ service cloud.firestore {
     }
     function validScanEvidence(uid, fingerprint) {
       let data = request.resource.data;
-      return own(uid)
+      return ownApp(uid)
         && fingerprint.matches('[a-f0-9]{64}')
         && data.keys().hasOnly([
           'fingerprint', 'confirmedCardId', 'sourceSetId', 'cardNumber', 'setCode',
@@ -81,7 +83,7 @@ service cloud.firestore {
     }
     function validCollectionEntry(uid, entryId) {
       let data = request.resource.data;
-      return own(uid)
+      return ownApp(uid)
         && data.keys().hasOnly([
           'syncId', 'ownerUid', 'revision', 'lastMutationId', 'updatedAt',
           'updatedAtClient', 'deleted', 'deletedAtClient', 'name', 'setId',
@@ -137,7 +139,7 @@ service cloud.firestore {
     }
 
     match /users/{uid}/collectionEntries/{entryId} {
-      allow read: if own(uid);
+      allow read: if ownApp(uid);
       allow create: if validCollectionEntry(uid, entryId)
         && request.resource.data.revision == 1;
       allow update: if validCollectionEntry(uid, entryId)
@@ -154,7 +156,7 @@ service cloud.firestore {
     match /users/{uid}/scanEvidence/{fingerprint} {
       allow create, update: if validScanEvidence(uid, fingerprint)
         && (resource == null || request.resource.data.fingerprint == resource.data.fingerprint);
-      allow get: if own(uid);
+      allow get: if ownApp(uid);
       allow list, delete: if false;
     }
 
@@ -166,28 +168,28 @@ service cloud.firestore {
     }
 
     match /communitySubmissions/{submissionId} {
-      allow create: if signedIn()
+      allow create: if appUser()
         && request.resource.data.keys().hasOnly(['submitterUid', 'status', 'createdAt', 'appVersion', 'imagePath', 'cardHint'])
         && request.resource.data.submitterUid == request.auth.uid
         && request.resource.data.status == 'PENDING_UPLOAD'
         && request.resource.data.imagePath == 'community-submissions/' + request.auth.uid + '/' + submissionId + '/front.jpg'
         && request.resource.data.appVersion is string && request.resource.data.cardHint is string;
-      allow update: if own(resource.data.submitterUid)
+      allow update: if ownApp(resource.data.submitterUid)
         && resource.data.status in ['PENDING_UPLOAD', 'PENDING_REVIEW']
         && request.resource.data.status == 'WITHDRAW_REQUESTED'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
-      allow get: if own(resource.data.submitterUid);
+      allow get: if ownApp(resource.data.submitterUid);
       allow list, delete: if false;
     }
 
     match /supportRequests/{requestId} {
       // Metadata only: never camera/screen streams, raw logs, or diagnostics.
-      allow create: if signedIn()
+      allow create: if appUser()
         && request.resource.data.keys().hasOnly(['requesterUid', 'status', 'createdAt', 'appVersion'])
         && request.resource.data.requesterUid == request.auth.uid
         && request.resource.data.status == 'PENDING'
         && request.resource.data.appVersion is string;
-      allow get: if own(resource.data.requesterUid);
+      allow get: if ownApp(resource.data.requesterUid);
       allow list, update, delete: if false;
     }
 
@@ -198,7 +200,7 @@ service cloud.firestore {
       allow create, update: if documentId == 'public' && admin()
         && request.resource.data.keys().hasOnly([
           'heroTitle', 'heroSubtitle', 'statusBanner', 'currentVersion', 'currentBuild',
-          'releaseStatus', 'discordUrl', 'discordText', 'githubUrl', 'kickstarterUrl',
+          'releaseStatus', 'discordUrl', 'discordText', 'kickstarterUrl',
           'kickstarterCta', 'updates', 'roadmap'
         ])
         && request.resource.data.heroTitle is string && request.resource.data.heroTitle.size() <= 240
@@ -209,7 +211,6 @@ service cloud.firestore {
         && request.resource.data.releaseStatus is string && request.resource.data.releaseStatus.size() <= 40
         && request.resource.data.discordUrl is string && request.resource.data.discordUrl.size() <= 2000
         && request.resource.data.discordText is string && request.resource.data.discordText.size() <= 1000
-        && request.resource.data.githubUrl is string && request.resource.data.githubUrl.size() <= 2000
         && request.resource.data.kickstarterUrl is string && request.resource.data.kickstarterUrl.size() <= 2000
         && request.resource.data.kickstarterCta is string && request.resource.data.kickstarterCta.size() <= 100
         && request.resource.data.updates is list && request.resource.data.updates.size() <= 50

@@ -1,43 +1,77 @@
 import { describe, expect, it } from 'vitest';
 import { buildBinderSlots, paginateBinderSlots } from '@/lib/binder';
-import type { CollectionEntry } from '@/lib/domain';
+import type { CollectionEntry, TcgCardSummary } from '@/lib/domain';
 
-describe('master-set binder mapping', () => {
-  it('keeps every set position and maps ownership by exact source identity', () => {
-    const cards = [
-      { id: 'sv03.5-001', localId: '001', name: 'Bisasam' },
-      { id: 'sv03.5-002', localId: '002', name: 'Bisaknosp' },
-    ];
-    const entry = { sourceCardId: 'sv03.5-001', collectorNumber: '001', name: 'Bisasam' } as CollectionEntry;
-    const slots = buildBinderSlots(cards, [entry]);
+const threePrints = ['normal', 'holofoil', 'reverseholofoil'];
+
+function card(overrides: Partial<TcgCardSummary> = {}): TcgCardSummary {
+  return {
+    id: 'sv-test-025',
+    localId: '025',
+    name: 'Pikachu',
+    rarity: 'Common',
+    printVariants: threePrints,
+    ...overrides,
+  };
+}
+
+function entry(finish: string, overrides: Partial<CollectionEntry> = {}): CollectionEntry {
+  return {
+    sourceCardId: 'sv-test-025',
+    collectorNumber: '025',
+    name: 'Pikachu',
+    finish,
+    variant: finish === 'Normal' ? 'Standard' : finish,
+    ...overrides,
+  } as CollectionEntry;
+}
+
+describe('master-set binder print-slot policy', () => {
+  it('keeps at most Normal and Reverse for an ordinary main-set card', () => {
+    const slots = buildBinderSlots([card()], [], 100);
+
     expect(slots).toHaveLength(2);
-    expect(slots[0].owned).toEqual([entry]);
-    expect(slots[1].owned).toEqual([]);
-    expect(slots[1].card.localId).toBe('002');
+    expect(slots.map((slot) => slot.finish)).toEqual(['Normal', 'Reverse Holo']);
   });
 
-  it('does not match cards by name alone', () => {
-    const cards = [{ id: 'set-a-001', localId: '001', name: 'Pikachu' }];
-    const entry = { sourceCardId: 'set-b-001', collectorNumber: '001', name: 'Pikachu' } as CollectionEntry;
-    const slots = buildBinderSlots(cards, [entry]);
-    expect(slots[0].owned).toEqual([]);
-    expect(slots[1].owned).toEqual([entry]);
-  });
+  it('keeps an EX card singular even when several printings are declared', () => {
+    const slots = buildBinderSlots([card({ name: 'Glurak ex', localId: '006', id: 'sv-test-006' })], [], 100);
 
-  it('maps a known Android variant suffix to the canonical master-set slot', () => {
-    const cards = [{ id: 'me04-089', localId: '089', name: 'Testkarte' }];
-    const entry = { sourceCardId: 'me04-089-reverse-holo', collectorNumber: '089', name: 'Testkarte' } as CollectionEntry;
-    const slots = buildBinderSlots(cards, [entry]);
     expect(slots).toHaveLength(1);
-    expect(slots[0].owned).toEqual([entry]);
+    expect(slots[0].finish).toBe('Normal');
   });
 
-  it('keeps every master-set card reachable across binder pages', () => {
-    const cards = Array.from({ length: 207 }, (_, index) => ({ id: `sv03.5-${index + 1}`, localId: String(index + 1), name: `Karte ${index + 1}` }));
-    const slots = buildBinderSlots(cards, []);
+  it.each([
+    ['ACE SPEC Rare', '070'],
+    ['Illustration Rare', '117'],
+  ])('keeps the special printing %s singular', (rarity, localId) => {
+    const slots = buildBinderSlots([card({ id: `sv-test-${localId}`, localId, name: 'Sonderkarte', rarity })], [], 120);
+
+    expect(slots).toHaveLength(1);
+  });
+
+  it('maps ownership only to the exact finish slot', () => {
+    const normal = entry('Normal');
+    const reverse = entry('Reverse Holo');
+    const slots = buildBinderSlots([card()], [normal, reverse], 100);
+
+    expect(slots[0].finish).toBe('Normal');
+    expect(slots[0].owned).toEqual([normal]);
+    expect(slots[1].finish).toBe('Reverse Holo');
+    expect(slots[1].owned).toEqual([reverse]);
+  });
+
+  it('paginates expanded print slots without losing their order', () => {
+    const cards = Array.from({ length: 10 }, (_, index) => card({
+      id: `sv-test-${String(index + 1).padStart(3, '0')}`,
+      localId: String(index + 1).padStart(3, '0'),
+      name: `Karte ${index + 1}`,
+    }));
+    const slots = buildBinderSlots(cards, [], 100);
     const pages = paginateBinderSlots(slots);
-    expect(pages).toHaveLength(26);
-    expect(pages.flat().map((slot) => slot.card.id)).toEqual(cards.map((card) => card.id));
-    expect(pages.at(-1)).toHaveLength(7);
+
+    expect(slots).toHaveLength(20);
+    expect(pages.map((page) => page.length)).toEqual([8, 8, 4]);
+    expect(pages.flat().map((slot) => slot.slotId)).toEqual(slots.map((slot) => slot.slotId));
   });
 });

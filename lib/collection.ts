@@ -10,9 +10,10 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import type { CollectionEntry, TcgCardDetail, TcgVariant } from './domain';
-import { canonicalTcgCardId, collectionVariantLabel, exactTrendPrice } from './domain';
+import { canonicalTcgCardId, collectionVariantLabel, exactTrendPrice, variantForCollectionEntry } from './domain';
 import { firestore } from './firebase-client';
 import { imageUrl } from './tcgdex';
+import { deterministicSourceSyncId } from './sync-id';
 
 const SOURCE = 'CARDMARKET_PUBLIC_DOWNLOAD';
 
@@ -38,11 +39,8 @@ export async function addExactCard(
   const finish = normalizeFinish(selectedVariant.type);
   const variant = collectionVariantLabel(selectedVariant);
   const productId = selectedVariant.pricing?.cardmarket?.idProduct ?? card.pricing?.cardmarket?.idProduct ?? null;
-  const exact = current.find((entry) =>
-    entry.sourceSetId === card.set.id && entry.sourceCardId !== null
-    && canonicalTcgCardId(entry.sourceCardId) === canonicalTcgCardId(card.id)
-    && entry.finish === finish && entry.variant === variant && entry.condition === 'Near Mint');
-  const syncId = exact?.syncId ?? await deterministicWebSyncId(user.uid, card.set.id, card.id, finish, variant);
+  const exact = current.find((entry) => samePrinting(card, selectedVariant, entry, finish, variant));
+  const syncId = exact?.syncId ?? deterministicSourceSyncId(user.uid, card.set.id, canonicalTcgCardId(card.id), 'Near Mint', finish, variant);
   const reference = doc(firestore, 'users', user.uid, 'collectionEntries', syncId);
 
   await runTransaction(firestore, async (transaction) => {
@@ -149,11 +147,18 @@ function normalizeFinish(value: string) {
   return 'Normal';
 }
 
+function samePrinting(card: TcgCardDetail, selected: TcgVariant, entry: CollectionEntry, finish: string, variant: string) {
+  if (entry.sourceSetId?.toLowerCase() !== card.set.id.toLowerCase() || !entry.sourceCardId) return false;
+  if (canonicalTcgCardId(entry.sourceCardId).toLowerCase() !== canonicalTcgCardId(card.id).toLowerCase()) return false;
+  if (normalizeFinish(entry.finish) !== finish || entry.condition !== 'Near Mint') return false;
+  const matched = variantForCollectionEntry(card, entry);
+  if (matched?.variantId && selected.variantId) return matched.variantId === selected.variantId;
+  const selectedProduct = selected.pricing?.cardmarket?.idProduct ?? card.pricing?.cardmarket?.idProduct ?? null;
+  if (selectedProduct !== null && entry.externalProductId !== null && selectedProduct !== entry.externalProductId) return false;
+  return normalizeVariant(entry.variant) === normalizeVariant(variant);
+}
+
+function normalizeVariant(value: string) { return value.toLocaleLowerCase('de').replace(/[^a-z0-9]+/g, ' ').trim(); }
+
 function stringOrNull(value: unknown) { return typeof value === 'string' ? value : null; }
 function numberOrNull(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
-
-async function deterministicWebSyncId(...parts: string[]) {
-  const bytes = new TextEncoder().encode(parts.map((part) => part.trim().toLowerCase()).join('|'));
-  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
-}

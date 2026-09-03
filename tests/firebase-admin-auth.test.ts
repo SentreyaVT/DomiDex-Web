@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundedPageSize, withPretesterClaim } from '@/lib/server/firebase-admin-auth';
+import { boundedPageSize, withAppAccessClaim, withPretesterClaim } from '@/lib/server/firebase-admin-auth';
 
 describe('Firebase pretester claim management', () => {
   it('preserves unrelated and admin claims when granting pretester', () => {
@@ -8,6 +8,11 @@ describe('Firebase pretester claim management', () => {
 
   it('removes only pretester and preserves all other claims', () => {
     expect(withPretesterClaim({ admin: true, pretester: true, feature: 7 }, false)).toEqual({ admin: true, feature: 7 });
+  });
+
+  it('changes only appAccess and preserves admin/pretester claims', () => {
+    expect(withAppAccessClaim({ admin: true, pretester: true, feature: 7 }, true)).toEqual({ admin: true, pretester: true, feature: 7, appAccess: true });
+    expect(withAppAccessClaim({ admin: true, pretester: true, appAccess: true }, false)).toEqual({ admin: true, pretester: true });
   });
 
   it('bounds Auth list pages', () => {

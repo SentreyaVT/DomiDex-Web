@@ -10,7 +10,8 @@ export async function GET() {
     if (!response.ok) throw new Error('FIRESTORE_UNAVAILABLE');
     const document = await response.json() as { fields?: Record<string, FirestoreValue> };
     const decoded = fromFields(document.fields ?? {}) as Partial<typeof defaultSiteContent>;
-    return Response.json({ ...defaultSiteContent, ...decoded }, { headers: cacheHeaders });
+    const allowed = Object.fromEntries(Object.keys(defaultSiteContent).flatMap((key) => key in decoded ? [[key, decoded[key as keyof typeof decoded]]] : []));
+    return Response.json({ ...defaultSiteContent, ...allowed }, { headers: cacheHeaders });
   } catch {
     return Response.json(defaultSiteContent, { headers: { 'Cache-Control': 'no-store' } });
   }

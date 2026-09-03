@@ -51,7 +51,14 @@ export interface TcgVariant {
   pricing?: { cardmarket?: CardmarketPricing | null };
 }
 
-export interface TcgCardSummary { id: string; localId: string; name: string; image?: string; }
+export interface TcgCardSummary {
+  id: string;
+  localId: string;
+  name: string;
+  image?: string;
+  rarity?: string;
+  printVariants?: string[];
+}
 
 export interface TcgSetDetail {
   id: string;
@@ -101,7 +108,6 @@ export interface SiteContent {
   releaseStatus: string;
   discordUrl: string;
   discordText: string;
-  githubUrl: string;
   kickstarterUrl: string;
   kickstarterCta: string;
   updates: SiteUpdate[];
@@ -109,15 +115,14 @@ export interface SiteContent {
 }
 
 export const defaultSiteContent: SiteContent = {
-  heroTitle: 'Deine Sammlung. Deine Karten. Überall.',
-  heroSubtitle: 'Android-Kartenscanner, deutsche Marktpreisorientierung, Binder, Portfolio und eine gemeinsame Cloud-Sammlung für Mobilgerät und Desktop.',
+  heroTitle: 'Deine Karten. Deine Sammlung. Dein Binder.',
+  heroSubtitle: 'Pokémon-TCG-Karten erfassen, Druckvarianten im digitalen Binder verwalten und deine private Sammlung zwischen Android und Web synchron halten.',
   statusBanner: 'DomiDex 1.0-pre-beta ist für private Tests verfügbar.',
   currentVersion: '1.0-pre-beta',
   currentBuild: '17',
   releaseStatus: 'Pre-Beta',
   discordUrl: process.env.NEXT_PUBLIC_DISCORD_URL ?? '',
   discordText: 'Tausche dich mit anderen Sammlern aus und begleite die Entwicklung.',
-  githubUrl: process.env.NEXT_PUBLIC_GITHUB_URL ?? 'https://github.com/nandedomi',
   kickstarterUrl: process.env.NEXT_PUBLIC_KICKSTARTER_URL ?? '',
   kickstarterCta: 'Kickstarter – Coming Soon',
   updates: [{
@@ -135,19 +140,26 @@ export const defaultSiteContent: SiteContent = {
 };
 
 export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): number | null {
-  const pricing = variant.pricing?.cardmarket ?? card.pricing?.cardmarket;
+  const ownPricing = variant.pricing?.cardmarket;
+  const pricing = ownPricing ?? (card.variants_detailed && card.variants_detailed.length > 1 ? null : card.pricing?.cardmarket);
   if (!pricing) return null;
   const holo = /holo|reverse/i.test(variant.type);
-  const value = holo ? pricing['trend-holo'] : pricing.trend;
-  return typeof value === 'number' && value > 0 ? value : null;
+  const preferred = holo ? pricing['trend-holo'] : pricing.trend;
+  const fallback = holo ? pricing.trend : null;
+  if (typeof preferred === 'number' && preferred > 0) return preferred;
+  return typeof fallback === 'number' && fallback > 0 ? fallback : null;
 }
 
 export function canonicalTcgCardId(value: string) {
-  return value.trim().replace(/-(?:reverse-?holofoil|reverse-holo|reverse|holofoil|holo|normal)$/i, '');
+  return value.trim().replace(/-(?:1steditionholofoil|unlimitedholofoil|reverse-?holofoil|reverse-holo|1stedition|unlimited|holofoil|reverse|holo|normal)$/i, '');
 }
 
 export function collectionVariantLabel(variant: TcgVariant) {
-  return [variant.size ?? 'Standard', variant.foil, ...(variant.stamp ?? [])].filter(Boolean).join(' · ');
+  return variant.size?.trim() || (/reverse/i.test(variant.type) ? 'Reverse Holo' : /holo/i.test(variant.type) ? 'Holo' : 'Standard');
+}
+
+export function collectionPriceIdentity(entry: CollectionEntry) {
+  return [canonicalTcgCardId(entry.sourceCardId ?? ''), entry.externalProductId ?? '', normalizedFinish(entry.finish), normalizedVariant(entry.variant)].join('|');
 }
 
 export function variantForCollectionEntry(card: TcgCardDetail, entry: CollectionEntry) {

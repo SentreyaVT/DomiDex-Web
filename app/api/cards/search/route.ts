@@ -17,5 +17,15 @@ export async function GET(request: Request) {
     name: card.name,
     image: card.image,
   }] : []);
+  const missing = safe.filter((card) => !card.image).slice(0, 16);
+  await Promise.all(missing.map(async (card) => {
+      if (card.image) return;
+      try {
+        const fallback = await fetch(`https://api.tcgdex.net/v2/en/cards/${encodeURIComponent(card.id)}`, {
+          headers: { Accept: 'application/json', 'User-Agent': 'DomiDex-Web/1.0-pre-beta' }, signal: AbortSignal.timeout(4_000),
+        });
+        if (fallback.ok) card.image = ((await fallback.json()) as { image?: string }).image;
+      } catch { /* Some historic or regional cards have no official source image. */ }
+  }));
   return Response.json(safe, { headers: { 'Cache-Control': 'public, max-age=60, s-maxage=600' } });
 }

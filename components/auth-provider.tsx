@@ -16,6 +16,7 @@ interface AuthState {
   loading: boolean;
   isAdmin: boolean;
   isPretester: boolean;
+  hasAppAccess: boolean;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
   refreshClaims: () => Promise<void>;
@@ -28,12 +29,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setAdmin] = useState(false);
   const [isPretester, setPretester] = useState(false);
+  const [hasAppAccess, setAppAccess] = useState(false);
 
   const readClaims = useCallback(async (next: User | null, force = false) => {
     setUser(next);
     const claims = next ? (await next.getIdTokenResult(force)).claims : {};
     setAdmin(claims.admin === true);
     setPretester(claims.pretester === true);
+    setAppAccess(claims.appAccess === true || claims.admin === true);
     setLoading(false);
   }, []);
 
@@ -47,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     isAdmin,
     isPretester,
+    hasAppAccess,
     signIn: async () => {
       try {
         await signInWithPopup(firebaseAuth, googleProvider);
@@ -61,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     logout: () => signOut(firebaseAuth),
     refreshClaims: async () => readClaims(firebaseAuth.currentUser, true),
-  }), [isAdmin, isPretester, loading, readClaims, user]);
+  }), [hasAppAccess, isAdmin, isPretester, loading, readClaims, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

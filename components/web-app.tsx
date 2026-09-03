@@ -1,15 +1,14 @@
 'use client';
 
 import {
-  BadgeEuro, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, CloudOff, FolderSearch,
-  LayoutDashboard, LibraryBig, LoaderCircle, LogOut, Minus, Plus, ScanLine, Search, Settings,
-  ShieldCheck, Sparkles, Trash2, UserRoundCog, X,
+  BadgeEuro, BookOpen, ChevronLeft, ChevronRight, CircleUserRound, CloudOff, Eye, FolderSearch,
+  ImageOff, LayoutDashboard, LibraryBig, LoaderCircle, LockKeyhole, LogIn, LogOut, Minus, Plus,
+  RefreshCw, ScanLine, Search, Settings, ShieldCheck, Sparkles, Trash2, UserRoundCog, X,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from './auth-provider';
 import { addExactCard, changeQuantity, subscribeCollection } from '@/lib/collection';
-import { canonicalTcgCardId, collectionVariantLabel, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail, type TcgCardSummary } from '@/lib/domain';
+import { canonicalTcgCardId, collectionPriceIdentity, collectionVariantLabel, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail, type TcgCardSummary } from '@/lib/domain';
 import { buildBinderSlots, paginateBinderSlots, type BinderSlot } from '@/lib/binder';
 import { imageUrl, loadCard, loadSet, searchCards } from '@/lib/tcgdex';
 import { adminNavigation } from '@/lib/admin-navigation';
@@ -22,28 +21,24 @@ const navigation: Array<[View, string, typeof LayoutDashboard]> = [
 ];
 
 export function WebApp() {
-  const { user, loading: authLoading, isAdmin, logout } = useAuth();
-  const router = useRouter();
+  const { user, loading: authLoading, isAdmin, hasAppAccess, logout, refreshClaims, signIn } = useAuth();
   const [view, setView] = useState<View>('overview');
   const [entries, setEntries] = useState<CollectionEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
   const [prices, setPrices] = useState<Record<string, number | null>>({});
+  const [priceIdentities, setPriceIdentities] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!authLoading && !user) router.replace('/login');
-  }, [authLoading, router, user]);
-
-  useEffect(() => {
-    if (!user) return;
+    if (!user || !hasAppAccess) { setEntries([]); setLoading(false); return; }
     setLoading(true);
     return subscribeCollection(user, (next) => { setEntries(next); setLoading(false); setOffline(false); }, () => { setLoading(false); setOffline(true); });
-  }, [user]);
+  }, [hasAppAccess, user]);
 
   useEffect(() => {
     let active = true;
-    const unresolved = entries.filter((entry) => entry.sourceCardId && !(entry.syncId in prices));
+    const unresolved = entries.filter((entry) => entry.sourceCardId && priceIdentities[entry.syncId] !== collectionPriceIdentity(entry));
     void (async () => {
       for (let index = 0; index < unresolved.length; index += 8) {
         const chunk = unresolved.slice(index, index + 8);
@@ -51,15 +46,18 @@ export function WebApp() {
           try {
             const card = await loadCard(canonicalTcgCardId(entry.sourceCardId!));
             const variant = variantForCollectionEntry(card, entry);
-            return [entry.syncId, variant ? exactTrendPrice(card, variant) : null] as const;
-          } catch { return [entry.syncId, null] as const; }
+            return [entry.syncId, collectionPriceIdentity(entry), variant ? exactTrendPrice(card, variant) : null] as const;
+          } catch { return null; }
         }));
         if (!active) return;
-        setPrices((current) => ({ ...current, ...Object.fromEntries(resolved) }));
+        const successful = resolved.filter((item): item is NonNullable<typeof item> => Boolean(item));
+        if (!successful.length) continue;
+        setPrices((current) => ({ ...current, ...Object.fromEntries(successful.map(([id,, value]) => [id, value])) }));
+        setPriceIdentities((current) => ({ ...current, ...Object.fromEntries(successful.map(([id, identity]) => [id, identity])) }));
       }
     })();
     return () => { active = false; };
-  }, [entries, prices]);
+  }, [entries, priceIdentities]);
 
   const portfolio = useMemo(() => entries.reduce((sum, entry) => {
     const price = prices[entry.syncId];
@@ -69,14 +67,16 @@ export function WebApp() {
   const totalCount = entries.reduce((sum, entry) => sum + entry.quantity, 0);
   const binders = useMemo(() => groupBinders(entries), [entries]);
 
-  if (authLoading || !user) return <AppLoading />;
+  if (authLoading) return <AppLoading />;
+  if (!user) return <AccessPreview mode="guest" onSignIn={() => void signIn().catch(() => setError('Die Google-Anmeldung konnte nicht abgeschlossen werden.'))} />;
+  if (!hasAppAccess) return <AccessPreview mode="connect" userName={user.displayName ?? user.email ?? 'DomiDex Nutzer'} onRefresh={() => void refreshClaims().catch(() => setError('Der Web-Zugang konnte nicht erneut geprüft werden.'))} onLogout={() => void logout()} />;
 
   return (
     <main className="desktop-app">
       <aside className="desktop-sidebar">
         <a className="brand" href="/"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span></span></a>
         <nav aria-label="Web-App Navigation">
-          {navigation.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} onClick={() => setView(key)} key={key}><Icon />{label}</button>)}
+          {navigation.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} title={label} onClick={() => setView(key)} key={key}><Icon /><span>{label}</span></button>)}
           {isAdmin && <div className="admin-navigation"><small>ADMIN</small>{adminNavigation(isAdmin).map((item) => { const Icon = item.kind === 'dashboard' ? ShieldCheck : item.kind === 'scanner' ? ScanLine : UserRoundCog; return <a href={item.href} key={item.href}><Icon />{item.label}</a>; })}</div>}
         </nav>
         <div className="sidebar-account"><CircleUserRound /><div><strong>{user.displayName ?? 'DomiDex Nutzer'}</strong><small>{user.email}</small></div></div>
@@ -102,6 +102,40 @@ export function WebApp() {
   );
 }
 
+function AccessPreview({ mode, userName, onSignIn, onRefresh, onLogout }: { mode: 'guest' | 'connect'; userName?: string; onSignIn?: () => void; onRefresh?: () => void; onLogout?: () => void }) {
+  const [view, setView] = useState<View>('overview');
+  const label = navigation.find(([key]) => key === view)?.[1] ?? 'Übersicht';
+  return <main className="desktop-app preview-app">
+    <aside className="desktop-sidebar">
+      <a className="brand" href="/"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span></span></a>
+      <nav aria-label="Web-App Vorschau">
+        {navigation.map(([key, itemLabel, Icon]) => <button className={view === key ? 'active' : ''} aria-current={view === key ? 'page' : undefined} title={itemLabel} onClick={() => setView(key)} key={key}><Icon /><span>{itemLabel}</span></button>)}
+      </nav>
+      <div className="sidebar-account"><CircleUserRound /><div><strong>{mode === 'guest' ? 'Gast-Vorschau' : userName}</strong><small>{mode === 'guest' ? 'Keine persönlichen Daten' : 'Web-Zugang noch nicht freigeschaltet'}</small></div></div>
+    </aside>
+    <section className="desktop-content">
+      <header className="app-topbar"><div><span>DomiDex Web</span><b>{label}</b></div><div className="sync-pill preview"><Eye /> Vorschau</div></header>
+      <div className="app-view access-preview">
+        <section className="access-card">
+          <div className="access-icon">{mode === 'guest' ? <Eye /> : <LockKeyhole />}</div>
+          <p>{mode === 'guest' ? 'ÖFFENTLICHE WEB-APP-VORSCHAU' : 'GESCHÜTZTER DOMIDEX-ZUGANG'}</p>
+          <h1>{mode === 'guest' ? 'Lerne DomiDex Web kennen.' : 'DomiDex Web verbinden'}</h1>
+          <span>{mode === 'guest' ? 'Du kannst alle Bereiche ansehen. Persönliche Sammlungen, Binder und Portfolio-Daten werden dabei weder geladen noch verändert.' : 'Melde dich in der DomiDex-App mit demselben Konto an und lass den Web-Zugang freischalten. Erst danach lädt diese Website deine private Sammlung.'}</span>
+          <div className="access-actions">
+            {mode === 'guest' ? <button onClick={onSignIn}><LogIn /> Mit Google anmelden</button> : <><button onClick={onRefresh}><RefreshCw /> Zugriff erneut prüfen</button><button className="quiet" onClick={onLogout}><LogOut /> Abmelden</button></>}
+            <a href="/">Zur DomiDex Website</a>
+          </div>
+          <small><ShieldCheck /> Ohne bestätigte Web-Freigabe bleiben persönliche Firebase-Daten serverseitig gesperrt.</small>
+        </section>
+        <section className="preview-surface" aria-label={`${label} ohne persönliche Daten`}>
+          <header><span>{label}</span><em>Keine persönlichen Daten</em></header>
+          {view === 'binder' ? <div className="preview-binder"><img src="/domidex-logo.jpg" alt="" /><b>Digitaler Binder</b><span>Öffnen, blättern und Varianten getrennt verwalten</span></div> : <><div className="preview-metrics"><i /><i /><i /><i /></div><div className="preview-panels"><i /><i /></div></>}
+        </section>
+      </div>
+    </section>
+  </main>;
+}
+
 function Overview({ entries, prices, total, binders, onNavigate }: { entries: CollectionEntry[]; prices: Record<string, number | null>; total: number; binders: BinderGroup[]; onNavigate: (view: View) => void }) {
   const count = entries.reduce((sum, entry) => sum + entry.quantity, 0);
   const top = [...entries].filter((entry) => typeof prices[entry.syncId] === 'number').sort((a, b) => (prices[b.syncId]! * b.quantity) - (prices[a.syncId]! * a.quantity)).slice(0, 4);
@@ -121,26 +155,27 @@ function Overview({ entries, prices, total, binders, onNavigate }: { entries: Co
 }
 
 function BinderView({ binders, prices, user, onError }: { binders: BinderGroup[]; prices: Record<string, number | null>; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
-  const [binderIndex, setBinderIndex] = useState(0); const [page, setPage] = useState(0); const [open, setOpen] = useState(false); const [selectedCardId, setSelectedCardId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [setCards, setSetCards] = useState<TcgCardSummary[]>([]); const [setLoading, setSetLoading] = useState(false);
+  const [binderIndex, setBinderIndex] = useState(0); const [page, setPage] = useState(0); const [open, setOpen] = useState(false); const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [setCards, setSetCards] = useState<TcgCardSummary[]>([]); const [printedTotal, setPrintedTotal] = useState(0); const [setLoading, setSetLoading] = useState(false); const [turn, setTurn] = useState<{ direction: 'next' | 'previous'; slots: BinderSlot[] } | null>(null);
   const binder = binders[Math.min(binderIndex, Math.max(0, binders.length - 1))];
-  useEffect(() => { setPage(0); setOpen(false); setSelectedCardId(null); }, [binderIndex]);
+  useEffect(() => { setPage(0); setOpen(false); setSelectedSlotId(null); setTurn(null); }, [binderIndex]);
   useEffect(() => {
-    let active = true; setSetCards([]); setSetLoading(false); if (!binder?.sourceSetId) return;
-    setSetLoading(true); void loadSet(binder.sourceSetId).then((set) => { if (active) setSetCards(set.cards ?? []); }).catch(() => { if (active) onError('Das vollständige Set konnte nicht geladen werden. Der vorhandene Bestand bleibt sichtbar.'); }).finally(() => { if (active) setSetLoading(false); });
+    let active = true; setSetCards([]); setPrintedTotal(0); setSetLoading(false); if (!binder?.sourceSetId) return;
+    setSetLoading(true); void loadSet(binder.sourceSetId).then((set) => { if (active) { setSetCards(set.cards ?? []); setPrintedTotal(set.cardCount?.official ?? 0); } }).catch(() => { if (active) onError('Das vollständige Set konnte nicht geladen werden. Der vorhandene Bestand bleibt sichtbar.'); }).finally(() => { if (active) setSetLoading(false); });
     return () => { active = false; };
   }, [binder?.sourceSetId, onError]);
   if (!binder) return <div className="app-view"><div className="view-title"><div><p>BINDER</p><h1>Deine Binder.</h1></div></div><Empty title="Noch kein Binder" text="Sobald eine Karte hinzugefügt wird, erscheint ihr Set-Binder automatisch hier." /></div>;
   const summaries = setCards.length ? setCards : binder.entries.map((entry) => ({ id: entry.sourceCardId ?? entry.syncId, localId: entry.collectorNumber, name: entry.name, image: entry.imageUrl ?? undefined }));
-  const slots = buildBinderSlots(summaries, binder.entries); const pages = paginateBinderSlots(slots); const visible = pages[page] ?? []; const selected = selectedCardId ? slots.find((slot) => slot.card.id === selectedCardId) ?? null : null;
+  const slots = buildBinderSlots(summaries, binder.entries, printedTotal); const pages = paginateBinderSlots(slots); const visible = pages[page] ?? []; const selected = selectedSlotId ? slots.find((slot) => slot.slotId === selectedSlotId) ?? null : null;
+  const changePage = (nextPage: number) => { if (turn || nextPage < 0 || nextPage >= pages.length) return; setTurn({ direction: nextPage > page ? 'next' : 'previous', slots: visible }); setPage(nextPage); };
   return <div className="app-view binder-view">
     <div className="view-title"><div><p>MASTER-SET BINDER</p><h1>{binder.name}</h1><span>{binder.entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten · {slots.filter((slot) => slot.owned.length).length}/{slots.length || binder.entries.length} Plätze · {formatPrice(binder.entries.reduce((sum, entry) => sum + ((prices[entry.syncId] ?? 0) * entry.quantity), 0))}</span></div><select value={binderIndex} onChange={(event) => setBinderIndex(Number(event.target.value))}>{binders.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}</select></div>
     <section className={`interactive-binder ${open ? 'is-open' : ''}`}>
       {!open ? <button className="binder-cover" onClick={() => setOpen(true)}><img src="/domidex-logo.jpg" alt="" /><small>DOMIDEX BINDER</small><strong>{binder.name}</strong><span>Öffnen</span></button> : <>
-        {setLoading ? <div className="binder-set-loading"><LoaderCircle className="spin" /><span>Alle Set-Karten werden geladen …</span></div> : <div className="binder-book"><div className="pocket-page">{[0,1,2,3].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedCardId(item.card.id)} key={slot} />)}</div><div className="binder-spine"><i/><i/><i/><i/></div><div className="pocket-page">{[4,5,6,7].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedCardId(item.card.id)} key={slot} />)}</div></div>}
-        <div className="page-controls"><button aria-label="Vorherige Binderseite" disabled={page === 0} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></button><span>Seite {page + 1} / {Math.max(1, pages.length)}</span><button aria-label="Nächste Binderseite" disabled={page >= pages.length - 1} onClick={() => setPage((value) => value + 1)}><ChevronRight /></button><button className="close-binder" onClick={() => setOpen(false)}>Binder schließen</button></div>
+        {setLoading ? <div className="binder-set-loading"><LoaderCircle className="spin" /><span>Alle Set-Karten werden geladen …</span></div> : <div className="binder-book"><div className="pocket-page">{[0,1,2,3].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div><div className="binder-spine"><i/><i/><i/><i/></div><div className="pocket-page">{[4,5,6,7].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div>{turn && <TurningPage turn={turn} onFinish={() => setTurn(null)} />}</div>}
+        <div className="page-controls"><button aria-label="Vorherige Binderseite" disabled={page === 0 || Boolean(turn)} onClick={() => changePage(page - 1)}><ChevronLeft /></button><span>Seite {page + 1} / {Math.max(1, pages.length)}</span><button aria-label="Nächste Binderseite" disabled={page >= pages.length - 1 || Boolean(turn)} onClick={() => changePage(page + 1)}><ChevronRight /></button><button className="close-binder" onClick={() => setOpen(false)}>Binder schließen</button></div>
       </>}
     </section>
-    {selected && <BinderCardDialog slot={selected} entries={binder.entries} prices={prices} user={user} busy={busy} setBusy={setBusy} onClose={() => setSelectedCardId(null)} onError={onError} />}
+    {selected && <BinderCardDialog slot={selected} entries={binder.entries} prices={prices} user={user} busy={busy} setBusy={setBusy} onClose={() => setSelectedSlotId(null)} onError={onError} />}
   </div>;
 }
 
@@ -158,7 +193,7 @@ function SearchView({ entries, user, onError }: { entries: CollectionEntry[]; us
   const search = async () => { setBusy(true); setMessage(''); try { setResults(await searchCards(query)); setCard(null); } catch (error) { onError(error instanceof Error ? error.message : 'Kartensuche fehlgeschlagen.'); } finally { setBusy(false); } };
   const choose = async (summary: TcgCardSummary) => { setBusy(true); setMessage(''); try { setCard(await loadCard(summary.id)); setVariantIndex(0); setQuantity(1); } catch (error) { onError(error instanceof Error ? error.message : 'Kartendetails fehlen.'); } finally { setBusy(false); } };
   const add = async () => { if (!card || !variant) return; setBusy(true); setMessage(''); try { await addExactCard(user, card, variant, quantity, entries); setMessage(`${card.name} wurde synchronisiert.`); } catch (error) { onError(error instanceof Error ? error.message : 'Karte konnte nicht hinzugefügt werden.'); } finally { setBusy(false); } };
-  return <div className="app-view"><div className="view-title"><div><p>MANUELL HINZUFÜGEN</p><h1>Karte suchen.</h1><span>Set, Karte, Variante und Menge – der Scanner bleibt in der Android-App.</span></div></div><div className="search-layout"><section className="panel search-panel"><form onSubmit={(event) => { event.preventDefault(); void search(); }}><label className="search-field large"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Kartenname, z. B. Glurak" /><button disabled={busy || query.trim().length < 2}>{busy ? <LoaderCircle className="spin" /> : 'Suchen'}</button></label></form><div className="search-results">{results.map((result) => <button className={card?.id === result.id ? 'active' : ''} onClick={() => void choose(result)} key={result.id}><div className="mini-card">{result.image ? <img src={imageUrl(result.image, 'low') ?? ''} alt="" /> : <FolderSearch />}</div><div><b>{result.name}</b><small>#{result.localId} · {result.id}</small></div><ChevronRight /></button>)}</div>{!results.length && !busy && <Empty title="Suche im deutschen Kartenkatalog" text="Es werden nur echte TCGdex-Kartenidentitäten verwendet." />}</section><section className="panel card-add-panel">{card && variant ? <><div className="selected-card"><div className="selected-card-image">{card.image ? <img src={imageUrl(card.image) ?? ''} alt={card.name} /> : <img src="/domidex-logo.jpg" alt="" />}</div><div><p>{card.set.name}</p><h2>{card.name}</h2><span>#{card.localId} · {card.rarity ?? 'Seltenheit unbekannt'}</span></div></div><label>Variante<select value={variantIndex} onChange={(event) => setVariantIndex(Number(event.target.value))}>{variants.map((item, index) => <option value={index} key={`${item.variantId ?? item.type}-${collectionVariantLabel(item)}-${index}`}>{item.type} · {collectionVariantLabel(item)}</option>)}</select></label><div className="add-price"><span>Cardmarket Trendpreis</span><strong>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</strong><small>{price === null ? 'Keine eindeutige Preiszuordnung für diese Variante.' : `Exakte Quelle · Produkt ${variant.pricing?.cardmarket?.idProduct ?? card.pricing?.cardmarket?.idProduct}`}</small></div><label>Menge<div className="stepper"><button onClick={() => setQuantity((value) => Math.max(1, value - 1))}><Minus /></button><output>{quantity}</output><button onClick={() => setQuantity((value) => Math.min(100, value + 1))}><Plus /></button></div></label><button className="add-card-button" disabled={busy} onClick={() => void add()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button>{message && <p className="success-message">✓ {message}</p>}</> : <Empty title="Wähle eine Karte" text="Danach erscheinen die tatsächlich gemeldeten Varianten und der passende Cardmarket-Trendpreis." />}</section></div></div>;
+  return <div className="app-view"><div className="view-title"><div><p>MANUELL HINZUFÜGEN</p><h1>Karte suchen.</h1><span>Set, Karte, Variante und Menge – der Scanner bleibt in der Android-App.</span></div></div><div className="search-layout"><section className="panel search-panel"><form onSubmit={(event) => { event.preventDefault(); void search(); }}><label className="search-field large"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Kartenname, z. B. Glurak" /><button disabled={busy || query.trim().length < 2}>{busy ? <LoaderCircle className="spin" /> : 'Suchen'}</button></label></form><div className="search-results">{results.map((result) => <button className={card?.id === result.id ? 'active' : ''} onClick={() => void choose(result)} key={result.id}><div className="mini-card">{result.image ? <img src={imageUrl(result.image, 'low') ?? ''} alt={result.name} loading="lazy" /> : <span className="image-unavailable"><ImageOff /><small>Kein offizielles Bild</small></span>}</div><div><b>{result.name}</b><small>#{result.localId} · {result.id}</small></div><ChevronRight /></button>)}</div>{!results.length && !busy && <Empty title="Suche im deutschen Kartenkatalog" text="Es werden nur echte TCGdex-Kartenidentitäten verwendet." />}</section><section className="panel card-add-panel">{card && variant ? <><div className="selected-card"><div className="selected-card-image">{card.image ? <img src={imageUrl(card.image) ?? ''} alt={card.name} /> : <span className="image-unavailable large"><ImageOff /><small>Kein offizielles Bild verfügbar</small></span>}</div><div><p>{card.set.name}</p><h2>{card.name}</h2><span>#{card.localId} · {card.rarity ?? 'Seltenheit unbekannt'}</span></div></div><label>Variante<select value={variantIndex} onChange={(event) => setVariantIndex(Number(event.target.value))}>{variants.map((item, index) => <option value={index} key={`${item.variantId ?? item.type}-${collectionVariantLabel(item)}-${index}`}>{item.type} · {collectionVariantLabel(item)}</option>)}</select></label><div className="add-price"><span>Cardmarket Trendpreis</span><strong>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</strong><small>{price === null ? 'Keine eindeutige Preiszuordnung für diese Variante.' : `Exakte Quelle · Produkt ${variant.pricing?.cardmarket?.idProduct ?? card.pricing?.cardmarket?.idProduct}`}</small></div><label>Menge<div className="stepper"><button onClick={() => setQuantity((value) => Math.max(1, value - 1))}><Minus /></button><output>{quantity}</output><button onClick={() => setQuantity((value) => Math.min(100, value + 1))}><Plus /></button></div></label><button className="add-card-button" disabled={busy} onClick={() => void add()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button>{message && <p className="success-message">✓ {message}</p>}</> : <Empty title="Wähle eine Karte" text="Danach erscheinen die tatsächlich gemeldeten Varianten und der passende Cardmarket-Trendpreis." />}</section></div></div>;
 }
 
 function Portfolio({ entries, prices, total, pricedCount, totalCount }: { entries: CollectionEntry[]; prices: Record<string, number | null>; total: number; pricedCount: number; totalCount: number }) {
@@ -169,21 +204,33 @@ function Portfolio({ entries, prices, total, pricedCount, totalCount }: { entrie
 function SettingsView({ userName, onLogout }: { userName: string; onLogout: () => void }) { return <div className="app-view"><div className="view-title"><div><p>EINSTELLUNGEN</p><h1>Dein DomiDex.</h1></div></div><section className="panel settings-list"><div><CircleUserRound /><span><b>{userName}</b><small>Firebase-/Google-Konto</small></span><ShieldCheck /></div><div><Sparkles /><span><b>Design</b><small>Dunkel · DomiDex Violet</small></span></div><div><BadgeEuro /><span><b>Preise</b><small>Cardmarket Trend · keine Ersatzwerte</small></span></div><button onClick={onLogout}><LogOut /> Abmelden</button></section></div>; }
 
 function BinderCardDialog({ slot, entries, prices, user, busy, setBusy, onClose, onError }: { slot: BinderSlot; entries: CollectionEntry[]; prices: Record<string, number | null>; user: NonNullable<ReturnType<typeof useAuth>['user']>; busy: boolean; setBusy: (value: boolean) => void; onClose: () => void; onError: (value: string) => void }) {
-  const [ownedIndex, setOwnedIndex] = useState(0); const owned = slot.owned[Math.min(ownedIndex, Math.max(0, slot.owned.length - 1))]; const [card, setCard] = useState<TcgCardDetail | null>(null); const [variantIndex, setVariantIndex] = useState(0); const [loading, setLoading] = useState(true);
+  const [ownedIndex, setOwnedIndex] = useState(0); const owned = slot.owned[Math.min(ownedIndex, Math.max(0, slot.owned.length - 1))]; const [card, setCard] = useState<TcgCardDetail | null>(null); const [loading, setLoading] = useState(true);
   useEffect(() => { let active = true; setLoading(true); setCard(null); void loadCard(canonicalTcgCardId(slot.card.id)).then((value) => { if (active) setCard(value); }).catch(() => { if (active) onError('Kartendetails konnten nicht geladen werden.'); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [onError, slot.card.id]);
   if (owned) {
     const mutate = async (entry: CollectionEntry, delta: number) => { setBusy(true); try { await changeQuantity(user, entry, delta); if (delta < 0 && entry.quantity === 1) onClose(); } catch { onError('Die Kartenmenge konnte nicht aktualisiert werden.'); } finally { setBusy(false); } };
     return <CardDialog entry={owned} price={prices[owned.syncId]} alternatives={slot.owned} selectedIndex={ownedIndex} onSelect={setOwnedIndex} busy={busy} onClose={onClose} onChange={mutate} />;
   }
   const variants = card?.variants_detailed?.length ? card.variants_detailed : card ? [{ type: 'Normal', size: 'Standard', pricing: card.pricing }] : [];
-  const variant = variants[Math.min(variantIndex, Math.max(0, variants.length - 1))]; const price = card && variant ? exactTrendPrice(card, variant) : null;
+  const matching = variants.filter((item) => finishMatches(item.type, slot.finish));
+  const variant = matching.find((item) => collectionVariantLabel(item).toLocaleLowerCase('de') === slot.variant.toLocaleLowerCase('de')) ?? matching[0]; const price = card && variant ? exactTrendPrice(card, variant) : null;
   const add = async () => { if (!card || !variant) return; setBusy(true); try { await addExactCard(user, card, variant, 1, entries); onClose(); } catch { onError('Die Karte konnte nicht zum Binder hinzugefügt werden.'); } finally { setBusy(false); } };
-  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="card-dialog missing-card-dialog" role="dialog" aria-modal="true" aria-labelledby="binder-card-title"><button className="dialog-close" onClick={onClose} aria-label="Schließen"><X /></button><div className="dialog-card-image missing-preview"><img src={imageUrl(card?.image ?? slot.card.image, 'high') ?? '/domidex-logo.jpg'} alt={slot.card.name} /></div><div className="dialog-card-info"><p>{card?.set.name ?? 'Set-Karte'} · NICHT IM BESITZ</p><h2 id="binder-card-title">{card?.name ?? slot.card.name}</h2><span>#{card?.localId ?? slot.card.localId} · {card?.rarity ?? 'Seltenheit nicht angegeben'}</span>{loading ? <div className="binder-detail-loading"><LoaderCircle className="spin" /> Kartendaten werden geladen …</div> : <><label className="binder-variant"><span>Variante</span><select value={variantIndex} onChange={(event) => setVariantIndex(Number(event.target.value))}>{variants.map((item, index) => <option value={index} key={`${item.variantId ?? item.type}-${collectionVariantLabel(item)}-${index}`}>{item.type} · {collectionVariantLabel(item)}</option>)}</select></label><dl><div><dt>Besitzstatus</dt><dd>Fehlt im Binder</dd></div><div><dt>Cardmarket Trend</dt><dd>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</dd></div></dl><button className="binder-add-button" disabled={busy || !variant} onClick={() => void add()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button></>}</div></section></div>;
+  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="card-dialog missing-card-dialog" role="dialog" aria-modal="true" aria-labelledby="binder-card-title"><button className="dialog-close" onClick={onClose} aria-label="Schließen"><X /></button><div className="dialog-card-image missing-preview"><img src={imageUrl(card?.image ?? slot.card.image, 'high') ?? '/domidex-logo.jpg'} alt={slot.card.name} /></div><div className="dialog-card-info"><p>{card?.set.name ?? 'Set-Karte'} · NICHT IM BESITZ</p><h2 id="binder-card-title">{card?.name ?? slot.card.name}</h2><span>#{card?.localId ?? slot.card.localId} · {card?.rarity ?? slot.card.rarity ?? 'Seltenheit nicht angegeben'}</span>{loading ? <div className="binder-detail-loading"><LoaderCircle className="spin" /> Kartendaten werden geladen …</div> : <><div className="binder-print-identity"><span>Variante</span><strong>{slot.finish} · {slot.variant}</strong></div><dl><div><dt>Besitzstatus</dt><dd>Fehlt im Binder</dd></div><div><dt>Cardmarket Trend</dt><dd>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</dd></div></dl><button className="binder-add-button" disabled={busy || !variant} onClick={() => void add()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button></>}</div></section></div>;
 }
 
 function CardDialog({ entry, price, alternatives, selectedIndex = 0, onSelect, busy, onClose, onChange }: { entry: CollectionEntry; price: number | null | undefined; alternatives?: CollectionEntry[]; selectedIndex?: number; onSelect?: (index: number) => void; busy: boolean; onClose: () => void; onChange: (entry: CollectionEntry, delta: number) => void }) { return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="card-dialog" role="dialog" aria-modal="true" aria-labelledby="card-title"><button className="dialog-close" onClick={onClose} aria-label="Schließen"><X /></button><div className="dialog-card-image"><img src={entry.imageUrl ?? '/domidex-logo.jpg'} alt={entry.name} /></div><div className="dialog-card-info"><p>{entry.setName}</p><h2 id="card-title">{entry.name}</h2><span>#{entry.collectorNumber} · {entry.language === 'GERMAN' ? 'Deutsch' : entry.language}</span>{alternatives && alternatives.length > 1 && onSelect && <label className="binder-variant"><span>Gesammelte Variante</span><select value={selectedIndex} onChange={(event) => onSelect(Number(event.target.value))}>{alternatives.map((item, index) => <option value={index} key={item.syncId}>{item.finish} · {item.variant}</option>)}</select></label>}<dl><div><dt>Variante</dt><dd>{entry.finish} · {entry.variant}</dd></div><div><dt>Zustand</dt><dd>{entry.condition || 'Nicht angegeben'}</dd></div><div><dt>Cardmarket Trend</dt><dd>{price === undefined ? 'Wird geladen …' : price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</dd></div><div><dt>Gesamtwert</dt><dd>{typeof price === 'number' ? formatPrice(price * entry.quantity) : 'Preis nicht verfügbar'}</dd></div></dl><div className="dialog-actions"><button disabled={busy} onClick={() => onChange(entry,-1)}>{entry.quantity === 1 ? <Trash2 /> : <Minus />}</button><output>{entry.quantity}</output><button disabled={busy} onClick={() => onChange(entry,1)}><Plus /></button></div></div></section></div>; }
 
-function BinderPocket({ slot, onSelect }: { slot?: BinderSlot; onSelect: (slot: BinderSlot) => void }) { const owned = slot?.owned[0]; return <button className={`binder-pocket ${slot && !owned ? 'missing-card' : slot ? '' : 'empty-pocket'}`} disabled={!slot} onClick={() => slot && onSelect(slot)}>{slot ? <><img src={owned?.imageUrl ?? imageUrl(slot.card.image, 'low') ?? '/domidex-logo.jpg'} alt={slot.card.name} /><span>{owned ? `×${slot.owned.reduce((sum, entry) => sum + entry.quantity, 0)}` : `#${slot.card.localId}`}</span>{!owned && <small>Fehlt · antippen</small>}</> : <><b>—</b><small>Kein Kartenplatz</small></>}</button>; }
+function BinderPocket({ slot, onSelect }: { slot?: BinderSlot; onSelect: (slot: BinderSlot) => void }) { const owned = slot?.owned[0]; return <button className={`binder-pocket ${slot && !owned ? 'missing-card' : slot ? '' : 'empty-pocket'}`} disabled={!slot} onClick={() => slot && onSelect(slot)}>{slot ? <><img src={owned?.imageUrl ?? imageUrl(slot.card.image, 'low') ?? '/domidex-logo.jpg'} alt={slot.card.name} /><span>{owned ? `×${slot.owned.reduce((sum, entry) => sum + entry.quantity, 0)}` : `#${slot.card.localId}`}</span><small>{slot.finish}{!owned ? ' · fehlt' : ''}</small></> : <><b>—</b><small>Kein Kartenplatz</small></>}</button>; }
+
+function TurningPage({ turn, onFinish }: { turn: { direction: 'next' | 'previous'; slots: BinderSlot[] }; onFinish: () => void }) {
+  const visible = turn.direction === 'next' ? turn.slots.slice(4, 8) : turn.slots.slice(0, 4);
+  return <div className={`binder-turn-sheet ${turn.direction}`} onAnimationEnd={onFinish}><div className="turning-pocket-page">{visible.map((slot) => <div className="turning-pocket" key={slot.slotId}><img src={slot.owned[0]?.imageUrl ?? imageUrl(slot.card.image, 'low') ?? '/domidex-logo.jpg'} alt="" /><small>{slot.finish}</small></div>)}</div></div>;
+}
+
+function finishMatches(type: string, finish: BinderSlot['finish']) {
+  if (finish === 'Reverse Holo') return /reverse/i.test(type);
+  if (finish === 'Holo') return /holo/i.test(type) && !/reverse/i.test(type);
+  return !/holo|reverse/i.test(type);
+}
 function CardTile({ entry, price }: { entry: CollectionEntry; price: number | null | undefined }) { return <article className="card-tile"><div>{entry.imageUrl ? <img src={entry.imageUrl} alt={entry.name} loading="lazy" /> : <img src="/domidex-logo.jpg" alt="" />}</div><p>{entry.setName}</p><h3>{entry.name}</h3><span>#{entry.collectorNumber} · {entry.finish}</span><strong>{price === undefined ? 'Preis wird geladen' : price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</strong></article>; }
 function Metric({ title, value, detail, accent }: { title: string; value: string; detail: string; accent: string }) { return <article className={`metric ${accent}`}><span>{title}</span><strong>{value}</strong><small>{detail}</small></article>; }
 function PanelTitle({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) { return <header className="panel-title"><h2>{title}</h2>{action && <button onClick={onAction}>{action} <ChevronRight /></button>}</header>; }

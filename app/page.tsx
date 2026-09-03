@@ -8,7 +8,7 @@ import {
   ScanLine,
   ShieldCheck,
   Sparkles,
-  Code2,
+  Menu,
   MessageCircle,
   Rocket,
 } from 'lucide-react';
@@ -18,18 +18,18 @@ import { useSiteContent } from '@/lib/site-content';
 
 const highlights = [
   { icon: ScanLine, title: 'Scanner', text: 'Karten mobil erfassen' },
-  { icon: BadgeEuro, title: 'Deutsche Preise', text: 'Cardmarket-orientiert' },
-  { icon: BookOpen, title: 'Binder', text: 'Sammlung mit Struktur' },
-  { icon: Cloud, title: 'Überall', text: 'Android & Desktop' },
+  { icon: BadgeEuro, title: 'Marktpreise', text: 'Nur eindeutig zugeordnet' },
+  { icon: BookOpen, title: 'Binder', text: 'Druckvarianten getrennt sammeln' },
+  { icon: Cloud, title: 'Synchron', text: 'Android und Web verbunden' },
 ];
 
 const binderCards = [
-  ['#a855f7', '001'],
-  ['#06b6d4', '014'],
-  ['#f59e0b', '025'],
-  ['#ec4899', '041'],
-  ['#22c55e', '063'],
-  ['#8b5cf6', '091'],
+  ['#a855f7', 'NORMAL'],
+  ['#06b6d4', 'HOLO'],
+  ['#f59e0b', 'REVERSE'],
+  ['#ec4899', 'SET'],
+  ['#22c55e', 'PRINT'],
+  ['#8b5cf6', 'VARIANTE'],
 ];
 
 export default function Home() {
@@ -51,26 +51,25 @@ export default function Home() {
         </nav>
         <div className="header-actions">
           <a className="text-link" href={content.discordUrl || '#community'}>Discord</a>
-          <a className={cn(buttonVariants({ size: 'lg' }), 'primary-button')} href={kickstarterReady ? content.kickstarterUrl : '#kickstarter'}>
-            {kickstarterReady ? content.kickstarterCta : 'Kickstarter'} <Sparkles aria-hidden="true" />
-          </a>
+          {kickstarterReady ? <a className={cn(buttonVariants({ size: 'lg' }), 'primary-button')} href={content.kickstarterUrl}>{content.kickstarterCta} <Sparkles aria-hidden="true" /></a> : <span className="coming-soon">Kickstarter · Coming Soon</span>}
         </div>
+        <details className="mobile-menu"><summary><Menu /> Menü</summary><div><a href="#funktionen">Funktionen</a><a href="/app">Web App</a><a href="/updates">Updates</a><a href="/roadmap">Roadmap</a><a href="/faq">FAQ</a><a href={content.discordUrl || '#community'}>Discord</a></div></details>
       </header>
 
       <section id="top" className="hero-shell">
         <div className="hero-copy">
-          <p className="eyebrow"><span /> DomiDex {content.currentVersion} · Build {content.currentBuild}</p>
+          <p className="eyebrow"><span /> DomiDex · {content.releaseStatus} · Privat & Non-Profit</p>
           <h1>{content.heroTitle.split('. ').map((part, index) => <span key={part}>{index === 2 ? <em>{part.replace(/\.$/,'')}.</em> : `${part.replace(/\.$/,'')}.`}<br /></span>)}</h1>
           <p className="hero-lead">{content.heroSubtitle}</p>
           <div className="hero-actions">
-            <a className={cn(buttonVariants({ size: 'lg' }), 'primary-button')} href="/login">
-              Web App öffnen <ArrowRight aria-hidden="true" />
+            <a className={cn(buttonVariants({ size: 'lg' }), 'primary-button')} href="/app">
+              Web App ansehen <ArrowRight aria-hidden="true" />
             </a>
             <a className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'secondary-button')} href="#community">
               Community beitreten
             </a>
           </div>
-          <p className="principle"><ShieldCheck aria-hidden="true" /> Keine Werbung. Kein Abo. Einmal kaufen. Weiterentwicklung inklusive.</p>
+          <p className="principle"><ShieldCheck aria-hidden="true" /> Pre-Beta · privat betrieben · keine Werbung oder Abonnements.</p>
         </div>
 
         <div id="web-app" className="product-window" aria-label="Vorschau der DomiDex Desktop-Sammlung">
@@ -87,29 +86,29 @@ export default function Home() {
             </aside>
             <section className="binder-stage">
               <div className="binder-heading">
-                <div><small>HAUPTBINDER</small><strong>Prismatische Entwicklungen</strong></div>
-                <span>53 / 476 Karten</span>
+                <div><small>WEB-APP VORSCHAU</small><strong>Dein digitaler Binder</strong></div>
+                <span>Keine persönlichen Daten</span>
               </div>
               <div className="binder" role="img" aria-label="Geöffneter, animierter DomiDex Sammelbinder">
                 <div className="binder-page left-page">
-                  {binderCards.slice(0, 3).map(([color, number]) => <CardSlot color={color} number={number} key={number} />)}
-                  <EmptySlot number="072" />
+                  {binderCards.slice(0, 3).map(([color, label]) => <CardSlot color={color} label={label} key={label} />)}
+                  <EmptySlot />
                 </div>
                 <div className="binder-rings"><i /><i /><i /><i /></div>
                 <div className="binder-page right-page">
-                  {binderCards.slice(3).map(([color, number]) => <CardSlot color={color} number={number} key={number} />)}
-                  <EmptySlot number="118" />
+                  {binderCards.slice(3).map(([color, label]) => <CardSlot color={color} label={label} key={label} />)}
+                  <EmptySlot />
                 </div>
               </div>
-              <div className="binder-controls"><button aria-label="Vorherige Binderseite">‹</button><span>5 / 55</span><button aria-label="Nächste Binderseite">›</button></div>
+              <div className="binder-controls"><button aria-label="Vorherige Binderseite">‹</button><span>Vorschau</span><button aria-label="Nächste Binderseite">›</button></div>
             </section>
             <aside className="detail-panel">
               <span className="detail-kicker">AUSGEWÄHLTE KARTE</span>
               <div className="detail-art"><Sparkles /><b>DOMIDEX</b><small>COLLECTION CARD</small></div>
-              <h2>Deine Karte</h2>
+              <h2>Kartendetails</h2>
               <p>Set · Nummer · Variante</p>
-              <div className="price-row"><span>Cardmarket Trend</span><strong>Preis verfügbar</strong></div>
-              <button>Details öffnen</button>
+              <div className="price-row"><span>Cardmarket Trend</span><strong>Nur bei eindeutiger Zuordnung</strong></div>
+              <a href="/app">Web App ansehen</a>
             </aside>
           </div>
         </div>
@@ -146,21 +145,21 @@ export default function Home() {
 
       <section id="kickstarter" className="kickstarter-section"><Rocket /><div><p className="section-kicker">UNTERSTÜTZE DIE VISION</p><h2>{kickstarterReady ? content.kickstarterCta : 'Kickstarter – Coming Soon'}</h2><p>Keine erfundenen Zahlen und kein Countdown: Sobald die Kampagne offiziell ist, führt dieser Bereich direkt dorthin.</p></div>{kickstarterReady ? <a className="primary-button" href={content.kickstarterUrl}>Kickstarter öffnen <ArrowRight /></a> : <span>In Vorbereitung</span>}</section>
 
-      <section id="community" className="community-grid"><article><MessageCircle /><div><h2>Discord Community</h2><p>{content.discordText}</p></div>{content.discordUrl ? <a href={content.discordUrl}>Discord öffnen <ArrowRight /></a> : <span>Link folgt</span>}</article><article><Code2 /><div><h2>GitHub & Releases</h2><p>Entwicklung und freigegebene DomiDex-Versionen an einem verlässlichen Ort.</p></div><a href={content.githubUrl}>Projekt öffnen <ArrowRight /></a></article></section>
+      <section id="community" className="community-grid"><article><MessageCircle /><div><h2>Discord Community</h2><p>{content.discordText}</p></div>{content.discordUrl ? <a href={content.discordUrl}>Discord öffnen <ArrowRight /></a> : <span>Link folgt</span>}</article><article><ShieldCheck /><div><h2>Private Pre-Beta</h2><p>Tester, Feedback und Entwicklungsupdates werden kontrolliert über die DomiDex Community koordiniert.</p></div><span>Google-Play-Testzugang in Vorbereitung</span></article></section>
 
-      <footer><div className="brand"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span> TCG</span></div><p>Für Sammler. Von Sammlern. Ohne Werbung und ohne Abonnement.</p><nav><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/kontakt">Kontakt</a></nav><small>© 2026 DomiDex. Pokémon und zugehörige Marken gehören ihren jeweiligen Rechteinhabern.</small></footer>
+      <footer><div className="brand"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span></span></div><p>Privates Non-Profit-Projekt für Sammler · aktuelle Pre-Beta.</p><nav><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/kontakt">Kontakt</a></nav><small>© 2026 DomiDex. Pokémon und zugehörige Marken gehören ihren jeweiligen Rechteinhabern.</small></footer>
     </main>
   );
 }
 
-function CardSlot({ color, number }: { color: string; number: string }) {
+function CardSlot({ color, label }: { color: string; label: string }) {
   return (
-    <button className="card-slot" aria-label={`Sammlungskarte ${number}`} style={{ '--card-accent': color } as React.CSSProperties}>
-      <span className="card-orbit" /><img src="/domidex-logo.jpg" alt="" /><b>DomiDex</b><small>#{number}</small>
+    <button className="card-slot" aria-label={`Vorschau: ${label}`} style={{ '--card-accent': color } as React.CSSProperties}>
+      <span className="card-orbit" /><img src="/domidex-logo.jpg" alt="" /><b>DomiDex</b><small>{label}</small>
     </button>
   );
 }
 
-function EmptySlot({ number }: { number: string }) {
-  return <button className="card-slot empty-slot" aria-label={`Fehlende Karte ${number}`}><span>?</span><small>#{number}</small></button>;
+function EmptySlot() {
+  return <button className="card-slot empty-slot" aria-label="Vorschau: fehlende Karte"><span>?</span><small>FEHLEND</small></button>;
 }

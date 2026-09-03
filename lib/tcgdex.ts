@@ -30,14 +30,22 @@ export function loadCard(id: string): Promise<TcgCardDetail> {
 
 export function loadSet(id: string): Promise<TcgSetDetail> {
   const safe = id.trim().toLowerCase(); const existing = setCache.get(safe); if (existing) return existing;
-  const request = fetch(`/api/sets/${encodeURIComponent(safe)}`).then((response) => {
+  const request = Promise.all([fetch(`/api/sets/${encodeURIComponent(safe)}`), fetch(`/catalog/sets/${encodeURIComponent(safe)}.json`)]).then(async ([response, manifestResponse]) => {
     if (!response.ok) throw new Error('Das vollständige Set konnte nicht geladen werden.');
-    return response.json() as Promise<TcgSetDetail>;
+    const set = await response.json() as TcgSetDetail;
+    if (!manifestResponse.ok) return set;
+    const manifest = await manifestResponse.json() as { cards?: Array<Omit<TcgCardSummary, 'printVariants'> & { variants?: string[] }> };
+    const metadata = new Map((manifest.cards ?? []).map((card) => [card.id.toLowerCase(), card]));
+    const cards: TcgCardSummary[] = set.cards.map((card) => ({ ...card, printVariants: metadata.get(card.id.toLowerCase())?.variants, rarity: metadata.get(card.id.toLowerCase())?.rarity ?? card.rarity }));
+    const known = new Set(cards.map((card) => card.id.toLowerCase()));
+    for (const card of manifest.cards ?? []) if (!known.has(card.id.toLowerCase())) cards.push({ ...card, printVariants: card.variants });
+    return { ...set, cards };
   }).catch((error) => { setCache.delete(safe); throw error; });
   setCache.set(safe, request); return request;
 }
 
 export function imageUrl(base?: string, quality: 'low' | 'high' = 'high') {
   if (!base) return null;
+  if (/\/(?:low|high)\.(?:webp|png|jpe?g)$/i.test(base) || /\.(?:webp|png|jpe?g)$/i.test(base)) return base;
   return `${base}/${quality}.webp`;
 }

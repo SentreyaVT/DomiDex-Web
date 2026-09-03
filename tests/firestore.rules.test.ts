@@ -23,8 +23,11 @@ function entry(uid: string, syncId: string) {
 }
 
 describe('DomiDex Web Firestore rules', () => {
-  it('allows an owner-compatible create and denies foreign reads', async () => {
-    const owner = environment.authenticatedContext('owner').firestore();
+  it('requires appAccess for an owner-compatible create and denies foreign reads', async () => {
+    const deniedOwner = environment.authenticatedContext('owner').firestore();
+    await assertFails(setDoc(doc(deniedOwner, 'users/owner/collectionEntries/blocked'), entry('owner', 'blocked')));
+    await assertFails(setDoc(doc(environment.authenticatedContext('tester', { pretester: true }).firestore(), 'users/tester/collectionEntries/blocked'), entry('tester', 'blocked')));
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
     const reference = doc(owner, 'users/owner/collectionEntries/web-entry');
     await assertSucceeds(setDoc(reference, entry('owner', 'web-entry')));
     await assertSucceeds(getDoc(reference));
@@ -32,7 +35,7 @@ describe('DomiDex Web Firestore rules', () => {
   });
 
   it('requires the next revision and keeps deletes as tombstones', async () => {
-    const owner = environment.authenticatedContext('owner').firestore();
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
     const reference = doc(owner, 'users/owner/collectionEntries/web-entry');
     await setDoc(reference, entry('owner', 'web-entry'));
     await assertFails(updateDoc(reference, { quantity: 2, revision: 1, lastMutationId: crypto.randomUUID(), updatedAt: serverTimestamp(), updatedAtClient: Date.now() }));
@@ -91,6 +94,6 @@ describe('DomiDex Web Firestore rules', () => {
   });
 });
 
-function siteContent() { return { heroTitle:'Deine Sammlung.',heroSubtitle:'Sicher synchronisiert.',statusBanner:'Pre-Beta',currentVersion:'1.0-pre-beta',currentBuild:'17',releaseStatus:'Pre-Beta',discordUrl:'',discordText:'Community',githubUrl:'https://github.com/nandedomi/DomiDex',kickstarterUrl:'',kickstarterCta:'Coming Soon',updates:[],roadmap:[] }; }
+function siteContent() { return { heroTitle:'Deine Sammlung.',heroSubtitle:'Sicher synchronisiert.',statusBanner:'Pre-Beta',currentVersion:'1.0-pre-beta',currentBuild:'17',releaseStatus:'Pre-Beta',discordUrl:'',discordText:'Community',kickstarterUrl:'',kickstarterCta:'Coming Soon',updates:[],roadmap:[] }; }
 function scannerVersion(status: string, version = 1) { return { profileId: 'profile', profileVersion: version, schemaVersion: 1, status, zones: [] }; }
 function scanReport(reportId: string) { return { schemaVersion:1,scanId:reportId,createdAt:'2026-09-03T00:00:00Z',captureType:'MANUAL_CAPTURE',captureImagePath:`scanner-report-images/${reportId}/capture.webp`,imageSha256:'a'.repeat(64),imageContentType:'image/webp',imageSizeBytes:42,attempts:[],ocrTokens:[],guessedName:null,guessedSet:null,guessedNumber:null,confidence:null,zoneConfidence:{},profileId:null,profileVersion:null,failureReason:'Nicht erkannt',reviewStatus:'NEW',referenceCardId:null,referenceCardKey:null,reviewNote:'',reviewedAt:null}; }

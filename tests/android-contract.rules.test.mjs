@@ -45,15 +45,15 @@ after(async () => environment.cleanup());
 test("collection entries require authentication and matching UID", async () => {
   const anonymous = environment.unauthenticatedContext().firestore();
   await assertFails(setDoc(doc(anonymous, `users/A/collectionEntries/${id}`), entry("A")));
-  const userA = environment.authenticatedContext("A").firestore();
+  const userA = environment.authenticatedContext("A", { appAccess: true }).firestore();
   await assertSucceeds(setDoc(doc(userA, `users/A/collectionEntries/${id}`), entry("A")));
-  const userB = environment.authenticatedContext("B").firestore();
+  const userB = environment.authenticatedContext("B", { appAccess: true }).firestore();
   await assertFails(getDoc(doc(userB, `users/A/collectionEntries/${id}`)));
   await assertFails(setDoc(doc(userB, `users/A/collectionEntries/${id}`), entry("B")));
 });
 
 test("revision must advance exactly once", async () => {
-  const userA = environment.authenticatedContext("A").firestore();
+  const userA = environment.authenticatedContext("A", { appAccess: true }).firestore();
   const reference = doc(userA, `users/A/collectionEntries/${id}`);
   await assertSucceeds(setDoc(reference, entry("A")));
   await assertFails(setDoc(reference, entry("A", 3)));
@@ -61,7 +61,7 @@ test("revision must advance exactly once", async () => {
 });
 
 test("tombstones cannot be physically deleted or resurrected", async () => {
-  const userA = environment.authenticatedContext("A").firestore();
+  const userA = environment.authenticatedContext("A", { appAccess: true }).firestore();
   const reference = doc(userA, `users/A/collectionEntries/${id}`);
   await assertSucceeds(setDoc(reference, entry("A", 1, true)));
   await assertFails(deleteDoc(reference));
@@ -69,7 +69,7 @@ test("tombstones cannot be physically deleted or resurrected", async () => {
 });
 
 test("source identity is optional but must be a valid complete pair", async () => {
-  const userA = environment.authenticatedContext("A").firestore();
+  const userA = environment.authenticatedContext("A", { appAccess: true }).firestore();
   const reference = doc(userA, `users/A/collectionEntries/${id}`);
   await assertSucceeds(setDoc(reference, {
     ...entry("A"), sourceSetId: "sv08", sourceCardId: "sv08-001-reverseholofoil",
@@ -86,8 +86,8 @@ test("source identity is optional but must be a valid complete pair", async () =
 
 test("scan evidence is private, idempotent and shape constrained", async () => {
   const fingerprint = "a".repeat(64);
-  const userA = environment.authenticatedContext("A").firestore();
-  const userB = environment.authenticatedContext("B").firestore();
+  const userA = environment.authenticatedContext("A", { appAccess: true }).firestore();
+  const userB = environment.authenticatedContext("B", { appAccess: true }).firestore();
   const reference = doc(userA, `users/A/scanEvidence/${fingerprint}`);
   await assertSucceeds(setDoc(reference, evidence(fingerprint)));
   await assertSucceeds(setDoc(reference, { ...evidence(fingerprint), originalConfidence: 90 }));
@@ -103,7 +103,7 @@ test("clients can read but never publish shared stable knowledge", async () => {
       fingerprint, cardId: "source:sv1:sv1-001|normal|standard", status: "STABLE",
     });
   });
-  const userA = environment.authenticatedContext("A").firestore();
+  const userA = environment.authenticatedContext("A", { appAccess: true }).firestore();
   await assertSucceeds(getDoc(doc(userA, `scanKnowledge/${fingerprint}`)));
   await assertFails(setDoc(doc(userA, `scanKnowledge/${fingerprint}`), {
     fingerprint, cardId: "forged", status: "STABLE",

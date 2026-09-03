@@ -37,6 +37,24 @@ describe('DomiDex Storage rules', () => {
     await assertFails(Promise.resolve(admin.storage().ref('scanner-reference/other.json').put(new TextEncoder().encode('{}'), { contentType: 'application/json' })));
   });
 
+  it('requires appAccess for private user images and keeps users isolated', async () => {
+    const denied = environment.authenticatedContext('owner');
+    const pretesterOnly = environment.authenticatedContext('tester', { pretester: true });
+    const owner = environment.authenticatedContext('owner', { appAccess: true });
+    const other = environment.authenticatedContext('other', { appAccess: true });
+    const admin = environment.authenticatedContext('admin', { admin: true });
+    const path = 'users/owner/cards/front.webp';
+    const payload = new Uint8Array([1, 2, 3]);
+    const metadata = { contentType: 'image/webp' };
+
+    await assertFails(Promise.resolve(denied.storage().ref(path).put(payload, metadata)));
+    await assertFails(Promise.resolve(pretesterOnly.storage().ref('users/tester/cards/front.webp').put(payload, metadata)));
+    await assertSucceeds(Promise.resolve(owner.storage().ref(path).put(payload, metadata)));
+    await assertSucceeds(owner.storage().ref(path).getDownloadURL());
+    await assertFails(other.storage().ref(path).getDownloadURL());
+    await assertFails(admin.storage().ref(path).getDownloadURL());
+  });
+
   it('allows only strict manual pretester uploads and admin reads', async () => {
     const tester = environment.authenticatedContext('tester', { pretester: true });
     const admin = environment.authenticatedContext('admin', { admin: true });

@@ -4,6 +4,8 @@ service firebase.storage {
     function signedIn() { return request.auth != null; }
     function owns(uid) { return signedIn() && request.auth.uid == uid; }
     function isAdmin() { return signedIn() && request.auth.token.get('admin', false) == true; }
+    function hasAppAccess() { return signedIn() && (request.auth.token.get('appAccess', false) == true || request.auth.token.get('admin', false) == true); }
+    function ownsApp(uid) { return owns(uid) && hasAppAccess(); }
     function isPretester() { return signedIn() && (request.auth.token.get('pretester', false) == true || request.auth.token.get('admin', false) == true); }
 
     function validImage() {
@@ -14,13 +16,13 @@ service firebase.storage {
     }
 
     match /users/{uid}/{allPaths=**} {
-      allow read, delete: if owns(uid);
-      allow create, update: if owns(uid) && validImage();
+      allow read, delete: if ownsApp(uid);
+      allow create, update: if ownsApp(uid) && validImage();
     }
 
     match /catalog-contributions/{uid}/{contentHash}/{fileName} {
-      allow read, delete: if owns(uid);
-      allow create: if owns(uid)
+      allow read, delete: if ownsApp(uid);
+      allow create: if ownsApp(uid)
         && validImage()
         && contentHash.matches('[a-f0-9]{64}')
         && fileName.matches('card[.](jpg|png|webp)')
@@ -31,11 +33,11 @@ service firebase.storage {
     }
 
     match /community-submissions/{uid}/{submissionId}/front.jpg {
-      allow create: if owns(uid) && validImage()
+      allow create: if ownsApp(uid) && validImage()
         && firestore.exists(/databases/(default)/documents/communitySubmissions/$(submissionId))
         && firestore.get(/databases/(default)/documents/communitySubmissions/$(submissionId)).data.submitterUid == uid
         && firestore.get(/databases/(default)/documents/communitySubmissions/$(submissionId)).data.status == 'PENDING_UPLOAD';
-      allow read: if owns(uid);
+      allow read: if ownsApp(uid);
       allow update, delete: if false;
     }
 

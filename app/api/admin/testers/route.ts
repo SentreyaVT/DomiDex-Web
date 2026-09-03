@@ -1,11 +1,11 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
-import { boundedPageSize, findAuthUserByEmail, listPretesters, setPretesterClaim } from '@/lib/server/firebase-admin-auth';
+import { boundedPageSize, findAuthUserByEmail, listManagedUsers, setAppAccessClaim, setPretesterClaim } from '@/lib/server/firebase-admin-auth';
 
 export async function GET(request: Request) {
   try {
     await requireAdminToken(request.headers.get('authorization'));
     const url = new URL(request.url);
-    const result = await listPretesters(boundedPageSize(url.searchParams.get('pageSize')), cleanToken(url.searchParams.get('pageToken')));
+    const result = await listManagedUsers(boundedPageSize(url.searchParams.get('pageSize')), cleanToken(url.searchParams.get('pageToken')));
     return json({ configured: true, ...result });
   } catch (error) { return errorResponse(error); }
 }
@@ -23,10 +23,13 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await requireAdminToken(request.headers.get('authorization'));
-    const body = await request.json() as { uid?: unknown; pretester?: unknown };
+    const body = await request.json() as { uid?: unknown; pretester?: unknown; appAccess?: unknown };
     const uid = cleanUid(body.uid);
-    if (!uid || typeof body.pretester !== 'boolean') throw new Error('INVALID_CHANGE');
-    return json({ configured: true, user: await setPretesterClaim(uid, body.pretester), tokenRefreshRequired: true });
+    const pretesterChange = typeof body.pretester === 'boolean';
+    const appAccessChange = typeof body.appAccess === 'boolean';
+    if (!uid || pretesterChange === appAccessChange) throw new Error('INVALID_CHANGE');
+    const updated = pretesterChange ? await setPretesterClaim(uid, body.pretester as boolean) : await setAppAccessClaim(uid, body.appAccess as boolean);
+    return json({ configured: true, user: updated, tokenRefreshRequired: true });
   } catch (error) { return errorResponse(error); }
 }
 

@@ -19,6 +19,7 @@ export interface AdminUserSummary {
   displayName: string | null;
   admin: boolean;
   pretester: boolean;
+  appAccess: boolean;
   createdAt: string | null;
   lastLoginAt: string | null;
 }
@@ -36,6 +37,13 @@ export function withPretesterClaim(claims: Record<string, unknown>, enabled: boo
   return next;
 }
 
+export function withAppAccessClaim(claims: Record<string, unknown>, enabled: boolean) {
+  const next = { ...claims };
+  if (enabled) next.appAccess = true;
+  else delete next.appAccess;
+  return next;
+}
+
 export function boundedPageSize(value: unknown) {
   const number = Number(value);
   return Number.isInteger(number) ? Math.min(1_000, Math.max(1, number)) : 100;
@@ -50,23 +58,33 @@ export async function findAuthUserByEmail(email: string) {
   return summarize(user);
 }
 
-export async function listPretesters(pageSize: number, pageToken?: string) {
+export async function listManagedUsers(pageSize: number, pageToken?: string) {
   const query = new URLSearchParams({ maxResults: String(boundedPageSize(pageSize)) });
   if (pageToken) query.set('nextPageToken', pageToken);
   const body = await identityRequest<{ users?: IdentityUser[]; nextPageToken?: string }>(`accounts:batchGet?${query}`);
   return {
-    users: (body.users ?? []).map(summarize).filter((user) => user.pretester),
+    users: (body.users ?? []).map(summarize).filter((user) => user.pretester || user.appAccess),
     nextPageToken: body.nextPageToken ?? null,
   };
 }
 
+export async function setAppAccessClaim(uid: string, enabled: boolean) {
+  return setBooleanClaim(uid, 'appAccess', enabled);
+}
+
 export async function setPretesterClaim(uid: string, enabled: boolean) {
+  return setBooleanClaim(uid, 'pretester', enabled);
+}
+
+async function setBooleanClaim(uid: string, claim: 'pretester' | 'appAccess', enabled: boolean) {
   const found = await identityRequest<{ users?: IdentityUser[] }>('accounts:lookup', {
     method: 'POST', body: JSON.stringify({ localId: [uid] }),
   });
   const user = found.users?.[0];
   if (!user) throw new Error('AUTH_USER_NOT_FOUND');
-  const claims = withPretesterClaim(parseClaims(user.customAttributes), enabled);
+  const claims = claim === 'pretester'
+    ? withPretesterClaim(parseClaims(user.customAttributes), enabled)
+    : withAppAccessClaim(parseClaims(user.customAttributes), enabled);
   await identityRequest('accounts:update', {
     method: 'POST', body: JSON.stringify({ localId: uid, customAttributes: JSON.stringify(claims) }),
   });
@@ -123,7 +141,7 @@ function summarize(user: IdentityUser): AdminUserSummary {
   return {
     uid: cleanId(user.localId), email: typeof user.email === 'string' ? user.email : '',
     displayName: typeof user.displayName === 'string' && user.displayName.trim() ? user.displayName.trim().slice(0, 200) : null,
-    admin: claims.admin === true, pretester: claims.pretester === true,
+    admin: claims.admin === true, pretester: claims.pretester === true, appAccess: claims.appAccess === true,
     createdAt: millisToIso(user.createdAt), lastLoginAt: millisToIso(user.lastLoginAt),
   };
 }

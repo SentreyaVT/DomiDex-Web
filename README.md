@@ -1,6 +1,6 @@
-# DomiDex TCG Web
+# DomiDex Web
 
-Offizielle Webplattform und Desktop-Sammlungsoberfläche für DomiDex TCG. Die Web-App nutzt dieselbe Firebase-Authentifizierung und denselben privaten Sammlungsbestand wie die Android-App, ohne deren Quellcode oder Datenmodell zu verändern.
+Offizielle Webplattform und Desktop-Sammlungsoberfläche für DomiDex. Die Web-App nutzt dieselbe Firebase-Authentifizierung und denselben privaten Sammlungsbestand wie die Android-App, ohne deren Quellcode oder Datenmodell zu verändern.
 
 ## Enthalten
 

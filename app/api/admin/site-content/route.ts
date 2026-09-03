@@ -45,7 +45,7 @@ function validateContent(value: unknown): SiteContent {
     statusBanner: text(input.statusBanner, 400), currentVersion: text(input.currentVersion, 40),
     currentBuild: text(input.currentBuild, 40), releaseStatus: text(input.releaseStatus, 40),
     discordUrl: safeUrl(text(input.discordUrl, 2_000)), discordText: text(input.discordText, 1_000),
-    githubUrl: safeUrl(text(input.githubUrl, 2_000)), kickstarterUrl: safeUrl(text(input.kickstarterUrl, 2_000)),
+    kickstarterUrl: safeUrl(text(input.kickstarterUrl, 2_000)),
     kickstarterCta: text(input.kickstarterCta, 100), updates, roadmap,
   };
 }
