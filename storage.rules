@@ -1,0 +1,65 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function owns(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() { return signedIn() && request.auth.token.get('admin', false) == true; }
+    function isPretester() { return signedIn() && (request.auth.token.get('pretester', false) == true || request.auth.token.get('admin', false) == true); }
+
+    function validImage() {
+      return request.resource != null
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp']
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    match /users/{uid}/{allPaths=**} {
+      allow read, delete: if owns(uid);
+      allow create, update: if owns(uid) && validImage();
+    }
+
+    match /catalog-contributions/{uid}/{contentHash}/{fileName} {
+      allow read, delete: if owns(uid);
+      allow create: if owns(uid)
+        && validImage()
+        && contentHash.matches('[a-f0-9]{64}')
+        && fileName.matches('card[.](jpg|png|webp)')
+        && request.resource.metadata.ownerUid == uid
+        && request.resource.metadata.reviewStatus == 'PENDING_REVIEW'
+        && request.resource.metadata.contentSha256 == contentHash;
+      allow update: if false;
+    }
+
+    match /community-submissions/{uid}/{submissionId}/front.jpg {
+      allow create: if owns(uid) && validImage()
+        && firestore.exists(/databases/(default)/documents/communitySubmissions/$(submissionId))
+        && firestore.get(/databases/(default)/documents/communitySubmissions/$(submissionId)).data.submitterUid == uid
+        && firestore.get(/databases/(default)/documents/communitySubmissions/$(submissionId)).data.status == 'PENDING_UPLOAD';
+      allow read: if owns(uid);
+      allow update, delete: if false;
+    }
+
+    match /scanner-reference/{allPaths=**} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /scanner-report-images/{reportId}/{fileName} {
+      allow read: if isAdmin();
+      allow create: if isPretester()
+        && validImage()
+        && reportId.matches('[A-Za-z0-9._-]{1,128}')
+        && fileName.matches('capture[.](jpg|png|webp)')
+        && request.resource.metadata.keys().hasOnly(['ownerUid', 'reportId', 'captureType', 'contentSha256'])
+        && request.resource.metadata.ownerUid == request.auth.uid
+        && request.resource.metadata.reportId == reportId
+        && request.resource.metadata.captureType == 'MANUAL_CAPTURE'
+        && request.resource.metadata.contentSha256.matches('[a-f0-9]{64}');
+      allow update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

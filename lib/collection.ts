@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import type { CollectionEntry, TcgCardDetail, TcgVariant } from './domain';
-import { exactTrendPrice } from './domain';
+import { canonicalTcgCardId, collectionVariantLabel, exactTrendPrice } from './domain';
 import { firestore } from './firebase-client';
 import { imageUrl } from './tcgdex';
 
@@ -36,12 +36,11 @@ export async function addExactCard(
 ) {
   const safeQuantity = Math.max(1, Math.min(10_000, Math.trunc(quantity)));
   const finish = normalizeFinish(selectedVariant.type);
-  const variant = selectedVariant.stamp?.length
-    ? `${selectedVariant.size ?? 'Standard'} · ${selectedVariant.stamp.join(', ')}`
-    : selectedVariant.foil ? `${selectedVariant.size ?? 'Standard'} · ${selectedVariant.foil}` : selectedVariant.size ?? 'Standard';
+  const variant = collectionVariantLabel(selectedVariant);
   const productId = selectedVariant.pricing?.cardmarket?.idProduct ?? card.pricing?.cardmarket?.idProduct ?? null;
   const exact = current.find((entry) =>
-    entry.sourceSetId === card.set.id && entry.sourceCardId === card.id
+    entry.sourceSetId === card.set.id && entry.sourceCardId !== null
+    && canonicalTcgCardId(entry.sourceCardId) === canonicalTcgCardId(card.id)
     && entry.finish === finish && entry.variant === variant && entry.condition === 'Near Mint');
   const syncId = exact?.syncId ?? await deterministicWebSyncId(user.uid, card.set.id, card.id, finish, variant);
   const reference = doc(firestore, 'users', user.uid, 'collectionEntries', syncId);

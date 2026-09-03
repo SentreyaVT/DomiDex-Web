@@ -70,6 +70,7 @@ export interface ScannerReference {
   dexId: number[];
   variants: string[];
   imageFile: string;
+  sourceImageUrl?: string | null;
   referenceAvailable: boolean;
   metadataAvailable: boolean;
   layoutFamily: string;

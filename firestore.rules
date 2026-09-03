@@ -3,11 +3,53 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
-    function admin() { return signedIn() && request.auth.token.admin == true; }
+    function admin() { return signedIn() && request.auth.token.get('admin', false) == true; }
+    function pretester() { return signedIn() && (request.auth.token.get('pretester', false) == true || request.auth.token.get('admin', false) == true); }
     function nullableString(value, maximum) {
       return value == null || (value is string && value.size() <= maximum);
     }
     function nullableInt(value) { return value == null || value is int; }
+    function nullableNumber(value) { return value == null || value is number; }
+    function validScannerReport(reportId) {
+      let data = request.resource.data;
+      return pretester()
+        && reportId.matches('[A-Za-z0-9._-]{1,128}')
+        && data.keys().hasOnly([
+          'schemaVersion', 'scanId', 'createdAt', 'captureType', 'captureImagePath',
+          'imageSha256', 'imageContentType', 'imageSizeBytes', 'attempts', 'ocrTokens',
+          'guessedName', 'guessedSet', 'guessedNumber', 'confidence', 'zoneConfidence',
+          'profileId', 'profileVersion', 'failureReason', 'reviewStatus', 'referenceCardId',
+          'referenceCardKey', 'reviewNote', 'reviewedAt', 'reviewedBy'
+        ])
+        && data.keys().hasAll([
+          'schemaVersion', 'scanId', 'createdAt', 'captureType', 'captureImagePath',
+          'imageSha256', 'imageContentType', 'imageSizeBytes', 'attempts', 'ocrTokens',
+          'confidence', 'zoneConfidence', 'failureReason', 'reviewStatus'
+        ])
+        && data.schemaVersion == 1
+        && data.scanId is string && data.scanId.size() > 0 && data.scanId.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 80
+        && data.captureType == 'MANUAL_CAPTURE'
+        && data.captureImagePath.matches('scanner-report-images/' + reportId + '/capture[.](jpg|png|webp)')
+        && data.imageSha256.matches('[a-f0-9]{64}')
+        && data.imageContentType in ['image/jpeg', 'image/png', 'image/webp']
+        && data.imageSizeBytes is int && data.imageSizeBytes > 0 && data.imageSizeBytes <= 10 * 1024 * 1024
+        && data.attempts is list && data.attempts.size() <= 4
+        && data.ocrTokens is list && data.ocrTokens.size() <= 100
+        && nullableString(data.guessedName, 200)
+        && nullableString(data.guessedSet, 160)
+        && nullableString(data.guessedNumber, 80)
+        && nullableNumber(data.confidence)
+        && data.zoneConfidence is map && data.zoneConfidence.size() <= 64
+        && nullableString(data.profileId, 128)
+        && nullableInt(data.profileVersion)
+        && data.failureReason is string && data.failureReason.size() <= 1000
+        && data.reviewStatus == 'NEW'
+        && data.referenceCardId == null
+        && data.referenceCardKey == null
+        && data.reviewNote == ''
+        && data.reviewedAt == null;
+    }
     function validScanEvidence(uid, fingerprint) {
       let data = request.resource.data;
       return own(uid)
@@ -212,10 +254,27 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Raw scan reports are technical diagnostics. They are written by trusted
-    // backend code and reviewed only by explicitly claimed administrators.
+    // Raw scan reports contain technical data only. Pretesters may submit a strict
+    // MANUAL_CAPTURE report, but only administrators may ever read or review it.
     match /scannerReports/{reportId} {
-      allow read, create, update: if admin();
+      allow read: if admin();
+      allow create: if validScannerReport(reportId);
+      allow update: if admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'reviewStatus', 'reviewNote', 'referenceCardId', 'referenceCardKey', 'reviewedAt', 'reviewedBy'
+        ])
+        && request.resource.data.reviewStatus in [
+          'NEW', 'IN_REVIEW', 'RESOLVED', 'PROFILE_CHANGE_REQUIRED',
+          'CANDIDATE_TESTING', 'PUBLISHED', 'REJECTED'
+        ]
+        && nullableString(request.resource.data.reviewNote, 2000)
+        && nullableString(request.resource.data.referenceCardId, 128)
+        && nullableString(request.resource.data.referenceCardKey, 128)
+        && ((request.resource.data.referenceCardId == null && request.resource.data.referenceCardKey == null)
+          || (request.resource.data.referenceCardId is string && request.resource.data.referenceCardKey is string))
+        && nullableString(request.resource.data.reviewedAt, 80)
+        && request.resource.data.reviewedBy is string
+        && request.resource.data.reviewedBy.size() <= 128;
       allow delete: if false;
     }
 

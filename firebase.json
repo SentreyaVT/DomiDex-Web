@@ -2,8 +2,20 @@
   "firestore": {
     "rules": "firestore.rules"
   },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "hosting": {
+    "public": "firebase-hosting",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "redirects": [
+      { "source": "/", "destination": "https://domidex-tcg.dominik-muxifeld.chatgpt.site", "type": 302 },
+      { "source": "/:path*", "destination": "https://domidex-tcg.dominik-muxifeld.chatgpt.site/:path", "type": 302 }
+    ]
+  },
   "emulators": {
     "firestore": { "port": 8080 },
+    "storage": { "port": 9199 },
     "ui": { "enabled": false },
     "singleProjectMode": true
   }

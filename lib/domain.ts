@@ -143,5 +143,31 @@ export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): numbe
 }
 
 export function canonicalTcgCardId(value: string) {
-  return value.trim().replace(/-(?:reverse-holo|reverse|holo|normal)$/i, '');
+  return value.trim().replace(/-(?:reverse-?holofoil|reverse-holo|reverse|holofoil|holo|normal)$/i, '');
 }
+
+export function collectionVariantLabel(variant: TcgVariant) {
+  return [variant.size ?? 'Standard', variant.foil, ...(variant.stamp ?? [])].filter(Boolean).join(' · ');
+}
+
+export function variantForCollectionEntry(card: TcgCardDetail, entry: CollectionEntry) {
+  const variants = card.variants_detailed?.length
+    ? card.variants_detailed
+    : [{ type: 'Normal', size: 'Standard', pricing: card.pricing }];
+  if (entry.externalProductId !== null) {
+    const productMatches = variants.filter((item) => item.pricing?.cardmarket?.idProduct === entry.externalProductId);
+    if (productMatches.length === 1) return productMatches[0];
+  }
+  const finishMatches = variants.filter((item) => normalizedFinish(item.type) === normalizedFinish(entry.finish));
+  const stored = normalizedVariant(entry.variant);
+  const descriptorMatches = finishMatches.filter((item) => {
+    const descriptor = normalizedVariant(collectionVariantLabel(item));
+    const identity = normalizedVariant(item.variantId ?? '');
+    return descriptor === stored || Boolean(identity && identity === stored);
+  });
+  if (descriptorMatches.length === 1) return descriptorMatches[0];
+  return finishMatches.length === 1 ? finishMatches[0] : null;
+}
+
+function normalizedFinish(value: string) { if (/reverse/i.test(value)) return 'reverse-holo'; if (/holo/i.test(value)) return 'holo'; return 'normal'; }
+function normalizedVariant(value: string) { return value.toLocaleLowerCase('de').replace(/[^a-z0-9]+/g, ' ').trim(); }

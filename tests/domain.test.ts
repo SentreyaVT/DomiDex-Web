@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalTcgCardId, exactTrendPrice, type TcgCardDetail } from '@/lib/domain';
+import { canonicalTcgCardId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail } from '@/lib/domain';
 
 const card: TcgCardDetail = {
   id: 'sv03.5-001', localId: '001', name: 'Bisasam', set: { id: 'sv03.5', name: '151' },
@@ -23,6 +23,25 @@ describe('exactTrendPrice', () => {
 
   it('normalizes only known Android variant suffixes', () => {
     expect(canonicalTcgCardId('me04-089-normal')).toBe('me04-089');
+    expect(canonicalTcgCardId('sv08-001-reverseholofoil')).toBe('sv08-001');
     expect(canonicalTcgCardId('svp-173')).toBe('svp-173');
+  });
+
+  it('selects a price variant by exact Cardmarket product before visual labels', () => {
+    const detailed = { ...card, variants_detailed: [
+      { type: 'Holo', size: 'Standard', foil: 'Cosmos', pricing: { cardmarket: { idProduct: 1, 'trend-holo': 1 } } },
+      { type: 'Holo', size: 'Standard', foil: 'Galaxy', pricing: { cardmarket: { idProduct: 2, 'trend-holo': 2 } } },
+    ] };
+    const entry = { finish: 'Holo', variant: 'Standard · Cosmos', externalProductId: 2 } as CollectionEntry;
+    expect(variantForCollectionEntry(detailed, entry)?.pricing?.cardmarket?.idProduct).toBe(2);
+  });
+
+  it('does not guess between ambiguous variants', () => {
+    const detailed = { ...card, variants_detailed: [
+      { type: 'Holo', size: 'Standard', foil: 'Cosmos' },
+      { type: 'Holo', size: 'Standard', foil: 'Galaxy' },
+    ] };
+    const entry = { finish: 'Holo', variant: 'Standard', externalProductId: null } as CollectionEntry;
+    expect(variantForCollectionEntry(detailed, entry)).toBeNull();
   });
 });

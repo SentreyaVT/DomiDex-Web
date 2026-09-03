@@ -3,7 +3,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'cardvault-715ac';
 const keys = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'));
 
-export interface VerifiedFirebaseToken extends JWTPayload { user_id?: string; admin?: boolean; }
+export interface VerifiedFirebaseToken extends JWTPayload { user_id?: string; admin?: boolean; pretester?: boolean; }
 
 export async function verifyFirebaseToken(authorization: string | null): Promise<VerifiedFirebaseToken> {
   const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -19,5 +19,11 @@ export async function verifyFirebaseToken(authorization: string | null): Promise
 export async function requireAdminToken(authorization: string | null) {
   const token = await verifyFirebaseToken(authorization);
   if (token.admin !== true) throw new Error('ADMIN_REQUIRED');
+  return token;
+}
+
+export async function requirePretesterToken(authorization: string | null) {
+  const token = await verifyFirebaseToken(authorization);
+  if (token.admin !== true && token.pretester !== true) throw new Error('PRETESTER_REQUIRED');
   return token;
 }

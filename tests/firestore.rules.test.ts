@@ -65,16 +65,32 @@ describe('DomiDex Web Firestore rules', () => {
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'scannerReleaseManifest/production')));
   });
 
-  it('keeps technical scan reports private to administrators', async () => {
+  it('accepts strict manual pretester reports but keeps the queue admin-only', async () => {
     const admin = environment.authenticatedContext('admin', { admin: true }).firestore();
     const user = environment.authenticatedContext('user').firestore();
-    const report = doc(admin, 'scannerReports/scan-1');
-    await assertSucceeds(setDoc(report, { scanId: 'scan-1', reviewStatus: 'NEW' }));
-    await assertSucceeds(getDoc(report));
+    const pretester = environment.authenticatedContext('tester', { pretester: true }).firestore();
+    const report = doc(pretester, 'scannerReports/scan-1');
+    await assertSucceeds(setDoc(report, scanReport('scan-1')));
     await assertFails(getDoc(doc(user, 'scannerReports/scan-1')));
-    await assertFails(setDoc(doc(user, 'scannerReports/scan-2'), { scanId: 'scan-2', reviewStatus: 'NEW' }));
+    await assertFails(getDoc(doc(pretester, 'scannerReports/scan-1')));
+    await assertSucceeds(getDoc(doc(admin, 'scannerReports/scan-1')));
+    await assertFails(setDoc(doc(user, 'scannerReports/scan-2'), scanReport('scan-2')));
+    await assertFails(setDoc(doc(pretester, 'scannerReports/auto'), { ...scanReport('auto'), captureType: 'AUTO_CAPTURE' }));
+    await assertFails(setDoc(doc(pretester, 'scannerReports/pii'), { ...scanReport('pii'), email: 'private@example.com' }));
+  });
+
+  it('allows admins to review reports without changing technical evidence', async () => {
+    const admin = environment.authenticatedContext('admin', { admin: true }).firestore();
+    const pretester = environment.authenticatedContext('tester', { pretester: true }).firestore();
+    const report = doc(pretester, 'scannerReports/scan-review');
+    await setDoc(report, scanReport('scan-review'));
+    const adminReport = doc(admin, 'scannerReports/scan-review');
+    await assertSucceeds(updateDoc(adminReport, { reviewStatus: 'IN_REVIEW', reviewNote: 'Prüfung', reviewedAt: '2026-09-03T00:00:00Z', reviewedBy: 'admin' }));
+    await assertFails(updateDoc(adminReport, { scanId: 'manipulated' }));
+    await assertFails(updateDoc(doc(pretester, 'scannerReports/scan-review'), { reviewStatus: 'RESOLVED' }));
   });
 });
 
 function siteContent() { return { heroTitle:'Deine Sammlung.',heroSubtitle:'Sicher synchronisiert.',statusBanner:'Pre-Beta',currentVersion:'1.0-pre-beta',currentBuild:'17',releaseStatus:'Pre-Beta',discordUrl:'',discordText:'Community',githubUrl:'https://github.com/nandedomi/DomiDex',kickstarterUrl:'',kickstarterCta:'Coming Soon',updates:[],roadmap:[] }; }
 function scannerVersion(status: string, version = 1) { return { profileId: 'profile', profileVersion: version, schemaVersion: 1, status, zones: [] }; }
+function scanReport(reportId: string) { return { schemaVersion:1,scanId:reportId,createdAt:'2026-09-03T00:00:00Z',captureType:'MANUAL_CAPTURE',captureImagePath:`scanner-report-images/${reportId}/capture.webp`,imageSha256:'a'.repeat(64),imageContentType:'image/webp',imageSizeBytes:42,attempts:[],ocrTokens:[],guessedName:null,guessedSet:null,guessedNumber:null,confidence:null,zoneConfidence:{},profileId:null,profileVersion:null,failureReason:'Nicht erkannt',reviewStatus:'NEW',referenceCardId:null,referenceCardKey:null,reviewNote:'',reviewedAt:null}; }

@@ -23,8 +23,11 @@ export interface ScannerReport {
   documentId: string;
   scanId: string;
   createdAt: string;
-  captureType: string;
-  captureImageUrl: string | null;
+  captureType: 'MANUAL_CAPTURE' | 'UNBEKANNT';
+  captureImagePath: string | null;
+  imageSha256: string | null;
+  imageContentType: string | null;
+  imageSizeBytes: number | null;
   attempts: ScanAnalysisAttempt[];
   ocrTokens: string[];
   guessedName: string | null;
@@ -54,8 +57,11 @@ export function normalizeScannerReport(value: Record<string, unknown>): ScannerR
     documentId,
     scanId,
     createdAt: cleanText(value.createdAt, 80),
-    captureType: cleanText(value.captureType, 80) || 'UNBEKANNT',
-    captureImageUrl: safeImageUrl(value.captureImageUrl),
+    captureType: value.captureType === 'MANUAL_CAPTURE' ? 'MANUAL_CAPTURE' : 'UNBEKANNT',
+    captureImagePath: safeImagePath(value.captureImagePath, documentId),
+    imageSha256: safeSha256(value.imageSha256),
+    imageContentType: safeImageContentType(value.imageContentType),
+    imageSizeBytes: safeImageSize(value.imageSizeBytes),
     attempts: Array.isArray(value.attempts) ? value.attempts.slice(0, 4).map(normalizeAttempt) : [],
     ocrTokens: Array.isArray(value.ocrTokens)
       ? value.ocrTokens.filter((item): item is string => typeof item === 'string').map((item) => item.slice(0, 120)).slice(0, 100)
@@ -96,13 +102,10 @@ function normalizeConfidenceMap(value: unknown) {
   }).filter(([key]) => Boolean(key)));
 }
 
-function safeImageUrl(value: unknown) {
-  if (typeof value !== 'string') return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' ? url.toString().slice(0, 2_000) : null;
-  } catch { return null; }
-}
+function safeImagePath(value: unknown, reportId: string) { const path = typeof value === 'string' ? value : ''; return new RegExp(`^scanner-report-images/${escapeRegExp(reportId)}/capture[.](?:jpg|png|webp)$`).test(path) ? path : null; }
+function safeSha256(value: unknown) { return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : null; }
+function safeImageContentType(value: unknown) { return typeof value === 'string' && ['image/jpeg', 'image/png', 'image/webp'].includes(value) ? value : null; }
+function safeImageSize(value: unknown) { const number = Number(value); return Number.isInteger(number) && number > 0 && number <= 10 * 1024 * 1024 ? number : null; }
 
 function nullableText(value: unknown, maximum: number) { const text = cleanText(value, maximum); return text || null; }
 function nullableId(value: unknown) { const id = cleanId(value); return id || null; }
@@ -111,3 +114,4 @@ function nullablePositiveInteger(value: unknown) { const number = Number(value);
 function cleanId(value: unknown) { return typeof value === 'string' ? value.trim().replace(/[^A-Za-z0-9._-]/g, '').slice(0, 128) : ''; }
 function cleanText(value: unknown, maximum: number) { return typeof value === 'string' ? value.trim().slice(0, maximum) : ''; }
 function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
+function escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

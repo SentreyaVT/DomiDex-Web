@@ -64,8 +64,9 @@ async function publishVersion(source: ScannerProfileVersion, versions: ScannerPr
   const existingManifest = await getDocument('scannerReleaseManifest/production', authorization) as { profiles?: Record<string, unknown> } | null;
   const manifest = {
     schemaVersion: 1, updatedAt: now, updatedBy: actor,
+    checksumAlgorithm: 'SHA-256', checksumEncoding: 'hex', canonicalization: 'domidex-stable-json-v1',
     profiles: { ...existingManifest?.profiles, [source.profileId]: { documentId, profileVersion: nextVersion, checksum, layoutFamily: value.layoutFamily, scope: value.scope } },
-    compatibility: { androidIntegration: 'not-connected', profileSchemaVersion: 1 }, minClientVersion: null,
+    compatibility: { androidIntegration: 'not-connected', profileSchemaVersion: 1, manifestSchemaVersion: 1 }, minClientVersion: null,
   };
   const writes: Array<Record<string, unknown>> = [
     setWrite('scannerProfileVersions', documentId, value as unknown as Record<string, unknown>, true),

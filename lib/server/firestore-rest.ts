@@ -32,11 +32,20 @@ export function decodeFields(fields: Record<string, Record<string, unknown>>) {
 }
 
 export async function listDocuments(collection: string, authorization: string) {
-  const response = await fetch(`${root}/${collection}?pageSize=300`, { headers: { Authorization: authorization } });
-  if (response.status === 404) return [];
-  if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
-  const body = await response.json() as { documents?: Array<{ name: string; fields?: Record<string, Record<string, unknown>> }> };
-  return (body.documents ?? []).map((document) => ({ documentId: document.name.split('/').pop()!, ...decodeFields(document.fields ?? {}) }));
+  const documents: Array<{ documentId: string } & Record<string, unknown>> = [];
+  let pageToken = '';
+  for (let page = 0; page < 50; page += 1) {
+    const query = new URLSearchParams({ pageSize: '300' });
+    if (pageToken) query.set('pageToken', pageToken);
+    const response = await fetch(`${root}/${collection}?${query}`, { headers: { Authorization: authorization } });
+    if (response.status === 404) return documents;
+    if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
+    const body = await response.json() as { documents?: Array<{ name: string; fields?: Record<string, Record<string, unknown>> }>; nextPageToken?: string };
+    documents.push(...(body.documents ?? []).map((document) => ({ documentId: document.name.split('/').pop()!, ...decodeFields(document.fields ?? {}) })));
+    pageToken = body.nextPageToken ?? '';
+    if (!pageToken) return documents;
+  }
+  throw new Error('FIRESTORE_PAGINATION_LIMIT');
 }
 
 export async function getDocument(path: string, authorization: string) {

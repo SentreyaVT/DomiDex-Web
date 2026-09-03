@@ -57,6 +57,7 @@ for (const item of sourceCards) {
     cardKey: `${setId}-${localId}`, id, setId, setName: details?.setName ?? null, series: details?.series ?? null,
     localId, nameDe, category, rarity, hp: details?.hp ?? null, types: details?.types ?? [], stage: details?.stage ?? null,
     illustrator: details?.illustrator ?? null, dexId: details?.dexId ?? [], variants: details?.variants ?? [], imageFile,
+    sourceImageUrl: safeSourceImage(item.image),
     referenceAvailable: imageExists, metadataAvailable: !!details, layoutFamily: classify(nameDe, category, rarity, setId), calibrationStatus: 'unclassified',
   });
 }
@@ -73,6 +74,7 @@ async function safeDirectories(dir) { try { return (await fs.readdir(dir, { with
 async function safeFiles(dir, suffix) { try { return (await fs.readdir(dir, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.endsWith(suffix)); } catch { return []; } }
 async function safeText(file) { try { return await fs.readFile(file, 'utf8'); } catch { return ''; } }
 async function exists(file) { try { await fs.access(file); return true; } catch { return false; } }
+function safeSourceImage(value) { try { const url = new URL(String(value ?? '')); return url.protocol === 'https:' && url.hostname === 'assets.tcgdex.net' && /^\/de\/[A-Za-z0-9._/-]+$/.test(url.pathname) ? url.toString().replace(/\/$/, '') : null; } catch { return null; } }
 function field(source, name) { return source.match(new RegExp(`\\b${name}:\\s*["']([^"']+)["']`))?.[1] ?? null; }
 function numberField(source, name) { const value = source.match(new RegExp(`\\b${name}:\\s*(\\d+)`))?.[1]; return value ? Number(value) : null; }
 function localizedName(source) { const block = source.match(/\bname:\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? ''; return block.match(/\bde:\s*["']([^"']+)["']/)?.[1] ?? block.match(/\ben:\s*["']([^"']+)["']/)?.[1] ?? null; }
