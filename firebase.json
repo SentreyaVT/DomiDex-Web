@@ -6,11 +6,18 @@
     "rules": "storage.rules"
   },
   "hosting": {
-    "public": "firebase-hosting",
+    "site": "domidex",
+    "public": "dist/client",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "redirects": [
-      { "source": "/", "destination": "https://domidex-tcg.dominik-muxifeld.chatgpt.site", "type": 302 },
-      { "source": "/:path*", "destination": "https://domidex-tcg.dominik-muxifeld.chatgpt.site/:path", "type": 302 }
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "domidex-web",
+          "region": "europe-west1",
+          "pinTag": true
+        }
+      }
     ]
   },
   "emulators": {

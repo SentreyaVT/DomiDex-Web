@@ -16,6 +16,8 @@
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.config.ts tests/firestore.rules.test.ts\"",
     "test:storage-rules": "firebase emulators:exec --only storage \"vitest run --config vitest.config.ts tests/storage.rules.test.ts\"",
     "test:android-contract": "firebase emulators:exec --only firestore \"node --test --test-concurrency=1 tests/android-contract.rules.test.mjs\"",
+    "firebase:prepare": "node scripts/prepare-firebase-cloud-run-env.mjs && npm run build",
+    "firebase:start": "node --env-file=.env.production.local dist/standalone/server.js",
     "admin:bootstrap": "node scripts/set-admin-claim.mjs",
     "scanner:index": "node --env-file-if-exists=.env.local scripts/build-scanner-reference-index.mjs",
     "binder:manifests": "node --env-file-if-exists=.env.local scripts/build-binder-manifests.mjs"
