@@ -8,12 +8,14 @@ const projectId = 'cardvault-715ac-web-storage-test';
 beforeAll(async () => {
   environment = await initializeTestEnvironment({
     projectId,
+    firestore: { rules: await readFile(new URL('../firestore.rules', import.meta.url), 'utf8') },
     storage: { rules: await readFile(new URL('../storage.rules', import.meta.url), 'utf8') },
   });
 });
 
 beforeEach(async () => {
   await environment.clearStorage();
+  await environment.clearFirestore();
   await environment.withSecurityRulesDisabled(async (context) => {
     await context.storage().ref('scanner-reference/master-index.json').put(new TextEncoder().encode('{}'), { contentType: 'application/json' });
   });
@@ -55,15 +57,20 @@ describe('DomiDex Storage rules', () => {
     await assertFails(admin.storage().ref(path).getDownloadURL());
   });
 
-  it('allows only strict manual pretester uploads and admin reads', async () => {
+  it('denies all direct report image access, including admin token creation', async () => {
     const tester = environment.authenticatedContext('tester', { pretester: true });
     const admin = environment.authenticatedContext('admin', { admin: true });
     const user = environment.authenticatedContext('user');
     const path = 'scanner-report-images/report-1/capture.webp';
     const metadata = { contentType: 'image/webp', customMetadata: { ownerUid: 'tester', reportId: 'report-1', captureType: 'MANUAL_CAPTURE', contentSha256: 'a'.repeat(64) } };
-    await assertSucceeds(Promise.resolve(tester.storage().ref(path).put(new Uint8Array([1, 2, 3]), metadata)));
+    await assertFails(Promise.resolve(tester.storage().ref(path).put(new Uint8Array([1, 2, 3]), metadata)));
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await context.storage().ref(path).put(new Uint8Array([1, 2, 3]), metadata);
+    });
     await assertFails(tester.storage().ref(path).getDownloadURL());
-    await assertSucceeds(admin.storage().ref(path).getDownloadURL());
+    await assertFails(admin.storage().ref(path).getDownloadURL());
+    await assertFails(user.storage().ref(path).getDownloadURL());
+    await assertFails(environment.unauthenticatedContext().storage().ref(path).getDownloadURL());
     await assertFails(Promise.resolve(user.storage().ref('scanner-report-images/report-2/capture.webp').put(new Uint8Array([1]), { ...metadata, customMetadata: { ...metadata.customMetadata, ownerUid: 'user', reportId: 'report-2' } })));
     await assertFails(Promise.resolve(tester.storage().ref('scanner-report-images/report-3/capture.webp').put(new Uint8Array([1]), { ...metadata, customMetadata: { ...metadata.customMetadata, reportId: 'report-3', captureType: 'AUTO_CAPTURE' } })));
   });

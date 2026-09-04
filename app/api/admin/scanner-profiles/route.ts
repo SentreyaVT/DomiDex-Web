@@ -1,6 +1,6 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
 import { commitDocuments, getDocument, listDocuments, setWrite } from '@/lib/server/firestore-rest';
-import { canTransition, profileStatuses, scopeLevels, validateScannerProfile, zoneTypes, type ScannerProfileStatus, type ScannerProfileVersion, type ScannerZone } from '@/lib/scanner-profile';
+import { canTransition, profileStatuses, scannerProductionActionBlockReason, scopeLevels, validateScannerProfile, zoneTypes, type ScannerProfileStatus, type ScannerProfileVersion, type ScannerZone } from '@/lib/scanner-profile';
 
 type Action = 'saveDraft' | 'markTesting' | 'createCandidate' | 'publish' | 'rollback';
 
@@ -21,6 +21,8 @@ export async function POST(request: Request) {
     const authorization = requiredAuthorization(request); const token = await requireAdminToken(authorization);
     const body = await request.json() as { action?: Action; profile?: unknown; sourceDocumentId?: string; confirm?: string; changelog?: string };
     if (!body.action) throw new Error('INVALID_ACTION');
+    const publicationBlock = scannerProductionActionBlockReason(body.action);
+    if (publicationBlock) return Response.json({ error: publicationBlock, code: 'SCANNER_BENCHMARK_NOT_CONNECTED' }, { status: 409 });
     const versions = (await listDocuments('scannerProfileVersions', authorization)) as unknown as ScannerProfileVersion[];
     const now = new Date().toISOString(); const actor = String(token.sub);
     if (body.action === 'saveDraft') {

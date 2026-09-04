@@ -1,0 +1,5 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-t', 'europe-west1-docker.pkg.dev/cardvault-715ac/cloud-run-source-deploy/domidex-web:private-cloud-20260904', '.']
+images:
+  - europe-west1-docker.pkg.dev/cardvault-715ac/cloud-run-source-deploy/domidex-web:private-cloud-20260904

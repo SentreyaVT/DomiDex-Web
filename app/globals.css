@@ -304,3 +304,16 @@ html,body{max-width:100%;overflow-x:clip}
   .binder-cover,.binder-pocket,.card-slot{transform:none!important}
 }
 @keyframes binder-turn-reduced{from{opacity:1}to{opacity:0}}
+
+/* Open collection binder only: fixed pocket tracks, no sheet over the cards.
+   The public homepage's binder illustration keeps its existing styling. */
+.binder-view .binder-book{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(0,1fr);overflow:hidden;animation:none}
+.binder-view .pocket-page{min-width:0;min-height:0;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+.binder-view .binder-pocket{min-width:0;min-height:0;padding:12px}
+.binder-view .binder-pocket img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+.binder-view .binder-pocket:hover{transform:none}
+@media(max-width:760px){
+  .binder-view .binder-book{height:auto;min-height:0;grid-template-columns:minmax(0,1fr);grid-template-rows:none;gap:10px}
+  .binder-view .pocket-page{height:auto;min-height:0;aspect-ratio:1/1.35}
+  .binder-view .binder-pocket{padding:9px}
+}

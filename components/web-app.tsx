@@ -68,8 +68,8 @@ export function WebApp() {
   const binders = useMemo(() => groupBinders(entries), [entries]);
 
   if (authLoading) return <AppLoading />;
-  if (!user) return <AccessPreview mode="guest" onSignIn={() => void signIn().catch(() => setError('Die Google-Anmeldung konnte nicht abgeschlossen werden.'))} />;
-  if (!hasAppAccess) return <AccessPreview mode="connect" userName={user.displayName ?? user.email ?? 'DomiDex Nutzer'} onRefresh={() => void refreshClaims().catch(() => setError('Der Web-Zugang konnte nicht erneut geprüft werden.'))} onLogout={() => void logout()} />;
+  if (!user) return <AccessPreview mode="guest" error={error} onSignIn={() => void signIn().catch(() => setError('Die Google-Anmeldung konnte nicht gestartet werden. Bitte lade die Seite neu und versuche es erneut.'))} />;
+  if (!hasAppAccess) return <AccessPreview mode="connect" error={error} userName={user.displayName ?? user.email ?? 'DomiDex Nutzer'} onRefresh={() => void refreshClaims().catch(() => setError('Der Web-Zugang konnte nicht erneut geprüft werden.'))} onLogout={() => void logout()} />;
 
   return (
     <main className="desktop-app">
@@ -102,7 +102,7 @@ export function WebApp() {
   );
 }
 
-function AccessPreview({ mode, userName, onSignIn, onRefresh, onLogout }: { mode: 'guest' | 'connect'; userName?: string; onSignIn?: () => void; onRefresh?: () => void; onLogout?: () => void }) {
+function AccessPreview({ mode, error, userName, onSignIn, onRefresh, onLogout }: { mode: 'guest' | 'connect'; error?: string; userName?: string; onSignIn?: () => void; onRefresh?: () => void; onLogout?: () => void }) {
   const [view, setView] = useState<View>('overview');
   const label = navigation.find(([key]) => key === view)?.[1] ?? 'Übersicht';
   return <main className="desktop-app preview-app">
@@ -121,6 +121,7 @@ function AccessPreview({ mode, userName, onSignIn, onRefresh, onLogout }: { mode
           <p>{mode === 'guest' ? 'ÖFFENTLICHE WEB-APP-VORSCHAU' : 'GESCHÜTZTER DOMIDEX-ZUGANG'}</p>
           <h1>{mode === 'guest' ? 'Lerne DomiDex Web kennen.' : 'DomiDex Web verbinden'}</h1>
           <span>{mode === 'guest' ? 'Du kannst alle Bereiche ansehen. Persönliche Sammlungen, Binder und Portfolio-Daten werden dabei weder geladen noch verändert.' : 'Melde dich in der DomiDex-App mit demselben Konto an und lass den Web-Zugang freischalten. Erst danach lädt diese Website deine private Sammlung.'}</span>
+          {error && <div className="form-error" role="alert">{error}</div>}
           <div className="access-actions">
             {mode === 'guest' ? <button onClick={onSignIn}><LogIn /> Mit Google anmelden</button> : <><button onClick={onRefresh}><RefreshCw /> Zugriff erneut prüfen</button><button className="quiet" onClick={onLogout}><LogOut /> Abmelden</button></>}
             <a href="/">Zur DomiDex Website</a>
@@ -154,10 +155,10 @@ function Overview({ entries, prices, total, binders, onNavigate }: { entries: Co
   </div>;
 }
 
-function BinderView({ binders, prices, user, onError }: { binders: BinderGroup[]; prices: Record<string, number | null>; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
-  const [binderIndex, setBinderIndex] = useState(0); const [page, setPage] = useState(0); const [open, setOpen] = useState(false); const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [setCards, setSetCards] = useState<TcgCardSummary[]>([]); const [printedTotal, setPrintedTotal] = useState(0); const [setLoading, setSetLoading] = useState(false); const [turn, setTurn] = useState<{ direction: 'next' | 'previous'; slots: BinderSlot[] } | null>(null);
+export function BinderView({ binders, prices, user, onError }: { binders: BinderGroup[]; prices: Record<string, number | null>; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
+  const [binderIndex, setBinderIndex] = useState(0); const [page, setPage] = useState(0); const [open, setOpen] = useState(false); const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [setCards, setSetCards] = useState<TcgCardSummary[]>([]); const [printedTotal, setPrintedTotal] = useState(0); const [setLoading, setSetLoading] = useState(false);
   const binder = binders[Math.min(binderIndex, Math.max(0, binders.length - 1))];
-  useEffect(() => { setPage(0); setOpen(false); setSelectedSlotId(null); setTurn(null); }, [binderIndex]);
+  useEffect(() => { setPage(0); setOpen(false); setSelectedSlotId(null); }, [binderIndex]);
   useEffect(() => {
     let active = true; setSetCards([]); setPrintedTotal(0); setSetLoading(false); if (!binder?.sourceSetId) return;
     setSetLoading(true); void loadSet(binder.sourceSetId).then((set) => { if (active) { setSetCards(set.cards ?? []); setPrintedTotal(set.cardCount?.official ?? 0); } }).catch(() => { if (active) onError('Das vollständige Set konnte nicht geladen werden. Der vorhandene Bestand bleibt sichtbar.'); }).finally(() => { if (active) setSetLoading(false); });
@@ -166,13 +167,13 @@ function BinderView({ binders, prices, user, onError }: { binders: BinderGroup[]
   if (!binder) return <div className="app-view"><div className="view-title"><div><p>BINDER</p><h1>Deine Binder.</h1></div></div><Empty title="Noch kein Binder" text="Sobald eine Karte hinzugefügt wird, erscheint ihr Set-Binder automatisch hier." /></div>;
   const summaries = setCards.length ? setCards : binder.entries.map((entry) => ({ id: entry.sourceCardId ?? entry.syncId, localId: entry.collectorNumber, name: entry.name, image: entry.imageUrl ?? undefined }));
   const slots = buildBinderSlots(summaries, binder.entries, printedTotal); const pages = paginateBinderSlots(slots); const visible = pages[page] ?? []; const selected = selectedSlotId ? slots.find((slot) => slot.slotId === selectedSlotId) ?? null : null;
-  const changePage = (nextPage: number) => { if (turn || nextPage < 0 || nextPage >= pages.length) return; setTurn({ direction: nextPage > page ? 'next' : 'previous', slots: visible }); setPage(nextPage); };
+  const changePage = (nextPage: number) => { if (nextPage < 0 || nextPage >= pages.length) return; setPage(nextPage); };
   return <div className="app-view binder-view">
     <div className="view-title"><div><p>MASTER-SET BINDER</p><h1>{binder.name}</h1><span>{binder.entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten · {slots.filter((slot) => slot.owned.length).length}/{slots.length || binder.entries.length} Plätze · {formatPrice(binder.entries.reduce((sum, entry) => sum + ((prices[entry.syncId] ?? 0) * entry.quantity), 0))}</span></div><select value={binderIndex} onChange={(event) => setBinderIndex(Number(event.target.value))}>{binders.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}</select></div>
     <section className={`interactive-binder ${open ? 'is-open' : ''}`}>
       {!open ? <button className="binder-cover" onClick={() => setOpen(true)}><img src="/domidex-logo.jpg" alt="" /><small>DOMIDEX BINDER</small><strong>{binder.name}</strong><span>Öffnen</span></button> : <>
-        {setLoading ? <div className="binder-set-loading"><LoaderCircle className="spin" /><span>Alle Set-Karten werden geladen …</span></div> : <div className="binder-book"><div className="pocket-page">{[0,1,2,3].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div><div className="binder-spine"><i/><i/><i/><i/></div><div className="pocket-page">{[4,5,6,7].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div>{turn && <TurningPage turn={turn} onFinish={() => setTurn(null)} />}</div>}
-        <div className="page-controls"><button aria-label="Vorherige Binderseite" disabled={page === 0 || Boolean(turn)} onClick={() => changePage(page - 1)}><ChevronLeft /></button><span>Seite {page + 1} / {Math.max(1, pages.length)}</span><button aria-label="Nächste Binderseite" disabled={page >= pages.length - 1 || Boolean(turn)} onClick={() => changePage(page + 1)}><ChevronRight /></button><button className="close-binder" onClick={() => setOpen(false)}>Binder schließen</button></div>
+        {setLoading ? <div className="binder-set-loading"><LoaderCircle className="spin" /><span>Alle Set-Karten werden geladen …</span></div> : <div className="binder-book"><div className="pocket-page">{[0,1,2,3].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div><div className="binder-spine"><i/><i/><i/><i/></div><div className="pocket-page">{[4,5,6,7].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div></div>}
+        <div className="page-controls"><button aria-label="Vorherige Binderseite" disabled={page === 0} onClick={() => changePage(page - 1)}><ChevronLeft /></button><span>Seite {page + 1} / {Math.max(1, pages.length)}</span><button aria-label="Nächste Binderseite" disabled={page >= pages.length - 1} onClick={() => changePage(page + 1)}><ChevronRight /></button><button className="close-binder" onClick={() => setOpen(false)}>Binder schließen</button></div>
       </>}
     </section>
     {selected && <BinderCardDialog slot={selected} entries={binder.entries} prices={prices} user={user} busy={busy} setBusy={setBusy} onClose={() => setSelectedSlotId(null)} onError={onError} />}
@@ -220,11 +221,6 @@ function BinderCardDialog({ slot, entries, prices, user, busy, setBusy, onClose,
 function CardDialog({ entry, price, alternatives, selectedIndex = 0, onSelect, busy, onClose, onChange }: { entry: CollectionEntry; price: number | null | undefined; alternatives?: CollectionEntry[]; selectedIndex?: number; onSelect?: (index: number) => void; busy: boolean; onClose: () => void; onChange: (entry: CollectionEntry, delta: number) => void }) { return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="card-dialog" role="dialog" aria-modal="true" aria-labelledby="card-title"><button className="dialog-close" onClick={onClose} aria-label="Schließen"><X /></button><div className="dialog-card-image"><img src={entry.imageUrl ?? '/domidex-logo.jpg'} alt={entry.name} /></div><div className="dialog-card-info"><p>{entry.setName}</p><h2 id="card-title">{entry.name}</h2><span>#{entry.collectorNumber} · {entry.language === 'GERMAN' ? 'Deutsch' : entry.language}</span>{alternatives && alternatives.length > 1 && onSelect && <label className="binder-variant"><span>Gesammelte Variante</span><select value={selectedIndex} onChange={(event) => onSelect(Number(event.target.value))}>{alternatives.map((item, index) => <option value={index} key={item.syncId}>{item.finish} · {item.variant}</option>)}</select></label>}<dl><div><dt>Variante</dt><dd>{entry.finish} · {entry.variant}</dd></div><div><dt>Zustand</dt><dd>{entry.condition || 'Nicht angegeben'}</dd></div><div><dt>Cardmarket Trend</dt><dd>{price === undefined ? 'Wird geladen …' : price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</dd></div><div><dt>Gesamtwert</dt><dd>{typeof price === 'number' ? formatPrice(price * entry.quantity) : 'Preis nicht verfügbar'}</dd></div></dl><div className="dialog-actions"><button disabled={busy} onClick={() => onChange(entry,-1)}>{entry.quantity === 1 ? <Trash2 /> : <Minus />}</button><output>{entry.quantity}</output><button disabled={busy} onClick={() => onChange(entry,1)}><Plus /></button></div></div></section></div>; }
 
 function BinderPocket({ slot, onSelect }: { slot?: BinderSlot; onSelect: (slot: BinderSlot) => void }) { const owned = slot?.owned[0]; return <button className={`binder-pocket ${slot && !owned ? 'missing-card' : slot ? '' : 'empty-pocket'}`} disabled={!slot} onClick={() => slot && onSelect(slot)}>{slot ? <><img src={owned?.imageUrl ?? imageUrl(slot.card.image, 'low') ?? '/domidex-logo.jpg'} alt={slot.card.name} /><span>{owned ? `×${slot.owned.reduce((sum, entry) => sum + entry.quantity, 0)}` : `#${slot.card.localId}`}</span><small>{slot.finish}{!owned ? ' · fehlt' : ''}</small></> : <><b>—</b><small>Kein Kartenplatz</small></>}</button>; }
-
-function TurningPage({ turn, onFinish }: { turn: { direction: 'next' | 'previous'; slots: BinderSlot[] }; onFinish: () => void }) {
-  const visible = turn.direction === 'next' ? turn.slots.slice(4, 8) : turn.slots.slice(0, 4);
-  return <div className={`binder-turn-sheet ${turn.direction}`} onAnimationEnd={onFinish}><div className="turning-pocket-page">{visible.map((slot) => <div className="turning-pocket" key={slot.slotId}><img src={slot.owned[0]?.imageUrl ?? imageUrl(slot.card.image, 'low') ?? '/domidex-logo.jpg'} alt="" /><small>{slot.finish}</small></div>)}</div></div>;
-}
 
 function finishMatches(type: string, finish: BinderSlot['finish']) {
   if (finish === 'Reverse Holo') return /reverse/i.test(type);

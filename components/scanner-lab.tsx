@@ -8,7 +8,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from './auth-provider';
 import {
-  clampZone, createScannerDraft, layoutFamilies, scopeLevels, validateScannerProfile,
+  clampZone, createScannerDraft, layoutFamilies, scannerProductionActionBlockReason, scannerPublicationBlockReason, scopeLevels, validateScannerProfile,
   zoneTypes, type ScannerProfileVersion, type ScannerReference, type ScannerScopeLevel, type ScannerZone, type ScannerZoneType,
 } from '@/lib/scanner-profile';
 import { scanReportStatuses, type ScannerReport, type ScanReportStatus } from '@/lib/scanner-report';
@@ -96,12 +96,14 @@ export function ScannerLab() {
   const execute = async (action: string, sourceDocumentId?: string) => {
     setWorking(true); setError(''); setMessage('');
     try {
+      const publicationBlock = scannerProductionActionBlockReason(action);
+      if (publicationBlock) { setError(publicationBlock); return; }
       let confirm: string | undefined;
-      if (action === 'publish') { if (!window.confirm('Production wirklich veröffentlichen? Es ist keine echte Scanner-Benchmark-Engine verbunden.')) return; confirm = 'PUBLISH'; }
+      if (action === 'publish') { if (!window.confirm('Dieses geprüfte Scannerprofil wirklich veröffentlichen?')) return; confirm = 'PUBLISH'; }
       if (action === 'rollback') { if (!window.confirm('Diese frühere Konfiguration als neue Production-Version veröffentlichen?')) return; confirm = 'ROLLBACK'; }
       const body = await authorized('/api/admin/scanner-profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, profile: action === 'saveDraft' ? draft : undefined, sourceDocumentId, confirm, changelog: draft.changelog }) }) as { version?: ScannerProfileVersion; warning?: string };
       if (body.version) setDraft({ ...body.version, documentId: body.version.documentId });
-      setMessage(body.warning || 'Scannerprofil wurde versioniert gespeichert.'); await refreshProfiles();
+      setMessage(body.warning || (action === 'saveDraft' ? 'Entwurf gespeichert. Das ist keine Veröffentlichung und kein Foto-Upload.' : 'Profilstatus gespeichert. Es wurde kein automatischer Erkennungstest ausgeführt.')); await refreshProfiles();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Aktion fehlgeschlagen.'); }
     finally { setWorking(false); }
   };
@@ -111,7 +113,7 @@ export function ScannerLab() {
   if (!isAdmin) return <main className="admin-gate"><ShieldAlert /><h1>403 · Scanner Lab geschützt</h1><p>Nur ein ausdrücklich freigegebener Firebase-Admin kann Scannerprofile lesen oder ändern.</p><button onClick={() => void refreshClaims()}>Berechtigung erneut prüfen</button></main>;
 
   return <main className="scanner-lab">
-    <header className="lab-header"><a href="/admin"><ArrowLeft /> Administration</a><div><p>DOMIDEX ENGINEERING</p><h1>Scanner Control Center</h1><span>Kalibrierung und sichere Profilversionierung · keine Web-Scanner-Simulation</span></div><div className="lab-actions"><button onClick={undo} disabled={historyIndex < 0}><Undo2 /> Rückgängig</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Draft speichern</button></div></header>
+    <header className="lab-header"><a href="/admin"><ArrowLeft /> Administration</a><div><p>DOMIDEX ENGINEERING</p><h1>Scanner Control Center</h1><span>Fehlscan-Uploads findest du unter „Fehlscans“. Profilentwürfe werden separat gespeichert.</span></div><div className="lab-actions"><button onClick={undo} disabled={historyIndex < 0}><Undo2 /> Rückgängig</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Entwurf speichern</button></div></header>
     {message && <div className="admin-success"><Check />{message}</div>}{error && <div className="form-error">{error}</div>}
     <section className="lab-metrics">
       <Metric icon={Database} label="Referenzkarten" value={references.stats ? String(references.stats.cardsProcessed ?? references.total) : 'Nicht verbunden'} />
@@ -135,7 +137,8 @@ export function ScannerLab() {
     {mode === 'calibration' && <section className="lab-bottom">
       <div className="lab-panel"><div className="lab-panel-title"><div><p>VERSIONEN</p><h2>Kontrollierter Release-Flow</h2></div><span>Save ≠ Publish</span></div>
         <div className="version-flow"><b>EDIT</b><i /> <b>DRAFT</b><i /> <b>TESTING</b><i /> <b>CANDIDATE</b><i /> <b>PRODUCTION</b></div>
-        <div className="version-list">{versions.length ? versions.map((version) => <article key={version.documentId}><div><Status value={version.status} /><b>v{version.profileVersion}</b><span>{version.changelog || 'Kein Changelog'}</span></div><div>{version.status === 'draft' && <button onClick={() => void execute('markTesting', version.documentId)}>Als Testing</button>}{version.status === 'testing' && <button onClick={() => void execute('createCandidate', version.documentId)}>Candidate erzeugen</button>}{version.status === 'candidate' && <button className="danger" onClick={() => void execute('publish', version.documentId)}>Production veröffentlichen</button>}{version.status === 'deprecated' && <button onClick={() => void execute('rollback', version.documentId)}>Rollback als neue Version</button>}<button onClick={() => setDraft(version)}>Öffnen</button></div></article>) : <p className="lab-empty">Noch keine gespeicherte Version. „Draft speichern“ erzeugt die erste unveränderlich nachvollziehbare Version.</p>}</div>
+        <p id="scanner-publication-block">{scannerPublicationBlockReason} „Testing“ und „Candidate“ sind nur Bearbeitungsstände, keine bestandenen Tests.</p>
+        <div className="version-list">{versions.length ? versions.map((version) => <article key={version.documentId}><div><Status value={version.status} /><b>v{version.profileVersion}</b><span>{version.changelog || 'Kein Changelog'}</span></div><div>{version.status === 'draft' && <button disabled={working} onClick={() => void execute('markTesting', version.documentId)}>Für Prüfung vormerken</button>}{version.status === 'testing' && <button disabled={working} onClick={() => void execute('createCandidate', version.documentId)}>Candidate erzeugen</button>}{version.status === 'candidate' && <button className="danger" disabled={working || !!scannerProductionActionBlockReason('publish')} aria-describedby="scanner-publication-block" onClick={() => void execute('publish', version.documentId)}>Veröffentlichen gesperrt</button>}{version.status === 'deprecated' && <button disabled={working || !!scannerProductionActionBlockReason('rollback')} aria-describedby="scanner-publication-block" onClick={() => void execute('rollback', version.documentId)}>Rollback gesperrt</button>}<button onClick={() => setDraft(version)}>Öffnen</button></div></article>) : <p className="lab-empty">Noch keine gespeicherte Version. „Entwurf speichern“ erzeugt die erste unveränderlich nachvollziehbare Version.</p>}</div>
       </div>
       <div className="lab-panel benchmark-panel"><div className="lab-panel-title"><div><p>BENCHMARK</p><h2>Vorbereitet, nicht vorgetäuscht</h2></div></div><FlaskConical /><h3>Scannerengine nicht verbunden</h3><p>Das Lab erzeugt reale Konfigurationen. Accuracy, False Positives und Confidence werden erst angezeigt, wenn eine echte Engine Ergebnisse liefert.</p><dl><div><dt>Modus</dt><dd>NOT CONNECTED</dd></div><div><dt>Reale Läufe</dt><dd>{profiles.benchmarks.filter((item) => item.mode === 'REAL').length}</dd></div></dl></div>
     </section>}

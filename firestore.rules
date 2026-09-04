@@ -1,7 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+    function signedIn() {
+      return request.auth != null
+        && !exists(/databases/$(database)/documents/accountDeletionLocks/$(request.auth.uid));
+    }
     function own(uid) { return signedIn() && request.auth.uid == uid; }
     function admin() { return signedIn() && request.auth.token.get('admin', false) == true; }
     function appUser() { return signedIn() && (request.auth.token.get('appAccess', false) == true || request.auth.token.get('admin', false) == true); }
@@ -200,7 +203,7 @@ service cloud.firestore {
       allow create, update: if documentId == 'public' && admin()
         && request.resource.data.keys().hasOnly([
           'heroTitle', 'heroSubtitle', 'statusBanner', 'currentVersion', 'currentBuild',
-          'releaseStatus', 'discordUrl', 'discordText', 'kickstarterUrl',
+          'releaseStatus', 'discordUrl', 'discordText', 'githubUrl', 'kickstarterUrl',
           'kickstarterCta', 'updates', 'roadmap'
         ])
         && request.resource.data.heroTitle is string && request.resource.data.heroTitle.size() <= 240
@@ -211,6 +214,8 @@ service cloud.firestore {
         && request.resource.data.releaseStatus is string && request.resource.data.releaseStatus.size() <= 40
         && request.resource.data.discordUrl is string && request.resource.data.discordUrl.size() <= 2000
         && request.resource.data.discordText is string && request.resource.data.discordText.size() <= 1000
+        // Existing deployed editor may still submit this bounded legacy field.
+        && nullableString(request.resource.data.get('githubUrl', null), 2000)
         && request.resource.data.kickstarterUrl is string && request.resource.data.kickstarterUrl.size() <= 2000
         && request.resource.data.kickstarterCta is string && request.resource.data.kickstarterCta.size() <= 100
         && request.resource.data.updates is list && request.resource.data.updates.size() <= 50
@@ -259,7 +264,8 @@ service cloud.firestore {
     // MANUAL_CAPTURE report, but only administrators may ever read or review it.
     match /scannerReports/{reportId} {
       allow read: if admin();
-      allow create: if validScannerReport(reportId);
+      // The authenticated server upload atomically persists validated reports and ownership.
+      allow create: if false;
       allow update: if admin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'reviewStatus', 'reviewNote', 'referenceCardId', 'referenceCardKey', 'reviewedAt', 'reviewedBy'

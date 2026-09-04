@@ -1,7 +1,10 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function signedIn() { return request.auth != null; }
+    function signedIn() {
+      return request.auth != null
+        && !firestore.exists(/databases/(default)/documents/accountDeletionLocks/$(request.auth.uid));
+    }
     function owns(uid) { return signedIn() && request.auth.uid == uid; }
     function isAdmin() { return signedIn() && request.auth.token.get('admin', false) == true; }
     function hasAppAccess() { return signedIn() && (request.auth.token.get('appAccess', false) == true || request.auth.token.get('admin', false) == true); }
@@ -47,17 +50,9 @@ service firebase.storage {
     }
 
     match /scanner-report-images/{reportId}/{fileName} {
-      allow read: if isAdmin();
-      allow create: if isPretester()
-        && validImage()
-        && reportId.matches('[A-Za-z0-9._-]{1,128}')
-        && fileName.matches('capture[.](jpg|png|webp)')
-        && request.resource.metadata.keys().hasOnly(['ownerUid', 'reportId', 'captureType', 'contentSha256'])
-        && request.resource.metadata.ownerUid == request.auth.uid
-        && request.resource.metadata.reportId == reportId
-        && request.resource.metadata.captureType == 'MANUAL_CAPTURE'
-        && request.resource.metadata.contentSha256.matches('[a-f0-9]{64}');
-      allow update, delete: if false;
+      // Admin included: Firebase metadata reads can mint public downloadtokens.
+      // All image bytes now pass through authenticated server routes using GCS IAM.
+      allow read, write: if false;
     }
 
     match /{allPaths=**} {

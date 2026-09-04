@@ -1,7 +1,9 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
+import { privateOperations } from '@/lib/server/private-cloud-operations';
 import { boundedPageSize, findAuthUserByEmail, listManagedUsers, setAppAccessClaim, setPretesterClaim } from '@/lib/server/firebase-admin-auth';
 
 export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.get('action') === 'delete-account') return (await privateOperations()).deletionStatus(request);
   try {
     await requireAdminToken(request.headers.get('authorization'));
     const url = new URL(request.url);
@@ -11,6 +13,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (new URL(request.url).searchParams.get('action') === 'delete-account') return (await privateOperations()).deletionRequest(request);
   try {
     await requireAdminToken(request.headers.get('authorization'));
     const body = await request.json() as { email?: unknown };

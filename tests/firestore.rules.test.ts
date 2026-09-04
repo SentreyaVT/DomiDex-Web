@@ -1,11 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 
 let environment: RulesTestEnvironment;
 const projectId = 'cardvault-715ac-web-rules-test';
 
-beforeAll(async () => { environment = await initializeTestEnvironment({ projectId }); });
+beforeAll(async () => { environment = await initializeTestEnvironment({ projectId, firestore: { rules: await readFile(new URL('../firestore.rules', import.meta.url), 'utf8') } }); });
 afterEach(async () => environment.clearFirestore());
 afterAll(async () => environment.cleanup());
 
@@ -50,6 +51,7 @@ describe('DomiDex Web Firestore rules', () => {
     await assertSucceeds(getDoc(publicDoc));
     await assertFails(setDoc(doc(environment.authenticatedContext('user').firestore(), 'siteContent/public'), siteContent()));
     await assertSucceeds(setDoc(doc(environment.authenticatedContext('admin', { admin: true }).firestore(), 'siteContent/public'), siteContent()));
+    await assertSucceeds(setDoc(doc(environment.authenticatedContext('admin', { admin: true }).firestore(), 'siteContent/public'), { ...siteContent(), githubUrl: '' }));
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'users/owner/collectionEntries/web-entry')));
   });
 
@@ -68,12 +70,13 @@ describe('DomiDex Web Firestore rules', () => {
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'scannerReleaseManifest/production')));
   });
 
-  it('accepts strict manual pretester reports but keeps the queue admin-only', async () => {
+  it('requires server-side report creation and keeps the queue admin-only', async () => {
     const admin = environment.authenticatedContext('admin', { admin: true }).firestore();
     const user = environment.authenticatedContext('user').firestore();
     const pretester = environment.authenticatedContext('tester', { pretester: true }).firestore();
     const report = doc(pretester, 'scannerReports/scan-1');
-    await assertSucceeds(setDoc(report, scanReport('scan-1')));
+    await assertFails(setDoc(report, scanReport('scan-1')));
+    await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'scannerReports/scan-1'), { ...scanReport('scan-1'), ownerUid: 'tester' }));
     await assertFails(getDoc(doc(user, 'scannerReports/scan-1')));
     await assertFails(getDoc(doc(pretester, 'scannerReports/scan-1')));
     await assertSucceeds(getDoc(doc(admin, 'scannerReports/scan-1')));
@@ -85,12 +88,21 @@ describe('DomiDex Web Firestore rules', () => {
   it('allows admins to review reports without changing technical evidence', async () => {
     const admin = environment.authenticatedContext('admin', { admin: true }).firestore();
     const pretester = environment.authenticatedContext('tester', { pretester: true }).firestore();
-    const report = doc(pretester, 'scannerReports/scan-review');
-    await setDoc(report, scanReport('scan-review'));
+    await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'scannerReports/scan-review'), { ...scanReport('scan-review'), ownerUid: 'tester' }));
     const adminReport = doc(admin, 'scannerReports/scan-review');
     await assertSucceeds(updateDoc(adminReport, { reviewStatus: 'IN_REVIEW', reviewNote: 'Prüfung', reviewedAt: '2026-09-03T00:00:00Z', reviewedBy: 'admin' }));
     await assertFails(updateDoc(adminReport, { scanId: 'manipulated' }));
     await assertFails(updateDoc(doc(pretester, 'scannerReports/scan-review'), { reviewStatus: 'RESOLVED' }));
+  });
+
+  it('fences previously authorized sessions while deletion is in progress', async () => {
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
+    const ref = doc(owner, 'users/owner/collectionEntries/entry');
+    await assertSucceeds(setDoc(ref, entry('owner', 'entry')));
+    await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'accountDeletionLocks/owner'), { jobId: 'test' }));
+    await assertFails(getDoc(ref));
+    await assertFails(setDoc(doc(owner, 'users/owner/collectionEntries/recreate'), entry('owner', 'recreate')));
+    await assertFails(deleteDoc(doc(owner, 'accountDeletionLocks/owner')));
   });
 });
 

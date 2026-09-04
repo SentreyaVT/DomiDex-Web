@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizeScannerReport } from '@/lib/scanner-report';
+import { commitDocuments, setWrite } from '@/lib/server/firestore-rest';
 
 describe('scan report normalization', () => {
   it('keeps technical review data and rejects foreign image references', () => {
@@ -31,5 +32,45 @@ describe('scan report normalization', () => {
     expect(report?.reviewStatus).toBe('NEW');
     expect(report?.guessedName).toBeNull();
     expect(report?.failureReason).toBe('Kein Fehlergrund übermittelt.');
+  });
+});
+
+describe('scan report Firestore persistence', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('posts to the HTTPS commit endpoint with a Firestore resource name and create-only protection', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ writeResults: [{}] })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await commitDocuments([
+      setWrite('scannerReports', 'scan-1', { schemaVersion: 1, reviewStatus: 'NEW' }, true),
+    ], 'Bearer test-only');
+
+    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'cardvault-715ac';
+    const documentRoot = `projects/${projectId}/databases/(default)/documents`;
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toBe(`https://firestore.googleapis.com/v1/${documentRoot}:commit`);
+    expect(request.method).toBe('POST');
+    expect(JSON.parse(request.body)).toEqual({ writes: [{
+      update: {
+        name: `${documentRoot}/scannerReports/scan-1`,
+        fields: { schemaVersion: { integerValue: '1' }, reviewStatus: { stringValue: 'NEW' } },
+      },
+      currentDocument: { exists: false },
+    }] });
+  });
+
+  it('keeps ordinary writes free of create-only preconditions', () => {
+    expect(setWrite('scannerReports', 'scan-1', { reviewStatus: 'IN_REVIEW' }))
+      .not.toHaveProperty('currentDocument');
+    expect(setWrite('scannerReports', 'scan-1', { reviewStatus: 'IN_REVIEW' }, false))
+      .not.toHaveProperty('currentDocument');
+  });
+
+  it('does not report successful persistence when Firestore rejects the commit', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 400 })));
+    await expect(commitDocuments([
+      setWrite('scannerReports', 'scan-1', { schemaVersion: 1 }, true),
+    ], 'Bearer test-only')).rejects.toThrow('FIRESTORE_400');
   });
 });

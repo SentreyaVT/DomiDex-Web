@@ -1,0 +1,12 @@
+FROM europe-west1-docker.pkg.dev/cardvault-715ac/cloud-run-source-deploy/domidex-web@sha256:c84c73d151b7a353b26107af779bf5c34271ce9783af142ba869a360d8fec53b AS security-dependencies
+FROM europe-west1-docker.pkg.dev/cardvault-715ac/cloud-run-source-deploy/domidex-web@sha256:0349e96b746dcd544f50a14b74e148d58d7e48b1dc2b7207ed84b6e0aae9ad67
+USER root
+COPY manifest.json /tmp/private-manifest.json
+COPY verify-base.mjs /tmp/verify-base.mjs
+RUN node /tmp/verify-base.mjs
+COPY backend /app/backend
+COPY --from=security-dependencies /app/backend/security/package-lock.json /tmp/security-dependency-lock.json
+COPY --from=security-dependencies /app/backend/security/node_modules /app/backend/security/node_modules
+RUN node -e "const fs=require('node:fs');if(!fs.readFileSync('/tmp/security-dependency-lock.json').equals(fs.readFileSync('/app/backend/security/package-lock.json')))throw Error('Unverified dependency change')"
+COPY overlay /app/dist
+USER node

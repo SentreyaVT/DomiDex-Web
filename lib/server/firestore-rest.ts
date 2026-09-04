@@ -1,5 +1,6 @@
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'cardvault-715ac';
-const root = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+const documentRoot = `projects/${projectId}/databases/(default)/documents`;
+const root = `https://firestore.googleapis.com/v1/${documentRoot}`;
 
 export function encodeFirestore(value: unknown): Record<string, unknown> {
   if (value === null) return { nullValue: null };
@@ -66,7 +67,7 @@ export async function commitDocuments(writes: Array<Record<string, unknown>>, au
 
 export function setWrite(collection: string, documentId: string, value: Record<string, unknown>, createOnly = false) {
   return {
-    update: { name: `${root}/${collection}/${documentId}`, fields: encodeFields(value) },
+    update: { name: `${documentRoot}/${collection}/${documentId}`, fields: encodeFields(value) },
     ...(createOnly ? { currentDocument: { exists: false } } : {}),
   };
 }

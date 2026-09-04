@@ -27,7 +27,7 @@ export interface AdminUserSummary {
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
 export function firebaseAdminConfigured() {
-  return Boolean(adminClientEmail() && adminPrivateKey());
+  return Boolean((adminClientEmail() && adminPrivateKey()) || process.env.K_SERVICE?.trim());
 }
 
 export function withPretesterClaim(claims: Record<string, unknown>, enabled: boolean) {
@@ -118,7 +118,7 @@ async function googleAccessToken() {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
   const email = adminClientEmail();
   const privateKey = adminPrivateKey();
-  if (!email || !privateKey) throw new Error('FIREBASE_ADMIN_NOT_CONFIGURED');
+  if (!email || !privateKey) return cloudRunAccessToken();
   const now = Math.floor(Date.now() / 1_000);
   const assertion = await new SignJWT({ scope: 'https://www.googleapis.com/auth/identitytoolkit' })
     .setProtectedHeader({ alg: 'RS256', typ: 'JWT' }).setIssuer(email).setSubject(email)
@@ -128,6 +128,20 @@ async function googleAccessToken() {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
     signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error('FIREBASE_ADMIN_TOKEN_FAILED');
+  const body = await response.json() as { access_token?: string; expires_in?: number };
+  if (!body.access_token) throw new Error('FIREBASE_ADMIN_TOKEN_FAILED');
+  cachedToken = { value: body.access_token, expiresAt: Date.now() + Math.max(300, body.expires_in ?? 3_600) * 1_000 };
+  return body.access_token;
+}
+
+async function cloudRunAccessToken() {
+  if (!process.env.K_SERVICE?.trim()) throw new Error('FIREBASE_ADMIN_NOT_CONFIGURED');
+  const metadataHost = process.env.GCE_METADATA_HOST?.trim() || 'metadata.google.internal';
+  const response = await fetch(`http://${metadataHost}/computeMetadata/v1/instance/service-accounts/default/token`, {
+    headers: { 'Metadata-Flavor': 'Google' },
+    signal: AbortSignal.timeout(5_000),
   });
   if (!response.ok) throw new Error('FIREBASE_ADMIN_TOKEN_FAILED');
   const body = await response.json() as { access_token?: string; expires_in?: number };

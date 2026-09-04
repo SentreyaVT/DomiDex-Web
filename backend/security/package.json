@@ -1,0 +1,7 @@
+{
+  "name": "domidex-private-cloud-operations",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "dependencies": { "firebase-admin": "14.3.0" }
+}

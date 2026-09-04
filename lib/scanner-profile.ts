@@ -6,6 +6,14 @@ export const zoneTypes = [
 export const profileStatuses = ['draft', 'testing', 'candidate', 'production', 'deprecated'] as const;
 export const scopeLevels = ['global', 'layout', 'series', 'set', 'card'] as const;
 
+// No trusted benchmark runner is connected yet. A status change or a stored
+// benchmark row is not proof that this profile passed the real scanner engine.
+export const scannerPublicationBlockReason = 'Veröffentlichung gesperrt: Die automatische Prüfung mit der echten Scanner-Engine ist noch nicht angebunden. Entwürfe und Fehlscan-Reviews können weiterhin gespeichert werden.';
+
+export function scannerProductionActionBlockReason(action: string): string | null {
+  return action === 'publish' || action === 'rollback' ? scannerPublicationBlockReason : null;
+}
+
 export type ScannerZoneType = typeof zoneTypes[number];
 export type ScannerProfileStatus = typeof profileStatuses[number];
 export type ScannerScopeLevel = typeof scopeLevels[number];

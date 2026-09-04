@@ -1,12 +1,22 @@
 import { ArrowLeft } from 'lucide-react';
+import { legalContent, legalNavigation, type LegalPageType } from '@/lib/legal-content';
+import './legal-page.css';
 
-export function LegalPage({ type }: { type: 'impressum' | 'datenschutz' | 'kontakt' }) {
-  const content = type === 'impressum' ? {
-    title: 'Impressum', intro: 'Rechtliche Anbieterangaben', paragraphs: ['DomiDex befindet sich aktuell in einer privaten Pre-Beta. Vollständige Anbieter- und ladungsfähige Kontaktdaten werden vor einem öffentlichen kommerziellen Start ergänzt.', 'Diese Seite ist bereits als zentraler, später pflegbarer Rechtsbereich vorbereitet.'],
-  } : type === 'datenschutz' ? {
-    title: 'Datenschutz', intro: 'So behandelt DomiDex Web deine Daten', paragraphs: ['Die öffentliche Website verwendet keine Werbe-, Tracking- oder Analyse-Cookies.', 'Für die Web App wird Firebase Authentication mit Google verwendet. Deine Sammlung liegt geschützt unter deiner Firebase UID; Firestore-Regeln erlauben normalen Nutzern nur den Zugriff auf die eigene Collection.', 'Manuelle Web-Einträge erzeugen keine Scanner-Evidence. Das Admin-Dashboard bietet keinen allgemeinen Zugriff auf private Nutzersammlungen.', 'Technisch notwendige Protokolle der Hosting- und Firebase-Anbieter können unabhängig davon anfallen. Eine vollständige rechtliche Datenschutzerklärung wird vor dem öffentlichen Produktstart ergänzt.'],
-  } : {
-    title: 'Kontakt', intro: 'DomiDex erreichen', paragraphs: ['Community- und Projektkontakte werden zentral über den offiziellen Discord-Verweis der Startseite bereitgestellt.', 'Eine geschäftliche Kontaktadresse wird vor Kickstarter- oder Verkaufsstart ergänzt.'],
-  };
-  return <main className="legal-page"><a href="/"><ArrowLeft /> Zur Startseite</a><article><img src="/domidex-logo.jpg" alt="DomiDex"/><p>{content.intro}</p><h1>{content.title}</h1>{content.paragraphs.map((paragraph)=><p key={paragraph}>{paragraph}</p>)}</article></main>;
+export function LegalPage({ type }: { type: LegalPageType }) {
+  const content = legalContent[type];
+  return <main className="legal-page legal-release">
+    <a href="/" className="legal-back"><ArrowLeft aria-hidden="true" /> Zur Startseite</a>
+    <article aria-labelledby="legal-title">
+      <img src="/domidex-logo.jpg" alt="DomiDex" width={55} height={55}/>
+      <h1 id="legal-title">{content.title}</h1><p>{content.intro}</p><p className="legal-date">Stand: 4. September 2026</p>
+      <nav className="legal-navigation" aria-label="Informationen und Datenschutz">{legalNavigation.map((item) => <a key={item.type} href={item.href} aria-current={item.type === type ? 'page' : undefined}>{item.label}</a>)}</nav>
+      {content.sections.length > 5 && <nav className="legal-toc" aria-label="Inhalt dieser Seite"><h2>Auf dieser Seite</h2><ul>{content.sections.map((section) => <li key={section.id}><a href={`#${section.id}`}>{section.title}</a></li>)}</ul></nav>}
+      {content.sections.map((section) => <section key={section.id} id={section.id} aria-labelledby={`heading-${section.id}`}><h2 id={`heading-${section.id}`}>{section.title}</h2>
+        {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+        {section.items && <ol>{section.items.map((item) => <li key={item}>{item}</li>)}</ol>}
+        {section.links && <div className="legal-links">{section.links.map((link) => <a key={link.href} href={link.href} rel={link.href.startsWith('https:') ? 'noreferrer' : undefined}>{link.label}</a>)}</div>}
+      </section>)}
+      <nav className="legal-navigation legal-bottom" aria-label="Weitere öffentliche Informationen">{legalNavigation.filter((item) => item.type !== type).map((item) => <a key={item.type} href={item.href}>{item.label}</a>)}</nav>
+    </article>
+  </main>;
 }

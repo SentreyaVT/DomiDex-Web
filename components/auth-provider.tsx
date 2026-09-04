@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await signInWithPopup(firebaseAuth, googleProvider);
       } catch (error) {
         const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
-        if (code.includes('popup-blocked') || code.includes('operation-not-supported')) {
+        if (code.includes('popup-blocked') || code.includes('operation-not-supported') || code.includes('web-storage-unsupported')) {
           await signInWithRedirect(firebaseAuth, googleProvider);
           return;
         }

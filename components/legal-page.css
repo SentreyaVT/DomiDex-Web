@@ -1,0 +1,25 @@
+/* Public legal pages only: never homepage, app or binder styles. */
+.legal-page.legal-release{min-height:100vh;padding:2rem 1rem 4rem;background:#050610;color:#eeeaf5;font-family:Arial,system-ui,sans-serif}
+.legal-release *{box-sizing:border-box}
+.legal-release .legal-back{max-width:850px;margin:auto;font-size:1rem;color:#c6b4e4;display:flex;align-items:center;gap:.5rem}
+.legal-release .legal-back svg{width:1rem}
+.legal-release article{width:100%;max-width:850px;margin:2rem auto 0;padding:clamp(1.25rem,4vw,3rem);border:1px solid #30243f;border-radius:20px;background:#0d0e19}
+.legal-release img{display:block;width:55px;height:55px;border-radius:14px}
+.legal-release h1{font-size:clamp(1.8rem,5vw,2.65rem);line-height:1.18;margin:1.25rem 0;overflow-wrap:anywhere}
+.legal-release h2{font-size:1.25rem;line-height:1.4;margin:0 0 .9rem;color:#eeeaf5}
+.legal-release p,.legal-release li{color:#c6c1d1;font-size:1rem;line-height:1.75;overflow-wrap:anywhere}
+.legal-release article>p:first-of-type{color:#d2bddf;font-size:1rem;letter-spacing:normal}
+.legal-release .legal-date{font-size:.875rem;color:#b2adbf}
+.legal-release section{padding:1.5rem 0;border-top:1px solid #30243f;scroll-margin-top:1rem}
+.legal-release a{color:#d1a9ff;text-decoration:underline;text-underline-offset:.2em;overflow-wrap:anywhere}
+.legal-release a:hover{color:#f0ddff}
+.legal-release a:focus-visible{outline:3px solid #50d9e5;outline-offset:5px;border-radius:3px}
+.legal-release .legal-navigation,.legal-release .legal-links{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.85rem 1.1rem;font-size:1rem;line-height:1.7}
+.legal-release .legal-navigation{margin:1.5rem 0}
+.legal-release .legal-navigation a{padding:.35rem 0}
+.legal-release [aria-current=page]{color:#fff;font-weight:700;text-decoration-thickness:3px}
+.legal-release .legal-toc{padding:1.3rem;margin-bottom:1.5rem;background:#161025;border:1px solid #423050;border-radius:12px}
+.legal-release ol,.legal-release ul{padding-left:1.4rem}
+.legal-release li+li{margin-top:.65rem}
+.legal-release .legal-bottom{border-top:1px solid #30243f;padding-top:1.2rem}
+@media(max-width:420px){.legal-page.legal-release{padding:1.25rem .75rem 2rem}.legal-release .legal-toc{padding:1rem}}

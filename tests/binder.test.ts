@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { buildBinderSlots, paginateBinderSlots } from '@/lib/binder';
 import type { CollectionEntry, TcgCardSummary } from '@/lib/domain';
+import { BinderView } from '@/components/web-app';
+import { loadCard, loadSet } from '@/lib/tcgdex';
+
+vi.mock('@/components/auth-provider', () => ({ useAuth: vi.fn() }));
+vi.mock('@/lib/collection', () => ({ addExactCard: vi.fn(), changeQuantity: vi.fn(), subscribeCollection: vi.fn() }));
+vi.mock('@/lib/tcgdex', () => ({ loadSet: vi.fn(), loadCard: vi.fn(), searchCards: vi.fn(), imageUrl: (url: string) => url }));
+afterEach(cleanup);
 
 const threePrints = ['normal', 'holofoil', 'reverseholofoil'];
 
@@ -73,5 +83,56 @@ describe('master-set binder print-slot policy', () => {
     expect(slots).toHaveLength(20);
     expect(pages.map((page) => page.length)).toEqual([8, 8, 4]);
     expect(pages.flat().map((slot) => slot.slotId)).toEqual(slots.map((slot) => slot.slotId));
+  });
+});
+
+describe('open binder without page-turn overlays', () => {
+  const cards = Array.from({ length: 10 }, (_, index) => card({ id: `test-${index + 1}`, localId: String(index + 1), name: `Testkarte ${index + 1}`, printVariants: ['normal'] }));
+  beforeEach(() => {
+    vi.mocked(loadSet).mockResolvedValue({ id: 'test', name: 'Testbinder', cardCount: { official: 10 }, cards });
+    vi.mocked(loadCard).mockResolvedValue({ ...cards[0], set: { id: 'test', name: 'Testbinder' }, variants: { normal: true } });
+  });
+  async function openBinder() {
+    const view = render(createElement(BinderView, {
+      binders: [{ id: 'test', name: 'Testbinder', sourceSetId: 'test', entries: [] }],
+      prices: {}, user: { uid: 'test-only' } as Parameters<typeof BinderView>[0]['user'], onError: vi.fn(),
+    }));
+    fireEvent.click(screen.getByRole('button', { name: /DOMIDEX BINDER/ }));
+    await waitFor(() => expect(view.container.querySelectorAll('.binder-pocket')).toHaveLength(8));
+    return view;
+  }
+  it('changes pages immediately with no overlay or animation-event lock', async () => {
+    const view = await openBinder();
+    const previous = screen.getByRole('button', { name: 'Vorherige Binderseite' }) as HTMLButtonElement;
+    const next = screen.getByRole('button', { name: 'Nächste Binderseite' }) as HTMLButtonElement;
+    expect(previous.disabled).toBe(true);
+    fireEvent.click(next);
+    expect(screen.getByText('Seite 2 / 2')).toBeTruthy();
+    expect(next.disabled).toBe(true);
+    expect(previous.disabled).toBe(false);
+    expect(view.container.querySelector('.binder-turn-sheet')).toBeNull();
+    expect(screen.getByAltText('Testkarte 9')).toBeTruthy();
+    fireEvent.click(previous);
+    expect(screen.getByText('Seite 1 / 2')).toBeTruthy();
+    expect(screen.getByAltText('Testkarte 1')).toBeTruthy();
+    expect(view.container.querySelector('.binder-turn-sheet')).toBeNull();
+  });
+  it('retains eight bounded pockets, including disabled empty slots on the last page', async () => {
+    const view = await openBinder();
+    fireEvent.click(screen.getByRole('button', { name: 'Nächste Binderseite' }));
+    expect(view.container.querySelectorAll('.binder-pocket')).toHaveLength(8);
+    const empty = [...view.container.querySelectorAll<HTMLButtonElement>('.empty-pocket')];
+    expect(empty).toHaveLength(6);
+    expect(empty.every((button) => button.disabled)).toBe(true);
+  });
+  it('still opens the exact selected card and closes/reopens the binder', async () => {
+    await openBinder();
+    fireEvent.click(screen.getByAltText('Testkarte 1'));
+    expect(await screen.findByRole('dialog', { name: 'Testkarte 1' })).toBeTruthy();
+    expect(loadCard).toHaveBeenCalledWith('test-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Schließen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Binder schließen' }));
+    fireEvent.click(screen.getByRole('button', { name: /DOMIDEX BINDER/ }));
+    expect(screen.getByText('Seite 1 / 2')).toBeTruthy();
   });
 });
