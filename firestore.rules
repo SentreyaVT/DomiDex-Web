@@ -268,7 +268,7 @@ service cloud.firestore {
       allow create: if false;
       allow update: if admin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'reviewStatus', 'reviewNote', 'referenceCardId', 'referenceCardKey', 'reviewedAt', 'reviewedBy'
+          'reviewStatus', 'reviewNote', 'referenceCardId', 'referenceCardKey', 'referenceVariant', 'reviewedAt', 'reviewedBy'
         ])
         && request.resource.data.reviewStatus in [
           'NEW', 'IN_REVIEW', 'RESOLVED', 'PROFILE_CHANGE_REQUIRED',
@@ -277,7 +277,8 @@ service cloud.firestore {
         && nullableString(request.resource.data.reviewNote, 2000)
         && nullableString(request.resource.data.referenceCardId, 128)
         && nullableString(request.resource.data.referenceCardKey, 128)
-        && ((request.resource.data.referenceCardId == null && request.resource.data.referenceCardKey == null)
+        && nullableString(request.resource.data.referenceVariant, 120)
+        && ((request.resource.data.referenceCardId == null && request.resource.data.referenceCardKey == null && request.resource.data.referenceVariant == null)
           || (request.resource.data.referenceCardId is string && request.resource.data.referenceCardKey is string))
         && nullableString(request.resource.data.reviewedAt, 80)
         && request.resource.data.reviewedBy is string

@@ -31,7 +31,15 @@ describe('scan report normalization', () => {
     const report = normalizeScannerReport({ documentId: 'scan-2', status: 'UNKNOWN' });
     expect(report?.reviewStatus).toBe('NEW');
     expect(report?.guessedName).toBeNull();
+    expect(report?.confidence).toBeNull();
     expect(report?.failureReason).toBe('Kein Fehlergrund übermittelt.');
+  });
+
+  it('keeps explicit null confidence unknown and normalizes a real review variant', () => {
+    const report = normalizeScannerReport({ documentId: 'scan-null', confidence: null, attempts: [{ confidence: null }], referenceVariant: 'reverse' });
+    expect(report?.confidence).toBeNull();
+    expect(report?.attempts[0].confidence).toBeNull();
+    expect(report?.referenceVariant).toBe('reverse');
   });
 });
 

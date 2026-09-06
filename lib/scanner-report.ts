@@ -41,6 +41,7 @@ export interface ScannerReport {
   reviewStatus: ScanReportStatus;
   referenceCardId: string | null;
   referenceCardKey: string | null;
+  referenceVariant: string | null;
   reviewNote: string;
   reviewedAt: string | null;
 }
@@ -77,6 +78,7 @@ export function normalizeScannerReport(value: Record<string, unknown>): ScannerR
     reviewStatus,
     referenceCardId: nullableId(value.referenceCardId),
     referenceCardKey: nullableId(value.referenceCardKey),
+    referenceVariant: nullableText(value.referenceVariant, 120),
     reviewNote: cleanText(value.reviewNote, 2_000),
     reviewedAt: nullableText(value.reviewedAt, 80),
   };
@@ -109,7 +111,11 @@ function safeImageSize(value: unknown) { const number = Number(value); return Nu
 
 function nullableText(value: unknown, maximum: number) { const text = cleanText(value, maximum); return text || null; }
 function nullableId(value: unknown) { const id = cleanId(value); return id || null; }
-function nullableUnit(value: unknown) { const number = Number(value); return Number.isFinite(number) && number >= 0 && number <= 1 ? number : null; }
+function nullableUnit(value: unknown) {
+  if (typeof value !== 'number' && !(typeof value === 'string' && value.trim())) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 1 ? number : null;
+}
 function nullablePositiveInteger(value: unknown) { const number = Number(value); return Number.isInteger(number) && number > 0 ? number : null; }
 function cleanId(value: unknown) { return typeof value === 'string' ? value.trim().replace(/[^A-Za-z0-9._-]/g, '').slice(0, 128) : ''; }
 function cleanText(value: unknown, maximum: number) { return typeof value === 'string' ? value.trim().slice(0, maximum) : ''; }

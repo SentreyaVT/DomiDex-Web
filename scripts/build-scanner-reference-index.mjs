@@ -29,8 +29,9 @@ for (const seriesEntry of await safeDirectories(setRoot)) {
         const nameDe = localizedName(cardSource);
         const category = field(cardSource, 'category');
         const rarity = field(cardSource, 'rarity');
-        const variantsSource = cardSource.slice(Math.max(0, cardSource.indexOf('variants:')));
-        const variants = [...variantsSource.matchAll(/\btype:\s*["']([^"']+)["']/g)].map((match) => match[1]);
+        const variantsIndex = cardSource.indexOf('variants:');
+        const variantsSource = variantsIndex >= 0 ? cardSource.slice(variantsIndex) : '';
+        const variants = [...variantsSource.matchAll(/\btype:\s*["'](normal|holo|reverse|metal|lenticular)["']/g)].map((match) => match[1]);
         metadata.set(`${setId}-${localId}`.toLowerCase(), {
           setId, setName, series: seriesName, localId, nameDe, category, rarity,
           hp: numberField(cardSource, 'hp'), types: stringArray(cardSource, 'types'), stage: field(cardSource, 'stage'),

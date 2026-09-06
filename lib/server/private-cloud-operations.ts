@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 interface PrivateOperations {
   uploadReport(request: Request): Promise<Response>;
   readReportImage(request: Request, context: { params: Promise<{ reportId: string }> }): Promise<Response>;
+  deleteReport(request: Request): Promise<Response>;
   deletionRequest(request: Request): Promise<Response>;
   deletionStatus(request: Request): Promise<Response>;
 }

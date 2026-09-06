@@ -18,7 +18,7 @@ export function json(value, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
 }
 export function failure(error) {
-  const known = new Set(['AUTH_REQUIRED', 'ACCESS_DENIED', 'RECENT_LOGIN_REQUIRED', 'ACCOUNT_DELETING', 'INVALID_REQUEST', 'INVALID_REPORT', 'IMAGE_TOO_LARGE', 'INVALID_IMAGE_TYPE', 'NOT_FOUND', 'DELETION_DISABLED']);
+  const known = new Set(['AUTH_REQUIRED', 'ACCESS_DENIED', 'RECENT_LOGIN_REQUIRED', 'ACCOUNT_DELETING', 'INVALID_REQUEST', 'INVALID_REPORT', 'IMAGE_TOO_LARGE', 'INVALID_IMAGE_TYPE', 'NOT_FOUND', 'DELETION_DISABLED', 'CONFIRMATION_REQUIRED', 'REPORT_IMAGE_RELATION_UNSAFE']);
   return json({ ok: false, error: known.has(error?.message) ? error.message : 'SERVER_OPERATION_FAILED' }, error?.status || 503);
 }
 export async function actorFor(request, context, role) {

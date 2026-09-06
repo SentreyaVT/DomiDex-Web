@@ -41,7 +41,7 @@ export async function uploadReport(request, context = services()) {
     const hash = createHash('sha256').update(bytes).digest('hex');
     const normalized = normalizeScannerReport({ ...input, documentId: reportId, createdAt: new Date().toISOString(),
       captureImagePath: path, imageSha256: hash, imageContentType: image.type, imageSizeBytes: bytes.length,
-      reviewStatus: 'NEW', referenceCardId: null, referenceCardKey: null, reviewNote: '', reviewedAt: null });
+      reviewStatus: 'NEW', referenceCardId: null, referenceCardKey: null, referenceVariant: null, reviewNote: '', reviewedAt: null });
     if (!normalized || Object.keys(normalized.zoneConfidence).length > 64) fail('INVALID_REPORT', 400);
     const { documentId: _id, ...report } = normalized;
     const lock = context.db.doc(`accountDeletionLocks/${actor.uid}`);
@@ -89,7 +89,73 @@ export async function readReportImage(request, route, context = services()) {
     const [metadata] = await file.getMetadata();
     if (!types.has(metadata.contentType) || Number(metadata.size) > 10 * 1024 * 1024) fail('NOT_FOUND', 404);
     const [bytes] = await file.download({ validation: 'crc32c' });
-    return new Response(bytes, { headers: { 'Content-Type': metadata.contentType, 'Cache-Control': 'private, no-store',
+    const thumbnail = new URL(request.url).searchParams.get('view') === 'thumb';
+    const output = thumbnail
+      ? await (await import('sharp')).default(bytes, { limitInputPixels: 40_000_000 }).rotate().resize({ width: 180, height: 252, fit: 'inside', withoutEnlargement: true }).webp({ quality: 72 }).toBuffer()
+      : bytes;
+    return new Response(output, { headers: { 'Content-Type': thumbnail ? 'image/webp' : metadata.contentType, 'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" } });
+  } catch (error) { return failure(error); }
+}
+
+export async function deleteReport(request, context = services()) {
+  try {
+    const actor = await actorFor(request, context, 'admin');
+    let input;
+    try { input = await request.json(); } catch { fail('INVALID_REQUEST', 400); }
+    const reportId = typeof input?.reportId === 'string' ? input.reportId : '';
+    if (!/^[A-Za-z0-9._-]{1,128}$/.test(reportId)) fail('INVALID_REQUEST', 400);
+    if (input?.confirm !== `DELETE_SCAN_REPORT:${reportId}`) fail('CONFIRMATION_REQUIRED', 400);
+    if (Date.now() - actor.authTime > 15 * 60_000) fail('RECENT_LOGIN_REQUIRED', 401);
+
+    const reportReference = context.db.doc(`scannerReports/${reportId}`);
+    const document = await reportReference.get();
+    if (!document.exists) {
+      return json({ ok: true, reportId, alreadyDeleted: true, reportDeleted: false, imageDeleted: false });
+    }
+    const stored = document.data() || {};
+    const report = normalizeScannerReport({ ...stored, documentId: reportId });
+    const ownerUid = typeof stored.ownerUid === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(stored.ownerUid) ? stored.ownerUid : null;
+    if (!report?.captureImagePath || !report.imageSha256 || !report.imageContentType || !report.imageSizeBytes || !ownerUid) fail('REPORT_IMAGE_RELATION_UNSAFE', 409);
+
+    let imageDeleted = false;
+    let imageAlreadyMissing = false;
+    const file = context.bucket.file(report.captureImagePath);
+    let metadata = null;
+    try { [metadata] = await file.getMetadata(); }
+    catch (error) {
+      if (Number(error?.code) === 404) imageAlreadyMissing = true;
+      else throw error;
+    }
+    if (metadata) {
+      const custom = metadata.metadata || {};
+      const metadataSafe = custom.reportId === reportId && custom.ownerUid === ownerUid && custom.contentSha256 === report.imageSha256 &&
+        custom.captureType === 'MANUAL_CAPTURE' && metadata.contentType === report.imageContentType && Number(metadata.size) === report.imageSizeBytes &&
+        !custom.firebaseStorageDownloadTokens && metadata.generation;
+      if (!metadataSafe) fail('REPORT_IMAGE_RELATION_UNSAFE', 409);
+      try {
+        await file.delete({ ignoreNotFound: true, ifGenerationMatch: metadata.generation });
+        imageDeleted = true;
+      } catch {
+        return json({ ok: false, error: 'REPORT_IMAGE_DELETE_FAILED', reportId, reportDeleted: false, imageDeleted: false }, 503);
+      }
+    }
+
+    const now = new Date().toISOString();
+    try {
+      await context.db.runTransaction(async (tx) => {
+        const latest = await tx.get(reportReference);
+        if (!latest.exists) return;
+        const value = latest.data() || {};
+        if (value.captureImagePath !== report.captureImagePath || value.imageSha256 !== report.imageSha256 || value.ownerUid !== ownerUid) fail('REPORT_CHANGED_DURING_DELETE', 409);
+        tx.delete(reportReference);
+        tx.create(context.db.doc(`scannerAudit/${randomUUID()}`), {
+          action: 'SCAN_REPORT_DELETED', actor: actor.uid, reportId, createdAt: now,
+        });
+      });
+    } catch {
+      return json({ ok: false, error: 'PARTIAL_DELETE', reportId, reportDeleted: false, imageDeleted, imageAlreadyMissing, providerRetentionPossible: imageDeleted }, 503);
+    }
+    return json({ ok: true, reportId, alreadyDeleted: false, reportDeleted: true, imageDeleted, imageAlreadyMissing, providerRetentionPossible: imageDeleted });
   } catch (error) { return failure(error); }
 }

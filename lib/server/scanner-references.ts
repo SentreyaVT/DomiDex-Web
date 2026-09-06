@@ -88,7 +88,14 @@ async function loadRemoteScannerIndex(authorization: string): Promise<MasterInde
 function parseMasterIndex(source: string) {
   const value = JSON.parse(source.replace(/^\uFEFF/, '')) as MasterIndex;
   if (value.schemaVersion !== 1 || !Array.isArray(value.cards)) throw new Error('INVALID_INDEX');
-  return value;
+  const allowedVariants = new Set(['normal', 'holo', 'reverse', 'metal', 'lenticular']);
+  return {
+    ...value,
+    cards: value.cards.map((card) => ({
+      ...card,
+      variants: Array.isArray(card.variants) ? card.variants.filter((variant) => allowedVariants.has(variant)) : [],
+    })),
+  };
 }
 
 function storageBucket() { return firebaseStorageBucket(); }

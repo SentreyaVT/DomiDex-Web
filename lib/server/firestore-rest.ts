@@ -49,6 +49,32 @@ export async function listDocuments(collection: string, authorization: string) {
   throw new Error('FIRESTORE_PAGINATION_LIMIT');
 }
 
+export async function listDocumentsPage(collection: string, authorization: string, options: { pageSize?: number; pageToken?: string; orderBy?: string } = {}) {
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(options.pageSize ?? 48)));
+  const query = new URLSearchParams({ pageSize: String(pageSize) });
+  if (options.pageToken) query.set('pageToken', options.pageToken);
+  if (options.orderBy) query.set('orderBy', options.orderBy);
+  const response = await fetch(`${root}/${collection}?${query}`, { headers: { Authorization: authorization } });
+  if (response.status === 404) return { documents: [] as Array<{ documentId: string } & Record<string, unknown>>, nextPageToken: '' };
+  if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
+  const body = await response.json() as { documents?: Array<{ name: string; fields?: Record<string, Record<string, unknown>> }>; nextPageToken?: string };
+  return {
+    documents: (body.documents ?? []).map((document) => ({ documentId: document.name.split('/').pop()!, ...decodeFields(document.fields ?? {}) })),
+    nextPageToken: body.nextPageToken ?? '',
+  };
+}
+
+export async function countDocuments(collection: string, authorization: string) {
+  const response = await fetch(`${root}:runAggregationQuery`, {
+    method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: collection }] }, aggregations: [{ alias: 'total', count: {} }] } }),
+  });
+  if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
+  const body = await response.json() as Array<{ result?: { aggregateFields?: { total?: { integerValue?: string } } } }>;
+  const total = Number(body.find((item) => item.result?.aggregateFields?.total)?.result?.aggregateFields?.total?.integerValue);
+  return Number.isSafeInteger(total) && total >= 0 ? total : 0;
+}
+
 export async function getDocument(path: string, authorization: string) {
   const response = await fetch(`${root}/${path}`, { headers: { Authorization: authorization } });
   if (response.status === 404) return null;

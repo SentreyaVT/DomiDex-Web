@@ -5,7 +5,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { uploadReport, readReportImage } from '../backend/security/images.mjs';
+import sharp from 'sharp';
+import { uploadReport, readReportImage, deleteReport } from '../backend/security/images.mjs';
 import { deletionRequest, advanceDeletion } from '../backend/security/deletion.mjs';
 
 const { isCurrentEvidence } = createRequire(import.meta.url)('../backend/scan-knowledge/current-evidence.js');
@@ -36,8 +37,16 @@ function upload(token, extra = {}) {
   form.set('report', JSON.stringify({ scanId: 'isolated-report', captureType: 'MANUAL_CAPTURE', failureReason: 'Isolated security test', ...extra }));
   return uploadReport(new Request('http://localhost/api/pretester/scan-reports', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form }), context);
 }
-function image(token, reportId) {
-  return readReportImage(new Request('http://localhost/private-image', { headers: token ? { Authorization: `Bearer ${token}` } : {} }), { params: Promise.resolve({ reportId }) }, context);
+function image(token, reportId, view) {
+  const url = new URL('http://localhost/private-image');
+  if (view) url.searchParams.set('view', view);
+  return readReportImage(new Request(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }), { params: Promise.resolve({ reportId }) }, context);
+}
+function removeReport(token, reportId, confirm = `DELETE_SCAN_REPORT:${reportId}`) {
+  return deleteReport(new Request('http://localhost/api/admin/scan-reports', { method: 'DELETE',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reportId, confirm }),
+  }), context);
 }
 
 beforeAll(() => {
@@ -82,10 +91,81 @@ describe('Private image server boundary', () => {
     await context.auth.setCustomUserClaims('operator', {});
     expect((await image(tokens.admin, reportId)).status).toBe(403);
   });
+
+  it('returns original bytes unchanged and creates only view=thumb as a private bounded WebP', async () => {
+    const uploaded = await upload(tokens.a);
+    const { reportId } = await uploaded.json();
+
+    const original = await image(tokens.admin, reportId);
+    expect(original.status).toBe(200);
+    expect(original.headers.get('content-type')).toBe('image/png');
+    expect(original.headers.get('cache-control')).toBe('private, no-store');
+    expect(Buffer.from(await original.arrayBuffer())).toEqual(png);
+
+    const thumbnail = await image(tokens.admin, reportId, 'thumb');
+    expect(thumbnail.status).toBe(200);
+    expect(thumbnail.headers.get('content-type')).toBe('image/webp');
+    expect(thumbnail.headers.get('cache-control')).toBe('private, no-store');
+    const thumbnailBytes = Buffer.from(await thumbnail.arrayBuffer());
+    expect(thumbnailBytes).not.toEqual(png);
+    const metadata = await sharp(thumbnailBytes).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(metadata.width).toBeGreaterThan(0);
+    expect(metadata.width).toBeLessThanOrEqual(180);
+    expect(metadata.height).toBeGreaterThan(0);
+    expect(metadata.height).toBeLessThanOrEqual(252);
+  });
+
   it('keeps interrupted upload ownership and refuses a deleting account', async () => {
     await context.db.doc('accountDeletionLocks/owner-a').set({ jobId: 'test' });
     expect((await upload(tokens.a)).status).toBe(403);
     expect((await context.bucket.getFiles())[0]).toHaveLength(0);
+  });
+
+  it('deletes exactly one admin-selected report and image while preserving global scanner data', async () => {
+    await context.db.doc('scannerProfileVersions/production').set({ checksum: 'unchanged', status: 'production' });
+    await context.db.doc('scannerReleaseManifest/production').set({ checksum: 'unchanged' });
+    const uploaded = await upload(tokens.a); const { reportId } = await uploaded.json();
+    const report = (await context.db.doc(`scannerReports/${reportId}`).get()).data();
+    expect((await removeReport(null, reportId)).status).toBe(401);
+    expect((await removeReport(tokens.a, reportId)).status).toBe(403);
+    expect((await removeReport(tokens.admin, reportId, 'wrong')).status).toBe(400);
+    expect((await context.db.doc(`scannerReports/${reportId}`).get()).exists).toBe(true);
+    const removed = await removeReport(tokens.admin, reportId);
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toMatchObject({ ok: true, reportDeleted: true, imageDeleted: true, providerRetentionPossible: true });
+    expect((await context.db.doc(`scannerReports/${reportId}`).get()).exists).toBe(false);
+    expect((await context.bucket.file(report.captureImagePath).exists())[0]).toBe(false);
+    expect((await context.db.doc('scannerProfileVersions/production').get()).get('checksum')).toBe('unchanged');
+    expect((await context.db.doc('scannerReleaseManifest/production').get()).get('checksum')).toBe('unchanged');
+    expect((await context.db.collection('scannerAudit').where('reportId', '==', reportId).get()).size).toBe(1);
+    expect(await (await removeReport(tokens.admin, reportId)).json()).toMatchObject({ ok: true, alreadyDeleted: true });
+  });
+
+  it('fails closed on mismatched image metadata without deleting either resource', async () => {
+    const uploaded = await upload(tokens.a); const { reportId } = await uploaded.json();
+    const ref = context.db.doc(`scannerReports/${reportId}`); const report = (await ref.get()).data();
+    await context.bucket.file(report.captureImagePath).setMetadata({ metadata: { reportId: 'another-report', ownerUid: 'owner-a', captureType: 'MANUAL_CAPTURE', contentSha256: report.imageSha256 } });
+    const response = await removeReport(tokens.admin, reportId);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, error: 'REPORT_IMAGE_RELATION_UNSAFE' });
+    expect((await ref.get()).exists).toBe(true);
+    expect((await context.bucket.file(report.captureImagePath).exists())[0]).toBe(true);
+  });
+
+  it('reports a partial deletion truthfully and completes safely on retry', async () => {
+    const uploaded = await upload(tokens.a); const { reportId } = await uploaded.json();
+    const ref = context.db.doc(`scannerReports/${reportId}`); const report = (await ref.get()).data();
+    const transaction = context.db.runTransaction.bind(context.db);
+    context.db.runTransaction = async () => { throw new Error('INJECTED_COMMIT_FAILURE'); };
+    let partial;
+    try { partial = await removeReport(tokens.admin, reportId); }
+    finally { context.db.runTransaction = transaction; }
+    expect(partial.status).toBe(503);
+    expect(await partial.json()).toMatchObject({ ok: false, error: 'PARTIAL_DELETE', imageDeleted: true, reportDeleted: false });
+    expect((await ref.get()).exists).toBe(true);
+    expect((await context.bucket.file(report.captureImagePath).exists())[0]).toBe(false);
+    expect(await (await removeReport(tokens.admin, reportId)).json()).toMatchObject({ ok: true, reportDeleted: true, imageAlreadyMissing: true });
   });
 });
 

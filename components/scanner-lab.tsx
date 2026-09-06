@@ -11,12 +11,13 @@ import {
   clampZone, createScannerDraft, layoutFamilies, scannerProductionActionBlockReason, scannerPublicationBlockReason, scopeLevels, validateScannerProfile,
   zoneTypes, type ScannerProfileVersion, type ScannerReference, type ScannerScopeLevel, type ScannerZone, type ScannerZoneType,
 } from '@/lib/scanner-profile';
-import { scanReportStatuses, type ScannerReport, type ScanReportStatus } from '@/lib/scanner-report';
+import type { ScannerReport, ScanReportStatus } from '@/lib/scanner-report';
+import { ScannerReportWorkspace } from './scanner-report-workspace';
 
 interface ReferenceResponse { connected: boolean; cards: ScannerReference[]; total: number; page: number; pageSize: number; stats: Record<string, number> | null; message?: string; }
 interface ScannerProfileSummary { profileId: string; name?: string; latestVersion?: number; latestStatus?: string; }
 interface ProfilesResponse { profiles: ScannerProfileSummary[]; versions: ScannerProfileVersion[]; benchmarks: Array<Record<string, unknown>>; manifest: Record<string, unknown> | null; }
-interface ReportsResponse { reports: ScannerReport[]; total: number; }
+interface ReportsResponse { reports: ScannerReport[]; total: number; nextPageToken?: string | null; }
 type LabMode = 'calibration' | 'reports';
 
 export function ScannerLab() {
@@ -24,11 +25,13 @@ export function ScannerLab() {
   const [references, setReferences] = useState<ReferenceResponse>({ connected: false, cards: [], total: 0, page: 1, pageSize: 24, stats: null });
   const [profiles, setProfiles] = useState<ProfilesResponse>({ profiles: [], versions: [], benchmarks: [], manifest: null });
   const [reports, setReports] = useState<ReportsResponse>({ reports: [], total: 0 });
-  const [mode, setMode] = useState<LabMode>('calibration');
+  const [mode, setMode] = useState<LabMode>('reports');
   const [query, setQuery] = useState(''); const [page, setPage] = useState(1); const [selectedReference, setSelectedReference] = useState<ScannerReference | null>(null);
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null); const [reviewReference, setReviewReference] = useState<ScannerReference | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ScannerProfileVersion>(() => createScannerDraft()); const [selectedZoneId, setSelectedZoneId] = useState('collector-number');
   const [working, setWorking] = useState(false); const [message, setMessage] = useState(''); const [error, setError] = useState('');
+  const [loadingMoreReports, setLoadingMoreReports] = useState(false);
+  const [reviewDirty, setReviewDirty] = useState(false);
   const [history, setHistory] = useState<ScannerProfileVersion[]>([]); const [historyIndex, setHistoryIndex] = useState(-1);
 
   const authorized = useCallback(async (url: string, init?: RequestInit) => {
@@ -46,9 +49,36 @@ export function ScannerLab() {
 
   const refreshReports = useCallback(async () => {
     if (!isAdmin) return;
-    const next = await authorized('/api/admin/scan-reports') as ReportsResponse;
+    const next = await authorized('/api/admin/scan-reports?pageSize=48') as ReportsResponse;
     setReports(next); setSelectedReportId((current) => current && next.reports.some((item) => item.documentId === current) ? current : next.reports[0]?.documentId ?? null);
   }, [authorized, isAdmin]);
+
+  const loadMoreReports = useCallback(async () => {
+    if (!isAdmin || !reports.nextPageToken || loadingMoreReports) return;
+    setLoadingMoreReports(true);
+    try {
+      const next = await authorized(`/api/admin/scan-reports?pageSize=48&pageToken=${encodeURIComponent(reports.nextPageToken)}`) as ReportsResponse;
+      setReports((current) => {
+        const reports = [...current.reports, ...next.reports.filter((item) => !current.reports.some((existing) => existing.documentId === item.documentId))];
+        return { reports, total: Math.max(current.total, next.total, reports.length), nextPageToken: next.nextPageToken };
+      });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Weitere Scan-Reports konnten nicht geladen werden.'); }
+    finally { setLoadingMoreReports(false); }
+  }, [authorized, isAdmin, loadingMoreReports, reports.nextPageToken]);
+
+  const confirmReviewNavigation = useCallback(() => {
+    if (!reviewDirty) return true;
+    if (!window.confirm('Ungespeicherte Review-Änderungen verwerfen?')) return false;
+    setReviewDirty(false);
+    return true;
+  }, [reviewDirty]);
+
+  useEffect(() => {
+    if (!reviewDirty) return;
+    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [reviewDirty]);
 
   useEffect(() => { if (isAdmin) void Promise.all([refreshProfiles(), refreshReports()]).catch((reason) => setError(reason.message)); }, [isAdmin, refreshProfiles, refreshReports]);
   useEffect(() => {
@@ -67,22 +97,20 @@ export function ScannerLab() {
   const selectedZone = draft.zones.find((zone) => zone.id === selectedZoneId) ?? null;
   const versions = profiles.versions.filter((version) => version.profileId === draft.profileId).sort((a, b) => b.profileVersion - a.profileVersion);
   const validation = validateScannerProfile(draft);
-  const selectedReport = reports.reports.find((item) => item.documentId === selectedReportId) ?? null;
-
   const openProfile = (profileId: string) => {
     const latest = profiles.versions.filter((item) => item.profileId === profileId).sort((a, b) => b.profileVersion - a.profileVersion)[0];
     if (latest) { setDraft(latest); setSelectedZoneId(latest.zones[0]?.id ?? ''); setHistory([]); setHistoryIndex(-1); }
   };
   const newProfile = () => { const next = createScannerDraft(); setDraft(next); setSelectedZoneId(next.zones[0]?.id ?? ''); setHistory([]); setHistoryIndex(-1); };
 
-  const updateReport = async (report: ScannerReport, reviewStatus: ScanReportStatus, reviewNote: string, reference?: ScannerReference | null) => {
+  const updateReport = async (report: ScannerReport, reviewStatus: ScanReportStatus, reviewNote: string, selection?: { reference: ScannerReference | null; variant: string | null }) => {
     setWorking(true); setError(''); setMessage('');
     try {
       const payload: Record<string, unknown> = { reportId: report.documentId, reviewStatus, reviewNote };
-      if (reference !== undefined) payload.reference = reference ? { id: reference.id, cardKey: reference.cardKey } : null;
+      if (selection !== undefined) payload.reference = selection.reference ? { id: selection.reference.id, cardKey: selection.reference.cardKey, variant: selection.variant } : null;
       await authorized('/api/admin/scan-reports', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       setMessage('Scan-Review wurde sicher gespeichert.'); await refreshReports();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Scan-Review konnte nicht gespeichert werden.'); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Scan-Review konnte nicht gespeichert werden.'); throw reason; }
     finally { setWorking(false); }
   };
 
@@ -113,27 +141,23 @@ export function ScannerLab() {
   if (!isAdmin) return <main className="admin-gate"><ShieldAlert /><h1>403 · Scanner Lab geschützt</h1><p>Nur ein ausdrücklich freigegebener Firebase-Admin kann Scannerprofile lesen oder ändern.</p><button onClick={() => void refreshClaims()}>Berechtigung erneut prüfen</button></main>;
 
   return <main className="scanner-lab">
-    <header className="lab-header"><a href="/admin"><ArrowLeft /> Administration</a><div><p>DOMIDEX ENGINEERING</p><h1>Scanner Control Center</h1><span>Fehlscan-Uploads findest du unter „Fehlscans“. Profilentwürfe werden separat gespeichert.</span></div><div className="lab-actions"><button onClick={undo} disabled={historyIndex < 0}><Undo2 /> Rückgängig</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Entwurf speichern</button></div></header>
+    <header className="lab-header"><a href="/admin"><ArrowLeft /> Administration</a><div><p>DOMIDEX ENGINEERING</p><h1>Scanner Lab</h1><span>Fehlscans visuell prüfen, eindeutig zuordnen und Scannerprofile kontrolliert vorbereiten.</span></div>{mode === 'calibration' ? <div className="lab-actions"><button onClick={undo} disabled={historyIndex < 0}><Undo2 /> Rückgängig</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Entwurf speichern</button></div> : <div className="lab-actions"><button onClick={() => { if (confirmReviewNavigation()) void refreshReports(); }}><RefreshCw /> Reports aktualisieren</button></div>}</header>
     {message && <div className="admin-success"><Check />{message}</div>}{error && <div className="form-error">{error}</div>}
-    <section className="lab-metrics">
+    {mode === 'calibration' && <section className="lab-metrics">
       <Metric icon={Database} label="Referenzkarten" value={references.stats ? String(references.stats.cardsProcessed ?? references.total) : 'Nicht verbunden'} />
       <Metric icon={Layers3} label="Profile" value={String(profiles.profiles.length)} />
       <Metric icon={ListChecks} label="Scan Reports" value={String(reports.total)} />
       <Metric icon={Rocket} label="Production" value={profiles.manifest ? 'Manifest aktiv' : 'Noch keine'} />
-    </section>
+    </section>}
     <nav className="lab-modebar" aria-label="Scanner-Lab Bereiche">
-      <div><button className={mode === 'calibration' ? 'active' : ''} onClick={() => setMode('calibration')}><Layers3 /> Kalibrierung</button><button className={mode === 'reports' ? 'active' : ''} onClick={() => setMode('reports')}><ClipboardCheck /> Fehlscans <span>{reports.total}</span></button></div>
-      <div className="profile-picker"><label>Profil<select value={profiles.profiles.some((item) => item.profileId === draft.profileId) ? draft.profileId : ''} onChange={(event) => openProfile(event.target.value)}><option value="">Ungespeicherter Entwurf</option>{profiles.profiles.map((item) => <option value={item.profileId} key={item.profileId}>{item.name ?? item.profileId} · v{item.latestVersion ?? 0}</option>)}</select></label><button onClick={newProfile}><Plus /> Neues Profil</button></div>
+      <div><button className={mode === 'reports' ? 'active' : ''} onClick={() => setMode('reports')}><ClipboardCheck /> Fehlscans <span>{reports.total}</span></button><button className={mode === 'calibration' ? 'active' : ''} onClick={() => { if (confirmReviewNavigation()) setMode('calibration'); }}><Layers3 /> Profil-Kalibrierung</button></div>
+      {mode === 'calibration' && <div className="profile-picker"><label>Profil<select value={profiles.profiles.some((item) => item.profileId === draft.profileId) ? draft.profileId : ''} onChange={(event) => openProfile(event.target.value)}><option value="">Ungespeicherter Entwurf</option>{profiles.profiles.map((item) => <option value={item.profileId} key={item.profileId}>{item.name ?? item.profileId} · v{item.latestVersion ?? 0}</option>)}</select></label><button onClick={newProfile}><Plus /> Neues Profil</button></div>}
     </nav>
     {mode === 'calibration' ? <div className="lab-workspace">
       <ReferenceBrowser data={references} query={query} setQuery={(value) => { setQuery(value); setPage(1); }} page={page} setPage={setPage} selected={selectedReference} onSelect={setSelectedReference} userToken={userToken} />
       <CalibrationWorkspace reference={selectedReference} profile={draft} selectedZoneId={selectedZoneId} onSelectZone={setSelectedZoneId} onChange={setDraft} userToken={userToken} />
       <ProfileEditor profile={draft} selectedZone={selectedZone} onChange={patchDraft} onSelectZone={setSelectedZoneId} validation={validation.errors} />
-    </div> : <div className="report-workspace">
-      <ReportList reports={reports.reports} selectedId={selectedReportId} onSelect={(id) => { setSelectedReportId(id); setReviewReference(null); }} />
-      <ReportReview report={selectedReport} reference={reviewReference} userToken={userToken} working={working} onSave={updateReport} onOpenCalibration={openCalibrationFromReport} />
-      <ReferenceBrowser data={references} query={query} setQuery={(value) => { setQuery(value); setPage(1); }} page={page} setPage={setPage} selected={reviewReference} onSelect={setReviewReference} userToken={userToken} compact />
-    </div>}
+    </div> : <ScannerReportWorkspace reports={reports.reports} totalReports={reports.total} hasMore={!!reports.nextPageToken} nextPageToken={reports.nextPageToken ?? null} loadingMore={loadingMoreReports} selectedReportId={selectedReportId} profiles={profiles.versions} working={working} userToken={userToken} reviewDirty={reviewDirty} onReviewDirtyChange={setReviewDirty} onSelectReport={setSelectedReportId} onRefresh={refreshReports} onLoadMore={loadMoreReports} onSave={updateReport} onOpenCalibration={openCalibrationFromReport} />}
     {mode === 'calibration' && <section className="lab-bottom">
       <div className="lab-panel"><div className="lab-panel-title"><div><p>VERSIONEN</p><h2>Kontrollierter Release-Flow</h2></div><span>Save ≠ Publish</span></div>
         <div className="version-flow"><b>EDIT</b><i /> <b>DRAFT</b><i /> <b>TESTING</b><i /> <b>CANDIDATE</b><i /> <b>PRODUCTION</b></div>
@@ -150,29 +174,6 @@ function ReferenceBrowser({ data, query, setQuery, page, setPage, selected, onSe
   return <aside className={`reference-browser lab-panel ${compact ? 'compact' : ''}`}><div className="lab-panel-title"><div><p>LOKALES ARCHIV</p><h2>Referenzen</h2></div><span>{data.total.toLocaleString('de-DE')}</span></div><label className="lab-search"><ImageIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, Set, ID, Nummer …" /></label>{!data.connected ? <div className="lab-empty"><Database /><p>{data.message ?? 'Archiv nicht verbunden.'}</p><code>npm run scanner:index</code></div> : <div className="reference-list">{data.cards.map((card) => <button className={selected?.id === card.id ? 'active' : ''} onClick={() => onSelect(card)} key={card.id}><ReferenceImage card={card} userToken={userToken} thumbnail /><div><b>{card.nameDe}</b><small>{card.setName ?? card.setId} · #{card.localId}</small><small>{card.id} · {card.layoutFamily}</small></div><em>{card.metadataAvailable ? 'META' : 'BILD'}</em></button>)}</div>}<div className="reference-pages"><button disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft /></button><span>{page} / {totalPages}</span><button disabled={page >= totalPages} onClick={() => setPage(page + 1)}><ChevronRight /></button></div></aside>;
 }
 
-function ReportList({ reports, selectedId, onSelect }: { reports: ScannerReport[]; selectedId: string | null; onSelect: (id: string) => void }) {
-  return <aside className="report-list lab-panel"><div className="lab-panel-title"><div><p>REVIEW QUEUE</p><h2>Fehlscans</h2></div><span>{reports.length}</span></div>{reports.length ? <div className="report-items">{reports.map((report) => <button className={selectedId === report.documentId ? 'active' : ''} onClick={() => onSelect(report.documentId)} key={report.documentId}><Status value={report.reviewStatus.toLowerCase()} /><b>{report.guessedName ?? 'Nicht erkannt'}</b><small>{report.guessedSet ?? 'Set unbekannt'} · {report.guessedNumber ?? 'Nr. unbekannt'}</small><time>{formatTimestamp(report.createdAt)}</time></button>)}</div> : <div className="lab-empty"><ClipboardCheck /><h3>Keine Scan Reports</h3><p>Sobald der vertrauenswürdige Backend-Pfad echte Fehlscans übermittelt, erscheinen sie hier. Es wurden keine Beispieldaten erzeugt.</p></div>}</aside>;
-}
-
-function ReportReview({ report, reference, userToken, working, onSave, onOpenCalibration }: { report: ScannerReport | null; reference: ScannerReference | null; userToken: () => Promise<string>; working: boolean; onSave: (report: ScannerReport, status: ScanReportStatus, note: string, reference?: ScannerReference | null) => Promise<void>; onOpenCalibration: (report: ScannerReport, reference: ScannerReference) => void }) {
-  const [status, setStatus] = useState<ScanReportStatus>('NEW'); const [note, setNote] = useState('');
-  useEffect(() => { setStatus(report?.reviewStatus ?? 'NEW'); setNote(report?.reviewNote ?? ''); }, [report]);
-  if (!report) return <section className="report-review lab-panel"><div className="lab-empty"><ListChecks /><h2>Noch kein Fall ausgewählt</h2><p>Die Review-Oberfläche bleibt leer, bis ein echter Fehlscan vorliegt.</p></div></section>;
-  return <section className="report-review lab-panel"><div className="lab-panel-title"><div><p>SCAN {report.scanId}</p><h2>Analyse & Vergleich</h2></div><Status value={report.reviewStatus.toLowerCase()} /></div><div className="report-compare"><figure><div>{report.captureImagePath ? <ReportImage report={report} userToken={userToken} /> : <span><ImageIcon />Kein Bild übermittelt</span>}</div><figcaption>Fehlscan · {report.captureType}</figcaption></figure><figure><div>{reference ? <ReferenceImage card={reference} userToken={userToken} /> : <span><Database />Referenz rechts auswählen</span>}</div><figcaption>{reference ? `${reference.nameDe} · ${reference.id}` : report.referenceCardId ? `Zugeordnet: ${report.referenceCardId}` : 'Noch nicht zugeordnet'}</figcaption></figure></div><div className="report-facts"><dl><div><dt>Zeitpunkt</dt><dd>{formatTimestamp(report.createdAt)}</dd></div><div><dt>Name</dt><dd>{report.guessedName ?? 'Nicht erkannt'}</dd></div><div><dt>Set</dt><dd>{report.guessedSet ?? 'Nicht erkannt'}</dd></div><div><dt>Nummer</dt><dd>{report.guessedNumber ?? 'Nicht erkannt'}</dd></div><div><dt>Confidence</dt><dd>{report.confidence === null ? 'Nicht übermittelt' : `${Math.round(report.confidence * 100)} %`}</dd></div><div><dt>Scannerprofil</dt><dd>{report.profileId ? `${report.profileId} · v${report.profileVersion ?? '?'}` : 'Nicht übermittelt'}</dd></div></dl><div className="report-reason"><span>Fehlergrund</span><p>{report.failureReason}</p></div></div>{report.attempts.length > 0 && <div className="report-attempts"><h3>Analyseversuche</h3>{report.attempts.map((attempt, index) => <article key={`${attempt.label}-${index}`}><b>{attempt.label}</b><span>{[attempt.guessedName, attempt.guessedSet, attempt.guessedNumber].filter(Boolean).join(' · ') || 'Keine Identität erkannt'}</span><em>{attempt.confidence === null ? '—' : `${Math.round(attempt.confidence * 100)} %`}</em></article>)}</div>}<div className="report-signals"><div><h3>OCR-Tokens</h3><p>{report.ocrTokens.length ? report.ocrTokens.join(' · ') : 'Nicht übermittelt'}</p></div><div><h3>Zonen-Confidence</h3><p>{Object.keys(report.zoneConfidence).length ? Object.entries(report.zoneConfidence).map(([key, value]) => `${key}: ${Math.round(value * 100)} %`).join(' · ') : 'Nicht übermittelt'}</p></div></div><div className="report-review-form"><label>Status<select value={status} onChange={(event) => setStatus(event.target.value as ScanReportStatus)}>{scanReportStatuses.map((item) => <option value={item} key={item}>{reportStatusLabel(item)}</option>)}</select></label><label>Review-Notiz<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Technische Entscheidung dokumentieren …" /></label><div><button disabled={working} onClick={() => void onSave(report, status, note)}><Save /> Review speichern</button><button disabled={working || !reference} onClick={() => reference && void onSave(report, status, note, reference)}><Check /> Referenz zuordnen</button><button className="primary" disabled={!reference} onClick={() => reference && onOpenCalibration(report, reference)}><Layers3 /> In Kalibrierung öffnen</button></div></div></section>;
-}
-
-function ReportImage({ report, userToken }: { report: ScannerReport; userToken: () => Promise<string> }) {
-  const [source, setSource] = useState('');
-  useEffect(() => {
-    let objectUrl = ''; const controller = new AbortController(); setSource('');
-    void userToken().then((token) => fetch(`/api/admin/scan-reports/${encodeURIComponent(report.documentId)}/image`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }))
-      .then((response) => response.ok ? response.blob() : Promise.reject(new Error('IMAGE_UNAVAILABLE')))
-      .then((blob) => { objectUrl = URL.createObjectURL(blob); setSource(objectUrl); }).catch(() => undefined);
-    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [report.documentId, userToken]);
-  return source ? <img src={source} alt="Private Fehlscan-Aufnahme" /> : <span><LoaderCircle className="spin" />Privates Bild wird geladen</span>;
-}
-
 function ReferenceImage({ card, userToken, thumbnail = false }: { card: ScannerReference; userToken: () => Promise<string>; thumbnail?: boolean }) {
   const [source, setSource] = useState('');
   useEffect(() => {
@@ -184,9 +185,6 @@ function ReferenceImage({ card, userToken, thumbnail = false }: { card: ScannerR
   }, [card.imageFile, userToken]);
   return source ? <img className={thumbnail ? 'reference-thumbnail' : 'reference-image'} src={source} alt={card.nameDe} loading={thumbnail ? 'lazy' : 'eager'} /> : <span className={thumbnail ? 'reference-thumbnail placeholder' : 'reference-image placeholder'}><ImageIcon /></span>;
 }
-
-function formatTimestamp(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Zeitpunkt unbekannt' : new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(date); }
-function reportStatusLabel(value: ScanReportStatus) { return ({ NEW: 'Neu', IN_REVIEW: 'In Prüfung', RESOLVED: 'Gelöst', PROFILE_CHANGE_REQUIRED: 'Profiländerung nötig', CANDIDATE_TESTING: 'Candidate-Test', PUBLISHED: 'Veröffentlicht', REJECTED: 'Verworfen' } as const)[value]; }
 
 function CalibrationWorkspace({ reference, profile, selectedZoneId, onSelectZone, onChange, userToken }: { reference: ScannerReference | null; profile: ScannerProfileVersion; selectedZoneId: string; onSelectZone: (id: string) => void; onChange: (value: ScannerProfileVersion) => void; userToken: () => Promise<string> }) {
   const [zoom, setZoom] = useState(1); const [pan, setPan] = useState({ x: 0, y: 0 }); const [image, setImage] = useState('');

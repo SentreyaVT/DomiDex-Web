@@ -90,7 +90,7 @@ describe('DomiDex Web Firestore rules', () => {
     const pretester = environment.authenticatedContext('tester', { pretester: true }).firestore();
     await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'scannerReports/scan-review'), { ...scanReport('scan-review'), ownerUid: 'tester' }));
     const adminReport = doc(admin, 'scannerReports/scan-review');
-    await assertSucceeds(updateDoc(adminReport, { reviewStatus: 'IN_REVIEW', reviewNote: 'Prüfung', reviewedAt: '2026-09-03T00:00:00Z', reviewedBy: 'admin' }));
+    await assertSucceeds(updateDoc(adminReport, { reviewStatus: 'IN_REVIEW', reviewNote: 'Prüfung', referenceCardId: 'sv3-137', referenceCardKey: 'sv3:137', referenceVariant: 'reverse', reviewedAt: '2026-09-03T00:00:00Z', reviewedBy: 'admin' }));
     await assertFails(updateDoc(adminReport, { scanId: 'manipulated' }));
     await assertFails(updateDoc(doc(pretester, 'scannerReports/scan-review'), { reviewStatus: 'RESOLVED' }));
   });
