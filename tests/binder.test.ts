@@ -110,7 +110,7 @@ describe('master-set binder print-slot policy', () => {
     const reverse: TcgVariant = { type: 'Reverse Holo' };
     const selected = variantForBinderSlot([reverse, holo], slot);
     expect(selected).toBe(holo);
-    expect(exactTrendPrice({ ...summary, set: { id: 'test', name: 'Test' } }, selected!)).toBe(3);
+    expect(exactTrendPrice({ ...summary, set: { id: 'test', name: 'Test' } }, selected!)).toBe(2);
     expect(variantForBinderSlot([holo, { ...holo, variantId: 'other-product' }], slot)).toBeUndefined();
     expect(variantForBinderSlot([reverse], slot)).toBeUndefined();
   });
@@ -139,7 +139,7 @@ describe('master-set binder print-slot policy', () => {
 
 describe('special-card binder preview and ownership', () => {
   const special = card({ id: 'test-122', localId: '122', name: 'Mega-Quajutsu-ex', rarity: 'Special Illustration Rare', printVariants: ['holofoil'] });
-  const holo: TcgVariant = { type: 'Holo', size: 'Standard', pricing: { cardmarket: { idProduct: 123, 'trend-holo': 12.34 } } };
+  const holo: TcgVariant = { type: 'Holo', size: 'Standard', pricing: { cardmarket: { idProduct: 123, trend: 12.34, 'trend-holo': 98.76 } } };
   const detail = { ...special, set: { id: 'test', name: 'Testbinder' }, variants_detailed: [holo] };
   const user = { uid: 'test-only' } as Parameters<typeof BinderView>[0]['user'];
   beforeEach(() => {

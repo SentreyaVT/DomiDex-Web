@@ -9,12 +9,24 @@ import type { CollectionEntry, TcgCardDetail } from '@/lib/domain';
 vi.mock('@/lib/tcgdex', () => ({ loadCard: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 const entry = { syncId: 'a', sourceCardId: 'sv-test-137', sourceSetId: 'sv-test', collectorNumber: '137/088', finish: 'Holo', variant: 'Standard', quantity: 2, externalProductId: 77 } as CollectionEntry;
-const card = { id: 'sv-test-137', localId: '137', name: 'Sonderkarte', set: { id: 'sv-test', name: 'Test', cardCount: { official: 88 } }, variants_detailed: [{ type: 'Holo', size: 'Standard', pricing: { cardmarket: { idProduct: 77, 'trend-holo': 12.34 } } }] } as TcgCardDetail;
+const card = { id: 'sv-test-137', localId: '137', name: 'Sonderkarte', set: { id: 'sv-test', name: 'Test', cardCount: { official: 88 } }, variants_detailed: [{ type: 'Holo', size: 'Standard', pricing: { cardmarket: { idProduct: 77, trend: 12.34, 'trend-holo': 98.76 } } }] } as TcgCardDetail;
 
 describe('honest bounded collection price states', () => {
   it('retains exact above-main-set printing price', async () => {
     const result = await resolveCollectionPrice(entry, async () => card);
     expect(result).toMatchObject({ price: 12.34, failed: false });
+  });
+  it.each([
+    ['swsh11', '201', 670816, 1.38],
+    ['sv03', '062', 781858, .23],
+  ] as const)('does not value existing quarantined source/product pairs (%s-%s)', async (setId, localId, productId, trend) => {
+    const identity = `${setId}-${localId}`;
+    const persisted = { ...entry, sourceSetId: setId, sourceCardId: identity, collectorNumber: localId, externalProductId: productId };
+    const fetched = { ...card, id: identity, localId, set: { ...card.set, id: setId }, variants_detailed: [{ type: 'Holo', size: 'Standard', pricing: { cardmarket: { idProduct: productId, trend } } }] };
+    const before = JSON.stringify(persisted);
+    expect(await resolveCollectionPrice(persisted, async () => fetched)).toMatchObject({ price: null, failed: false });
+    expect(JSON.stringify(persisted)).toBe(before);
+    expect(sumKnownPrices([persisted], { a: null })).toEqual({ value: 0, priced: 0, quantity: 2 });
   });
   it('distinguishes absent identity from failed transport', async () => {
     const load = vi.fn().mockRejectedValue(new Error('offline'));

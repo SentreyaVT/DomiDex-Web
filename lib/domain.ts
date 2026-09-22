@@ -1,3 +1,5 @@
+import { isQuarantinedCardmarketIdentity } from './cardmarket-identity';
+
 export type Finish = string;
 
 export interface CollectionEntry {
@@ -139,15 +141,25 @@ export const defaultSiteContent: SiteContent = {
   ],
 };
 
-export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): number | null {
+function selectedCardmarketPricing(card: TcgCardDetail, variant: TcgVariant) {
   const ownPricing = variant.pricing?.cardmarket;
-  const pricing = ownPricing ?? (card.variants_detailed && card.variants_detailed.length > 1 ? null : card.pricing?.cardmarket);
+  return ownPricing ?? (card.variants_detailed && card.variants_detailed.length > 1 ? null : card.pricing?.cardmarket);
+}
+
+export function exactCardmarketProductId(card: TcgCardDetail, variant: TcgVariant): number | null {
+  const id = selectedCardmarketPricing(card, variant)?.idProduct;
+  return Number.isSafeInteger(id) && id! > 0 && !isQuarantinedCardmarketIdentity(canonicalTcgCardId(card.id), id) ? id! : null;
+}
+
+export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): number | null {
+  const pricing = selectedCardmarketPricing(card, variant);
   if (!pricing || !Number.isSafeInteger(pricing.idProduct) || pricing.idProduct! <= 0 || (pricing.unit && pricing.unit !== 'EUR')) return null;
-  const holo = /holo|reverse/i.test(variant.type);
-  const preferred = holo ? pricing['trend-holo'] : pricing.trend;
-  const fallback = holo ? pricing.trend : null;
+  if (exactCardmarketProductId(card, variant) === null) return null;
+  // Cardmarket's Pokemon guide calls the Reverse Holo field "trend-holo".
+  // Regular Holo cards use "trend"; a missing Reverse price must never borrow it.
+  const preferred = /reverse/i.test(variant.type) ? pricing['trend-holo'] : pricing.trend;
   if (typeof preferred === 'number' && Number.isFinite(preferred) && preferred > 0) return preferred;
-  return typeof fallback === 'number' && Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+  return null;
 }
 
 export function canonicalTcgCardId(value: string) {

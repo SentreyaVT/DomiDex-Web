@@ -15,6 +15,9 @@ import { adminNavigation } from '@/lib/admin-navigation';
 import { useCollectionPrices } from './use-collection-prices';
 import { formatKnownValuation, sumKnownPrices } from '@/lib/collection-prices';
 import { ModalFocus } from './modal-focus';
+import { BinderSharingOwner } from './binder-sharing-owner';
+import { WindowedCollectionGrid } from './windowed-collection-grid';
+import { collectionThumbnail, sortedCollection } from '@/lib/collection-grid';
 
 const PriceErrors = createContext<Set<string>>(new Set());
 
@@ -65,7 +68,7 @@ export function WebApp() {
       <section className="desktop-content">
         <header className="app-topbar">
           <div><span>DomiDex Web</span><b>{navigation.find(([key]) => key === view)?.[1]}</b></div>
-          <div className="sync-pill">{offline ? <><CloudOff /> Offline · lokaler Cache</> : <><span /> Live mit Android synchronisiert</>}</div>
+          <div className="sync-pill" role="status">{offline ? <><CloudOff /> Synchronisierung unterbrochen · letzte Ansicht</> : <><span /> {loading ? 'Sammlung wird geladen' : 'Sammlung geladen'}</>}</div>
         </header>
         {error && <div className="app-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Fehler schließen"><X /></button></div>}
         {failedPrices.size > 0 && <div className="app-error" role="status">Preise für {failedPrices.size} Einträge konnten nicht geladen werden.<button onClick={retryPrices} disabled={pendingPrices > 0}>Erneut versuchen</button></div>}
@@ -147,7 +150,7 @@ export function BinderView({ binders, prices, user, onError }: { binders: Binder
     setSetLoading(true); void loadSet(binder.sourceSetId).then((set) => { if (active) { setSetCards(set.cards ?? []); setPrintedTotal(set.cardCount?.official ?? 0); } }).catch(() => { if (active) onError('Das vollständige Set konnte nicht geladen werden. Der vorhandene Bestand bleibt sichtbar.'); }).finally(() => { if (active) setSetLoading(false); });
     return () => { active = false; };
   }, [binder?.sourceSetId, onError]);
-  if (!binder) return <div className="app-view"><div className="view-title"><div><p>BINDER</p><h1>Deine Binder.</h1></div></div><Empty title="Noch kein Binder" text="Sobald eine Karte hinzugefügt wird, erscheint ihr Set-Binder automatisch hier." /></div>;
+  if (!binder) return <div className="app-view"><div className="view-title"><div><p>BINDER</p><h1>Deine Binder.</h1></div></div><Empty title="Noch kein Binder" text="Sobald eine Karte hinzugefügt wird, erscheint ihr Set-Binder automatisch hier." /><BinderSharingOwner key={user.uid} user={user} /></div>;
   const summaries = setCards.length ? setCards : binder.entries.map((entry) => ({ id: entry.sourceCardId ?? entry.syncId, localId: entry.collectorNumber, name: entry.name, rarity: entry.rarity, image: entry.imageUrl ?? undefined }));
   const slots = buildBinderSlots(summaries, binder.entries, printedTotal); const pages = paginateBinderSlots(slots); const displayedPage = Math.min(page, Math.max(0, pages.length - 1)); const visible = pages[displayedPage] ?? []; const selected = selectedSlotId ? slots.find((slot) => slot.slotId === selectedSlotId) ?? null : null;
   const changePage = (nextPage: number) => { if (nextPage < 0 || nextPage >= pages.length) return; setPage(nextPage); };
@@ -160,14 +163,15 @@ export function BinderView({ binders, prices, user, onError }: { binders: Binder
       </>}
     </section>
     {selected && <BinderCardDialog slot={selected} entries={binder.entries} prices={prices} user={user} busy={busy} setBusy={setBusy} onClose={() => setSelectedSlotId(null)} onError={onError} />}
+    <BinderSharingOwner key={user.uid} user={user} />
   </div>;
 }
 
-function CollectionView({ entries, prices, user, onError }: { entries: CollectionEntry[]; prices: Record<string, number | null>; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
+export function CollectionView({ entries, prices, user, onError }: { entries: CollectionEntry[]; prices: Record<string, number | null>; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
   const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const selected = selectedId ? entries.find((entry) => entry.syncId === selectedId) ?? null : null;
-  const filtered = entries.filter((entry) => `${entry.name} ${entry.setName} ${entry.collectorNumber}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (prices[b.syncId] ?? -1) - (prices[a.syncId] ?? -1));
+  const filtered = useMemo(() => sortedCollection(entries, prices, query), [entries, prices, query]);
   const mutate = async (entry: CollectionEntry, delta: number) => { setBusy(true); try { await changeQuantity(user, entry, delta); if (delta < 0 && entry.quantity === 1) setSelectedId(null); } catch { onError('Die Kartenmenge konnte nicht aktualisiert werden.'); } finally { setBusy(false); } };
-  return <div className="app-view"><div className="view-title"><div><p>SAMMLUNG</p><h1>Alle Karten.</h1><span>{entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten in {new Set(entries.map((entry) => entry.setName)).size} Sets</span></div><label className="search-field"><Search /><input aria-label="Sammlung durchsuchen" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Sammlung durchsuchen" /></label></div>{filtered.length ? <div className="collection-grid">{filtered.map((entry) => <button onClick={() => setSelectedId(entry.syncId)} key={entry.syncId}><CardTile entry={entry} price={prices[entry.syncId]} /><span className="quantity-badge">×{entry.quantity}</span></button>)}</div> : <Empty title="Keine Karten gefunden" text="Passe deine Suche an oder füge eine neue Karte hinzu." />}{selected && <CardDialog entry={selected} price={prices[selected.syncId]} busy={busy} onClose={() => setSelectedId(null)} onChange={mutate} />}</div>;
+  return <div className="app-view"><div className="view-title"><div><p>SAMMLUNG</p><h1>Alle Karten.</h1><span>{entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten in {new Set(entries.map((entry) => entry.setName)).size} Sets</span></div><label className="search-field"><Search /><input aria-label="Sammlung durchsuchen" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Sammlung durchsuchen" /></label></div>{filtered.length ? <WindowedCollectionGrid entries={filtered} onSelect={setSelectedId} renderCard={(entry) => <CardTile entry={entry} price={prices[entry.syncId]} />} /> : <Empty title="Keine Karten gefunden" text="Passe deine Suche an oder füge eine neue Karte hinzu." />}{selected && <CardDialog entry={selected} price={prices[selected.syncId]} busy={busy} onClose={() => setSelectedId(null)} onChange={mutate} />}</div>;
 }
 
 function SearchView({ entries, user, onError }: { entries: CollectionEntry[]; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
@@ -204,7 +208,7 @@ function CardDialog({ entry, price, alternatives, selectedIndex = 0, onSelect, b
 
 function BinderPocket({ slot, onSelect }: { slot?: BinderSlot; onSelect: (slot: BinderSlot) => void }) { const owned = slot?.owned[0]; return <button className={`binder-pocket ${slot && !owned ? 'missing-card' : slot ? '' : 'empty-pocket'}`} disabled={!slot} onClick={() => slot && onSelect(slot)}>{slot ? <><img src={owned?.imageUrl ?? imageUrl(slot.card.image, 'low') ?? '/domidex-logo.jpg'} alt={slot.card.name} /><span>{owned ? `×${slot.owned.reduce((sum, entry) => sum + entry.quantity, 0)}` : `#${slot.card.localId}`}</span><small>{slot.finish}{!owned ? ' · fehlt' : ''}</small></> : <><b>—</b><small>Kein Kartenplatz</small></>}</button>; }
 
-function CardTile({ entry, price }: { entry: CollectionEntry; price: number | null | undefined }) { return <article className="card-tile"><div>{entry.imageUrl ? <img src={entry.imageUrl} alt={entry.name} loading="lazy" /> : <img src="/domidex-logo.jpg" alt="" />}</div><p>{entry.setName}</p><h3>{entry.name}</h3><span>#{entry.collectorNumber} · {entry.finish}</span><strong><PriceText entry={entry} price={price} /></strong></article>; }
+function CardTile({ entry, price }: { entry: CollectionEntry; price: number | null | undefined }) { return <article className="card-tile"><div>{entry.imageUrl ? <img src={collectionThumbnail(entry.imageUrl)} alt={entry.name} loading="lazy" decoding="async" /> : <img src="/domidex-logo.jpg" alt="" />}</div><p>{entry.setName}</p><h3>{entry.name}</h3><span>#{entry.collectorNumber} · {entry.finish}</span><strong><PriceText entry={entry} price={price} /></strong></article>; }
 function Metric({ title, value, detail, accent }: { title: string; value: string; detail: string; accent: string }) { return <article className={`metric ${accent}`}><span>{title}</span><strong>{value}</strong><small>{detail}</small></article>; }
 function PriceText({ entry, price }: { entry: CollectionEntry; price: number | null | undefined }) {
   const errors = useContext(PriceErrors);

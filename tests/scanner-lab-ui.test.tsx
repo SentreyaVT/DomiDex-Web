@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { ScannerLab } from '@/components/scanner-lab';
+import { CalibrationWorkspace, ScannerLab } from '@/components/scanner-lab';
+import { createScannerDraft, type ScannerReference } from '@/lib/scanner-profile';
 import { ScannerReportWorkspace } from '@/components/scanner-report-workspace';
 import { normalizeScannerReport, type ScannerReport } from '@/lib/scanner-report';
 
@@ -32,6 +33,50 @@ function setup(reports = [report('scan-pikachu', 'Pikachu'), report('scan-glurak
 }
 
 describe('Scanner Lab review workspace', () => {
+  it('names calibration controls and permits keyboard-style zone selection', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === '/api/admin/scanner-profiles') return jsonResponse({ profiles: [], versions: [], benchmarks: [], manifest: null });
+      if (url.startsWith('/api/admin/scan-reports?')) return jsonResponse({ reports: [], total: 0 });
+      return jsonResponse({ connected: true, cards: [], total: 0, page: 1, pageSize: 24, stats: null });
+    }));
+    render(<ScannerLab />);
+    fireEvent.click(screen.getByRole('button', { name: 'Profil-Kalibrierung' }));
+    expect(screen.getByRole('textbox', { name: 'Kalibrierungsreferenz suchen' })).toBeTruthy();
+    for (const name of ['Vorherige Kalibrierungsreferenzseite', 'Nächste Kalibrierungsreferenzseite', 'Kalibrierungsbild verkleinern', 'Kalibrierungsbild vergrößern', 'Kalibrierungsansicht zurücksetzen', 'Analysezone duplizieren', 'Analysezone löschen']) {
+      expect(screen.getByRole('button', { name })).toBeTruthy();
+    }
+    const zone = createScannerDraft().zones.find((item) => item.enabled)!;
+    fireEvent.click(screen.getByRole('button', { name: `Analysezone ${zone.label} auswählen` }));
+    expect((screen.getByRole('textbox', { name: 'Bezeichnung' }) as HTMLInputElement).value).toBe(zone.label);
+    await act(async () => undefined);
+  });
+
+  it('never overlays a late image from the previous calibration card', async () => {
+    const pending = new Map<string, (response: Response) => void>();
+    const makeUrl = vi.fn(() => 'blob:current-card');
+    const revoke = vi.fn();
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = makeUrl;
+      static revokeObjectURL = revoke;
+    });
+    vi.stubGlobal('fetch', vi.fn((url: string) => new Promise<Response>((resolve) => pending.set(url, resolve))));
+    const reference = (id: string) => ({ id, imageFile: `${id}.webp`, nameDe: id, setId: 'sv3', localId: id } as ScannerReference);
+    const token = async () => 'test-admin';
+    const props = { profile: createScannerDraft(), selectedZoneId: '', onSelectZone: vi.fn(), onChange: vi.fn(), userToken: token };
+    const view = render(<CalibrationWorkspace {...props} reference={reference('old')} />);
+    await waitFor(() => expect(pending.has('/api/admin/scanner-reference-image/old.webp')).toBe(true));
+    view.rerender(<CalibrationWorkspace {...props} reference={reference('current')} />);
+    await waitFor(() => expect(pending.has('/api/admin/scanner-reference-image/current.webp')).toBe(true));
+    await act(async () => { pending.get('/api/admin/scanner-reference-image/current.webp')!(new Response(new Blob(['current']))); });
+    expect((await screen.findByRole('img', { name: 'current' })).getAttribute('src')).toBe('blob:current-card');
+    await act(async () => { pending.get('/api/admin/scanner-reference-image/old.webp')!(new Response(new Blob(['old']))); });
+    expect(makeUrl).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('img', { name: 'current' }).getAttribute('src')).toBe('blob:current-card');
+    view.unmount();
+    expect(revoke).toHaveBeenCalledWith('blob:current-card');
+  });
+
   it('keeps reports usable when profiles fail and retries only the failed resource', async () => {
     let profileAttempts = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {

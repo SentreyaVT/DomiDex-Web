@@ -1,0 +1,319 @@
+{
+  "source": {
+    "repository": "CardVault",
+    "commit": "b28c16c3097950a8efc225a74003ebbf7749e857",
+    "path": "app/src/main/java/com/dominik/cardvault/ui/PrivateBinderVisualEngine.kt",
+    "gitBlobSha256": "1b7b2d879c5bbdd67fa7828aa1fc017e74319d96123082d68e66a8d33c5e9de2",
+    "atlasDirectory": "app/src/main/res/drawable-nodpi",
+    "verifiedAt": "2026-09-22",
+    "method": "Extracted from committed Android source and atlas blobs, not from the Web implementation."
+  },
+  "atlasSha256": {
+    "private_binder_cover_atlas.png": "bae2fc4c10c6f7f1a95938c98e16951360b917c6a139f4654424f1577f1d3032",
+    "private_binder_holo_atlas.png": "be22a72e49ae7e04772f0dbf81b17d2a745b8705b1cc97a9a7c2ccae8442acd4",
+    "private_binder_element_holo_atlas.png": "321acbb2dfde7f6e3b25f3666180f716a94e3fc2007ed067570b28cf9bc30d07"
+  },
+  "coverIds": [
+    "classic_rainbow",
+    "aurora",
+    "galaxy",
+    "crystal",
+    "nebula",
+    "golden_shine",
+    "void",
+    "prism",
+    "bubble",
+    "flame",
+    "ocean",
+    "forest",
+    "stardust",
+    "electric",
+    "chroma_shift",
+    "pixel",
+    "liquid_metal",
+    "sunburst",
+    "dragon_scale",
+    "cosmic_dust"
+  ],
+  "holoEffects": [
+    {
+      "id": "classic_holo",
+      "pattern": "SHEEN",
+      "colors": [
+        "#FFFFFF",
+        "#B9E7FF",
+        "#E4D0FF"
+      ]
+    },
+    {
+      "id": "rainbow",
+      "pattern": "SPECTRUM",
+      "colors": [
+        "#FF6688",
+        "#63E5FF",
+        "#D778FF"
+      ]
+    },
+    {
+      "id": "linear",
+      "pattern": "SHEEN",
+      "colors": [
+        "#FFFFFF",
+        "#7DDFFF",
+        "#C68CFF"
+      ]
+    },
+    {
+      "id": "diagonal",
+      "pattern": "DIAGONAL",
+      "colors": [
+        "#57E8FF",
+        "#C25CFF",
+        "#FF75B7"
+      ]
+    },
+    {
+      "id": "galaxy",
+      "pattern": "STARS",
+      "colors": [
+        "#7F68FF",
+        "#DD69FF",
+        "#64DFFF"
+      ]
+    },
+    {
+      "id": "nebula",
+      "pattern": "WAVE",
+      "colors": [
+        "#746BFF",
+        "#DD69FF",
+        "#58DDEB"
+      ]
+    },
+    {
+      "id": "aurora",
+      "pattern": "WAVE",
+      "colors": [
+        "#69F7C5",
+        "#67B8FF",
+        "#E879FF"
+      ]
+    },
+    {
+      "id": "crystal",
+      "pattern": "FACETS",
+      "colors": [
+        "#9FF8FF",
+        "#C5B4FF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "id": "prism",
+      "pattern": "FACETS",
+      "colors": [
+        "#57E8FF",
+        "#D15DFF",
+        "#FFD06B"
+      ]
+    },
+    {
+      "id": "diamond",
+      "pattern": "FACETS",
+      "colors": [
+        "#FFFFFF",
+        "#8FDFFF",
+        "#D9C5FF"
+      ]
+    },
+    {
+      "id": "stardust",
+      "pattern": "STARS",
+      "colors": [
+        "#FFFFFF",
+        "#A7C7FF",
+        "#D7A5FF"
+      ]
+    },
+    {
+      "id": "bubble",
+      "pattern": "CONFETTI",
+      "colors": [
+        "#A7F5FF",
+        "#D0B5FF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "id": "oil_slick",
+      "pattern": "SPECTRUM",
+      "colors": [
+        "#4BE2C5",
+        "#6D55CE",
+        "#EF5FAE"
+      ]
+    },
+    {
+      "id": "liquid_metal",
+      "pattern": "SHEEN",
+      "colors": [
+        "#FFFFFF",
+        "#8593A8",
+        "#DCE5EF"
+      ]
+    },
+    {
+      "id": "hyper_wave",
+      "pattern": "WAVE",
+      "colors": [
+        "#66FFF0",
+        "#8272FF",
+        "#FF7BD4"
+      ]
+    },
+    {
+      "id": "fire",
+      "pattern": "DIAGONAL",
+      "colors": [
+        "#FFB14C",
+        "#FF5D4F",
+        "#FFE7A1"
+      ]
+    },
+    {
+      "id": "ice",
+      "pattern": "FACETS",
+      "colors": [
+        "#FFFFFF",
+        "#70DBFF",
+        "#A5BFFF"
+      ]
+    },
+    {
+      "id": "pixel",
+      "pattern": "CONFETTI",
+      "colors": [
+        "#5CEBFF",
+        "#B66AFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "id": "void",
+      "pattern": "SHEEN",
+      "colors": [
+        "#3B4252",
+        "#705A96",
+        "#8BA4B8"
+      ]
+    },
+    {
+      "id": "holo_spark",
+      "pattern": "BURST",
+      "colors": [
+        "#FFFFFF",
+        "#9F72FF",
+        "#5BE7FF"
+      ]
+    },
+    {
+      "id": "element_grass",
+      "pattern": "WAVE",
+      "colors": [
+        "#57F28E",
+        "#B8FF66",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "id": "element_fire",
+      "pattern": "DIAGONAL",
+      "colors": [
+        "#FF4C32",
+        "#FFB21F",
+        "#FFF0A3"
+      ]
+    },
+    {
+      "id": "element_water",
+      "pattern": "WAVE",
+      "colors": [
+        "#38D9FF",
+        "#287CFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "id": "element_electric",
+      "pattern": "BURST",
+      "colors": [
+        "#FFF26A",
+        "#55E9FF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "id": "element_psychic",
+      "pattern": "WAVE",
+      "colors": [
+        "#C85CFF",
+        "#6E62FF",
+        "#FFA7F2"
+      ]
+    },
+    {
+      "id": "element_fighting",
+      "pattern": "BURST",
+      "colors": [
+        "#FF8B38",
+        "#E33F2F",
+        "#FFD67A"
+      ]
+    },
+    {
+      "id": "element_darkness",
+      "pattern": "SHEEN",
+      "colors": [
+        "#24113F",
+        "#7B3EC8",
+        "#FF527D"
+      ]
+    },
+    {
+      "id": "element_metal",
+      "pattern": "FACETS",
+      "colors": [
+        "#FFFFFF",
+        "#AEC5DB",
+        "#FFD9A6"
+      ]
+    },
+    {
+      "id": "element_dragon",
+      "pattern": "FACETS",
+      "colors": [
+        "#44E4D5",
+        "#FFC857",
+        "#B65CFF"
+      ]
+    },
+    {
+      "id": "element_colorless",
+      "pattern": "STARS",
+      "colors": [
+        "#FFFFFF",
+        "#D9E6F2",
+        "#FFE4B8"
+      ]
+    },
+    {
+      "id": "element_fairy",
+      "pattern": "CONFETTI",
+      "colors": [
+        "#FF8FDF",
+        "#8FE9FF",
+        "#FFFFFF"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalTcgCardId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail } from '@/lib/domain';
+import { canonicalTcgCardId, exactCardmarketProductId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail } from '@/lib/domain';
 
 const card: TcgCardDetail = {
   id: 'sv03.5-001', localId: '001', name: 'Bisasam', set: { id: 'sv03.5', name: '151' },
@@ -11,14 +11,37 @@ describe('exactTrendPrice', () => {
     expect(exactTrendPrice(card, { type: 'Normal', pricing: card.pricing })).toBe(0.1);
   });
 
-  it('uses the declared holo trend for Holo and Reverse', () => {
-    expect(exactTrendPrice(card, { type: 'Holo', pricing: card.pricing })).toBe(0.34);
+  it('uses trend for regular Holo and trend-holo only for Reverse', () => {
+    expect(exactTrendPrice(card, { type: 'Holo', pricing: card.pricing })).toBe(0.1);
     expect(exactTrendPrice(card, { type: 'Reverse', pricing: card.pricing })).toBe(0.34);
   });
 
-  it('falls back to a positive trend for a Holo-only Cardmarket product', () => {
+  it('uses the base trend for a Holo-only Cardmarket product', () => {
     const holoOnly = { cardmarket: { idProduct: 805370, trend: 19.8, 'trend-holo': 0, unit: 'EUR' } };
     expect(exactTrendPrice(card, { type: 'Holo', pricing: holoOnly })).toBe(19.8);
+  });
+
+  it.each([undefined, null, 0, -1, Infinity, NaN])('never borrows the regular price for a missing/invalid Reverse field (%s)', (reversePrice) => {
+    const pricing = { cardmarket: { idProduct: 733596, trend: 99, 'trend-holo': reversePrice } };
+    expect(exactTrendPrice(card, { type: 'Reverse', pricing })).toBeNull();
+  });
+
+  it('never borrows the Reverse field for a Holo card with no regular trend', () => {
+    expect(exactTrendPrice(card, { type: 'Holo', pricing: { cardmarket: { idProduct: 733596, trend: 0, 'trend-holo': 12 } } })).toBeNull();
+  });
+
+  it.each([
+    ['swsh11-201', 670816, 1.38], ['sv03-062', 781858, 0.23],
+  ])('quarantines the reviewed incorrect source/product pair %s without persisting a replacement', (id, idProduct, trend) => {
+    const detail = { ...card, id: String(id), pricing: { cardmarket: { idProduct: Number(idProduct), trend: Number(trend) } } };
+    expect(exactTrendPrice(detail, { type: 'Holo' })).toBeNull();
+    expect(exactCardmarketProductId(detail, { type: 'Holo' })).toBeNull();
+  });
+
+  it.each([['swsh11-130', 670816], ['sv03-057', 781858], ['sv03-062', 725142]])('retains the verified sibling/base printing %s', (id, idProduct) => {
+    const detail = { ...card, id: String(id), pricing: { cardmarket: { idProduct: Number(idProduct), trend: 0.23 } } };
+    expect(exactTrendPrice(detail, { type: 'Holo' })).toBe(0.23);
+    expect(exactCardmarketProductId(detail, { type: 'Holo' })).toBe(idProduct);
   });
 
   it('never substitutes zero or a different price field', () => {

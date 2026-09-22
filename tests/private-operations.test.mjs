@@ -127,6 +127,13 @@ describe('Read-only binder sharing server boundary', () => {
     expect((await revokeBinderShare(request(tokens.a, { shareId: created.shareId, confirm: true }), context)).status).toBe(200);
     expect((await read(token)).status).toBe(404);
   });
+  it('lists only the calling owners private binder summaries without unrelated metadata', async () => {
+    await seed();
+    const response = await listBinderShares(new Request('http://localhost/shares', { headers: { Authorization: `Bearer ${tokens.a}` } }), context);
+    expect(await response.json()).toEqual({ binders: [{ binderId: 'binder-a', name: 'My explicitly shared binder', coverStyle: 'galaxy' }] });
+    const foreign = await listBinderShares(new Request('http://localhost/shares?ownerUid=owner-a', { headers: { Authorization: `Bearer ${tokens.b}` } }), context);
+    expect(await foreign.json()).toEqual({ binders: [] });
+  });
   it('rechecks a revocation during catalog work and owner revocation without refreshing client tokens', async () => {
     await seed(); const created = await make();
     context.cardFor = async () => { await context.db.doc(`privateBinderShares/${created.shareId}`).update({ revokedAt: Date.now() }); return card; };

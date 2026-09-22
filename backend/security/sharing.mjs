@@ -7,7 +7,7 @@ const digest = (value) => createHash('sha256').update(value).digest('hex');
 const safeId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const respond = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store, max-age=0', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow', 'X-Content-Type-Options': 'nosniff' } });
 function enabled(context) {
-  // No menu or production activation until cross-device visual/security review is complete.
+  // UI remains read-only/unavailable until cross-device visual/security review is complete.
   if (!(context.sharingEnabled ?? (process.env.BINDER_SHARING_READY === 'verified-v1'))) fail('NOT_FOUND', 404);
 }
 async function input(request) {
@@ -56,6 +56,15 @@ export async function listBinderShares(request, context = services()) {
     enabled(context);
     const actor = await actorFor(request, context, 'app');
     const binderId = new URL(request.url).searchParams.get('binderId');
+    if (binderId === null) {
+      const snapshots = await context.db.collection(`users/${actor.uid}/privateBinders`).limit(501).get();
+      if (snapshots.size > 500) fail('SERVER_OPERATION_FAILED', 503);
+      const binders = snapshots.docs.map((doc) => ({ id: doc.id, data: doc.data() }))
+        .filter(({ id, data }) => safeId(id) && data.binderId === id && data.ownerUid === actor.uid && data.deleted !== true)
+        .map(({ id, data }) => ({ binderId: id, name: typeof data.name === 'string' ? data.name.slice(0, 100) : 'Privater Binder', coverStyle: sharedVisualId(data.coverStyle, true) }))
+        .sort((left, right) => left.name.localeCompare(right.name, 'de'));
+      return respond({ binders });
+    }
     await ownedBinder(context, actor.uid, binderId);
     const records = await context.db.collection('privateBinderShares').where('ownerUid', '==', actor.uid).get();
     // One equality query avoids requiring a new composite index. Raw tokens are never persisted.

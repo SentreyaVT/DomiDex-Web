@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import type { CollectionEntry, TcgCardDetail, TcgVariant } from './domain';
-import { canonicalTcgCardId, collectionVariantLabel, exactTrendPrice, variantForCollectionEntry } from './domain';
+import { canonicalTcgCardId, collectionVariantLabel, exactCardmarketProductId, exactTrendPrice, variantForCollectionEntry } from './domain';
 import { firestore } from './firebase-client';
 import { imageUrl } from './tcgdex';
 import { deterministicSourceSyncId } from './sync-id';
@@ -38,7 +38,7 @@ export async function addExactCard(
   const safeQuantity = Math.max(1, Math.min(10_000, Math.trunc(quantity)));
   const finish = normalizeFinish(selectedVariant.type);
   const variant = collectionVariantLabel(selectedVariant);
-  const productId = selectedVariant.pricing?.cardmarket?.idProduct ?? card.pricing?.cardmarket?.idProduct ?? null;
+  const productId = exactCardmarketProductId(card, selectedVariant);
   const exact = current.find((entry) => samePrinting(card, selectedVariant, entry, finish, variant));
   const syncId = exact?.syncId ?? deterministicSourceSyncId(user.uid, card.set.id, canonicalTcgCardId(card.id), 'Near Mint', finish, variant);
   const reference = doc(firestore, 'users', user.uid, 'collectionEntries', syncId);
@@ -153,7 +153,7 @@ function samePrinting(card: TcgCardDetail, selected: TcgVariant, entry: Collecti
   if (normalizeFinish(entry.finish) !== finish || entry.condition !== 'Near Mint') return false;
   const matched = variantForCollectionEntry(card, entry);
   if (matched?.variantId && selected.variantId) return matched.variantId === selected.variantId;
-  const selectedProduct = selected.pricing?.cardmarket?.idProduct ?? card.pricing?.cardmarket?.idProduct ?? null;
+  const selectedProduct = exactCardmarketProductId(card, selected);
   if (selectedProduct !== null && entry.externalProductId !== null && selectedProduct !== entry.externalProductId) return false;
   return normalizeVariant(entry.variant) === normalizeVariant(variant);
 }

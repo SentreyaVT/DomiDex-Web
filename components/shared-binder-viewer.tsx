@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SharedBinder, SharedCard } from '@/lib/shared-binder';
+import { sharedTilt } from '@/lib/shared-binder-visual';
+import { SharedBinderMaterial } from './shared-binder-material';
 import styles from './shared-binder-viewer.module.css';
 
 const euro = (amount: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -14,6 +16,11 @@ export function SharedBinderViewer({ token }: { token: string }) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const dialog = useRef<HTMLDialogElement>(null);
   const requestVersion = useRef(0);
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const reset = () => { if (media.matches) setTilt({ x: 0, y: 0 }); };
+    media.addEventListener('change', reset); return () => media.removeEventListener('change', reset);
+  }, []);
   const refresh = useCallback(async (signal: AbortSignal) => {
     const version = ++requestVersion.current;
     try {
@@ -29,7 +36,7 @@ export function SharedBinderViewer({ token }: { token: string }) {
   }, [page, token]);
   useEffect(() => {
     const controller = new AbortController();
-    setBinder(null); setError('');
+    setBinder(null); setSelected(null); dialog.current?.close(); setError('');
     void refresh(controller.signal);
     // Revocation is enforced on every API request; an open view is also cleared promptly.
     const timer = setInterval(() => { if (!document.hidden) void refresh(controller.signal); }, 15000);
@@ -41,14 +48,14 @@ export function SharedBinderViewer({ token }: { token: string }) {
   return <main className={styles.shell}>
     <a href="/" className={styles.brand}>DomiDex</a><p>Geteilter Binder · Nur ansehen</p>
     {error ? <section role="alert"><h1>Freigabe nicht verfügbar</h1><p>{error}</p><button onClick={() => void refresh(new AbortController().signal)}>Erneut versuchen</button></section> : !binder ? <p role="status">Binder wird geladen …</p> : <>
-      <header><h1>{binder.title}</h1>{binder.displayName && <p>Geteilt von {binder.displayName}</p>}
+      <header><div className={styles.cover} aria-label={`Binder-Cover ${binder.coverStyle}`}><SharedBinderMaterial cover effect={binder.coverStyle} /><img src="/domidex-logo.jpg" alt="" /><strong>{binder.title}</strong></div><h1>{binder.title}</h1>{binder.displayName && <p>Geteilt von {binder.displayName}</p>}
         {binder.total && <p>Binderwert: {binder.total.complete && binder.total.amount !== null ? euro(binder.total.amount) : 'Nicht vollständig verfügbar'}</p>}
       </header>
       <div className={styles.grid} aria-label={`Binderseite ${page + 1}`}>
         {Array.from({ length: 9 }, (_, index) => {
           const slot = page * 9 + index; const card = binder.cards.find((item) => item.slot === slot);
           return card ? <button className={styles.slot} key={slot} onClick={() => open(card)} aria-label={`${card.name}, Nummer ${card.collectorNumber}, groß ansehen`}>
-            {card.image ? <img src={card.image} alt={card.name} loading="lazy" referrerPolicy="no-referrer" /> : <span>{card.name}</span>}
+            {card.image ? <span className={styles.cardSurface}><img src={card.image} alt={card.name} loading="lazy" referrerPolicy="no-referrer" /><SharedBinderMaterial effect={card.holoEffectId} intensity={card.holoIntensity} /></span> : <span>{card.name}</span>}
             {card.price && <span>{card.price.amount === null ? 'Preis nicht verfügbar' : euro(card.price.amount)}</span>}
           </button> : binder.unavailableSlots.includes(slot) ? <div className={styles.empty} key={slot}>Kartendaten gerade nicht verfügbar</div> : <div className={styles.empty} key={slot} aria-label={`Freier Platz ${index + 1}`} />;
         })}
@@ -58,12 +65,11 @@ export function SharedBinderViewer({ token }: { token: string }) {
     <dialog ref={dialog} className={styles.dialog} aria-labelledby="shared-card-title" onClose={() => { setSelected(null); setTilt({ x: 0, y: 0 }); }}>
       <button className={styles.close} onClick={() => dialog.current?.close()} aria-label="Großansicht schließen">Schließen</button>
       {selected && <><h2 id="shared-card-title">{selected.name}</h2>
-        <div className={styles.showcase} onPointerMove={(event) => {
-          if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        <div className={styles.showcase} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => {
           const bounds = event.currentTarget.getBoundingClientRect();
-          setTilt({ x: -((event.clientY - bounds.top) / bounds.height - .5) * 16, y: ((event.clientX - bounds.left) / bounds.width - .5) * 16 });
-        }} onPointerLeave={() => setTilt({ x: 0, y: 0 })}>
-          {selected.image && <img src={selected.image} alt={selected.name} referrerPolicy="no-referrer" style={{ transform: `perspective(900px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }} />}
+          setTilt(sharedTilt((event.clientX - bounds.left) / bounds.width * 2 - 1, (event.clientY - bounds.top) / bounds.height * 2 - 1, window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+        }} onPointerUp={() => setTilt({ x: 0, y: 0 })} onPointerCancel={() => setTilt({ x: 0, y: 0 })} onPointerLeave={() => setTilt({ x: 0, y: 0 })}>
+          {selected.image && <div className={styles.cardSurface} style={{ transform: `perspective(900px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }}><img src={selected.image} alt={selected.name} referrerPolicy="no-referrer" /><SharedBinderMaterial effect={selected.holoEffectId} intensity={selected.holoIntensity} tilt={tilt} /></div>}
         </div><p>{selected.setName} · {selected.collectorNumber} · {selected.finish}</p>
         {selected.price && <p>Cardmarket: {selected.price.amount === null ? 'Preis nicht verfügbar' : euro(selected.price.amount)}</p>}
       </>}
