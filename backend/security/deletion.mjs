@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { aggregateVote } from '../scan-knowledge/knowledge-aggregate.js';
 import { actorFor, fail, failure, json, services } from './firebase.mjs';
+import { boundedJson } from '../../lib/bounded-json.ts';
 
-const { aggregateVote } = createRequire(import.meta.url)('../scan-knowledge/knowledge-aggregate.js');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const safeUid = (value) => typeof value === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(value);
-const personalRoots = { communitySubmissions: 'submitterUid', supportRequests: 'requesterUid', privateUploadOperations: 'ownerUid' };
+const personalRoots = { communitySubmissions: 'submitterUid', supportRequests: 'requesterUid', privateUploadOperations: 'ownerUid', privateBinderShares: 'ownerUid' };
 const protectedRoots = ['scannerProfiles', 'scannerProfileVersions', 'scannerReleaseManifest', 'scannerLayouts', 'scannerBenchmarks', 'siteContent'];
 const clock = (context) => context.now?.() ?? Date.now();
 const containsIdentity = (value, uid) => typeof value === 'string' ? value === uid || value === hash(uid)
@@ -42,6 +42,7 @@ export async function inventory(context, uid) {
   }
   for await (const ref of descendants(db.doc(`users/${uid}`))) result.docs.add(ref.path);
   result.docs.add(`users/${uid}`);
+  result.docs.add(`accountAccess/${uid}`);
   for (const [root, owner] of Object.entries(personalRoots)) {
     for await (const doc of documents(db.collection(root).where(owner, '==', uid))) {
       for await (const child of descendants(doc.ref)) result.docs.add(child.path);
@@ -91,6 +92,11 @@ export async function inventory(context, uid) {
   }
   for await (const doc of documents(db.collection('scannerAudit').where('actor', '==', uid))) {
     result.redact.push({ path: doc.ref.path, field: 'actor', kind: 'redact' });
+  }
+  for (const field of ['actorUid', 'targetUid']) {
+    for await (const doc of documents(db.collection('accessAudit').where(field, '==', uid))) {
+      result.redact.push({ path: doc.ref.path, field, kind: 'redact' });
+    }
   }
   return { ...result, docs: [...result.docs], blockers: [...result.blockers] };
 }
@@ -255,15 +261,18 @@ export async function deletionRequest(request, context = services()) {
     const actor = await actorFor(request, context);
     if (!context.deletionEnabled && process.env.ACCOUNT_DELETION_READY !== 'verified-v1') fail('DELETION_DISABLED', 503);
     if (clock(context) - actor.authTime > 5 * 60_000) fail('RECENT_LOGIN_REQUIRED', 401);
-    const body = await request.json();
-    const uid = body.uid || actor.uid;
+    const body = await boundedJson(request, 2048);
+    // A malformed explicit admin target must never fall back to deleting the caller.
+    if ('uid' in body && !safeUid(body.uid)) fail('INVALID_REQUEST', 400);
+    const uid = typeof body.uid === 'string' ? body.uid : actor.uid;
     if (!safeUid(uid) || body.confirm !== 'DELETE_DOMIDEX_ACCOUNT') fail('INVALID_REQUEST', 400);
     if (uid !== actor.uid && !actor.admin) fail('ACCESS_DENIED', 403);
-    if (body.jobId) {
-      if (!/^[0-9a-f-]{36}$/.test(body.jobId)) fail('INVALID_REQUEST', 400);
-      const receipt = await context.db.doc(`accountDeletionReceipts/${body.jobId}`).get();
-      if (receipt.exists && actor.admin) return json({ jobId: body.jobId, ...receipt.data() });
-      return json(await advanceDeletion(context, uid, body.jobId));
+    if ('jobId' in body) {
+      const jobId = typeof body.jobId === 'string' ? body.jobId : '';
+      if (!/^[0-9a-f-]{36}$/.test(jobId)) fail('INVALID_REQUEST', 400);
+      const receipt = await context.db.doc(`accountDeletionReceipts/${jobId}`).get();
+      if (receipt.exists && actor.admin) return json({ jobId, ...receipt.data() });
+      return json(await advanceDeletion(context, uid, jobId));
     }
     const lock = context.db.doc(`accountDeletionLocks/${uid}`);
     const existing = await lock.get();
@@ -276,6 +285,7 @@ export async function deletionRequest(request, context = services()) {
     await context.db.runTransaction(async (tx) => {
       if ((await tx.get(lock)).exists) fail('JOB_BUSY');
       tx.create(lock, { jobId, startedAt: now });
+      tx.set(context.db.doc(`accountAccess/${uid}`), { disabled: true, updatedAt: now }, { merge: true });
       tx.create(context.db.doc(`accountDeletionJobs/${jobId}`), { uid, startedAt: now, status: 'STARTED', settleAfter: now + 65 * 60_000, leaseUntil: 0 });
     });
     return json(await advanceDeletion(context, uid, jobId), 202);

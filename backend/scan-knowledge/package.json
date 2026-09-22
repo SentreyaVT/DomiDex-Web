@@ -1,6 +1,7 @@
 {
   "name": "domidex-scan-knowledge",
   "private": true,
+  "type": "module",
   "main": "index.js",
   "engines": { "node": "22" },
   "scripts": { "test": "node --test" },

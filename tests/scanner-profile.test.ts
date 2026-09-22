@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { canTransition, createScannerDraft, resolveScannerProfile, scannerProductionActionBlockReason, scannerPublicationBlockReason, validateScannerProfile } from '@/lib/scanner-profile';
-import { POST } from '@/app/api/admin/scanner-profiles/route';
+import { GET, POST } from '@/app/api/admin/scanner-profiles/route';
 import { requireAdminToken } from '@/lib/server/firebase-token';
 import { commitDocuments, getDocument, listDocuments } from '@/lib/server/firestore-rest';
+import { privateOperations } from '@/lib/server/private-cloud-operations';
 
 vi.mock('@/lib/server/firebase-token', () => ({ requireAdminToken: vi.fn() }));
+vi.mock('@/lib/server/private-cloud-operations', () => ({ privateOperations: vi.fn() }));
 vi.mock('@/lib/server/firestore-rest', () => ({
   commitDocuments: vi.fn(), getDocument: vi.fn(), listDocuments: vi.fn(),
   setWrite: vi.fn((collection: string, id: string, data: unknown) => ({ collection, id, data })),
@@ -47,6 +49,7 @@ describe('scanner publication without a benchmark runner', () => {
     vi.mocked(listDocuments).mockResolvedValue([]);
     vi.mocked(getDocument).mockResolvedValue(null);
     vi.mocked(commitDocuments).mockResolvedValue(undefined);
+    vi.mocked(privateOperations).mockResolvedValue({ serverAuthorization: async () => 'Bearer server-only' } as never);
   });
 
   function request(body: Record<string, unknown>, authenticated = true) {
@@ -82,6 +85,20 @@ describe('scanner publication without a benchmark runner', () => {
     const writes = vi.mocked(commitDocuments).mock.calls[0][0];
     expect(writes.map((write) => write.collection)).toEqual(['scannerProfileVersions', 'scannerProfiles', 'scannerAudit']);
     expect(writes[0].data).toMatchObject({ status: 'draft', publishedAt: null, publishedBy: null });
+    expect(vi.mocked(commitDocuments).mock.calls[0][1]).toBe('Bearer server-only');
+  });
+
+  it('returns a safe correlated server error rather than masking infrastructure failures as bad input', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(listDocuments).mockRejectedValue(new Error('FIRESTORE_403'));
+    const response = await GET(new Request('https://domidex.web.app/api/admin/scanner-profiles', { headers: { Authorization: 'Bearer test-only' } }));
+    expect(response.status).toBe(503);
+    const body = await response.json() as { errorId: string; error: string };
+    expect(body.errorId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(response.headers.get('x-request-id')).toBe(body.errorId);
+    expect(body.error).not.toContain('FIRESTORE_403');
+    expect(log).toHaveBeenCalledWith('DOMIDEX_SERVER_ERROR', expect.objectContaining({ code: 'FIRESTORE_403', errorId: body.errorId }));
+    log.mockRestore();
   });
 
   it.each([

@@ -1,5 +1,5 @@
 FROM europe-west1-docker.pkg.dev/cardvault-715ac/cloud-run-source-deploy/domidex-web@sha256:2e6578f8fca70a6a1dd865faf44edaeb8bf6e8c5166ac3d03db3c8bfe4e5b0cc
 USER root
-COPY scripts/patch-cloud-run-scanner-report.cjs /tmp/patch-cloud-run-scanner-report.cjs
-RUN node /tmp/patch-cloud-run-scanner-report.cjs && rm /tmp/patch-cloud-run-scanner-report.cjs
+COPY scripts/patch-cloud-run-scanner-report.mjs /tmp/patch-cloud-run-scanner-report.mjs
+RUN node /tmp/patch-cloud-run-scanner-report.mjs && rm /tmp/patch-cloud-run-scanner-report.mjs
 USER node

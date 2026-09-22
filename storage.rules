@@ -3,13 +3,19 @@ service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() {
       return request.auth != null
-        && !firestore.exists(/databases/(default)/documents/accountDeletionLocks/$(request.auth.uid));
+        && !firestore.exists(/databases/(default)/documents/accountDeletionLocks/$(request.auth.uid))
+        && (!firestore.exists(/databases/(default)/documents/accountAccess/$(request.auth.uid))
+          || firestore.get(/databases/(default)/documents/accountAccess/$(request.auth.uid)).data.get('disabled', false) != true);
+    }
+    function roleAllowed(role) {
+      return !firestore.exists(/databases/(default)/documents/accountAccess/$(request.auth.uid))
+        || firestore.get(/databases/(default)/documents/accountAccess/$(request.auth.uid)).data.get(role, true) == true;
     }
     function owns(uid) { return signedIn() && request.auth.uid == uid; }
-    function isAdmin() { return signedIn() && request.auth.token.get('admin', false) == true; }
-    function hasAppAccess() { return signedIn() && (request.auth.token.get('appAccess', false) == true || request.auth.token.get('admin', false) == true); }
+    function isAdmin() { return signedIn() && request.auth.token.get('admin', false) == true && roleAllowed('admin'); }
+    function hasAppAccess() { return isAdmin() || (signedIn() && request.auth.token.get('appAccess', false) == true && roleAllowed('appAccess')); }
     function ownsApp(uid) { return owns(uid) && hasAppAccess(); }
-    function isPretester() { return signedIn() && (request.auth.token.get('pretester', false) == true || request.auth.token.get('admin', false) == true); }
+    function isPretester() { return isAdmin() || (signedIn() && request.auth.token.get('pretester', false) == true && roleAllowed('pretester')); }
 
     function validImage() {
       return request.resource != null

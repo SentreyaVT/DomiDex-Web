@@ -117,9 +117,9 @@ export interface SiteContent {
 export const defaultSiteContent: SiteContent = {
   heroTitle: 'Deine Karten. Deine Sammlung. Dein Binder.',
   heroSubtitle: 'Pokémon-TCG-Karten erfassen, Druckvarianten im digitalen Binder verwalten und deine private Sammlung zwischen Android und Web synchron halten.',
-  statusBanner: 'DomiDex 1.0-pre-beta ist für private Tests verfügbar.',
+  statusBanner: 'DomiDex ist im internen Google-Play-Test verfügbar. Zugang und aktuelle Testversion erhältst du über den Testerprozess in unserer Discord-Community.',
   currentVersion: '1.0-pre-beta',
-  currentBuild: '17',
+  currentBuild: '',
   releaseStatus: 'Pre-Beta',
   discordUrl: process.env.NEXT_PUBLIC_DISCORD_URL ?? '',
   discordText: 'Tausche dich mit anderen Sammlern aus und begleite die Entwicklung.',
@@ -133,7 +133,7 @@ export const defaultSiteContent: SiteContent = {
   }],
   roadmap: [
     { id: 'pre-beta', title: 'Pre-Beta für Android', description: 'Installierbarer Teststand mit Scanner, Binder, Portfolio und Cloud-Sync.', status: 'Released', order: 1 },
-    { id: 'web', title: 'DomiDex Web', description: 'Desktop-Sammlung und Binder mit demselben Firebase-Konto.', status: 'In Development', order: 2 },
+    { id: 'web', title: 'DomiDex Web', description: 'Für freigeschaltete Tester verfügbar: Desktop-Sammlung und Binder mit demselben Firebase-Konto.', status: 'Released', order: 2 },
     { id: 'scanner', title: 'Scanner-Härtung', description: 'Weitere reale Karten, Lichtverhältnisse und Geräte werden getestet.', status: 'In Development', order: 3 },
     { id: 'kickstarter', title: 'Kickstarter', description: 'Projektseite und Kampagnenstart werden vorbereitet; noch kein Termin zugesagt.', status: 'Planned', order: 4 },
   ],
@@ -142,12 +142,12 @@ export const defaultSiteContent: SiteContent = {
 export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): number | null {
   const ownPricing = variant.pricing?.cardmarket;
   const pricing = ownPricing ?? (card.variants_detailed && card.variants_detailed.length > 1 ? null : card.pricing?.cardmarket);
-  if (!pricing) return null;
+  if (!pricing || !Number.isSafeInteger(pricing.idProduct) || pricing.idProduct! <= 0 || (pricing.unit && pricing.unit !== 'EUR')) return null;
   const holo = /holo|reverse/i.test(variant.type);
   const preferred = holo ? pricing['trend-holo'] : pricing.trend;
   const fallback = holo ? pricing.trend : null;
-  if (typeof preferred === 'number' && preferred > 0) return preferred;
-  return typeof fallback === 'number' && fallback > 0 ? fallback : null;
+  if (typeof preferred === 'number' && Number.isFinite(preferred) && preferred > 0) return preferred;
+  return typeof fallback === 'number' && Number.isFinite(fallback) && fallback > 0 ? fallback : null;
 }
 
 export function canonicalTcgCardId(value: string) {
@@ -163,12 +163,16 @@ export function collectionPriceIdentity(entry: CollectionEntry) {
 }
 
 export function variantForCollectionEntry(card: TcgCardDetail, entry: CollectionEntry) {
-  const variants = card.variants_detailed?.length
+  let variants = card.variants_detailed?.length
     ? card.variants_detailed
     : [{ type: 'Normal', size: 'Standard', pricing: card.pricing }];
-  if (entry.externalProductId !== null) {
-    const productMatches = variants.filter((item) => item.pricing?.cardmarket?.idProduct === entry.externalProductId);
-    if (productMatches.length === 1) return productMatches[0];
+  if (entry.externalProductId != null) {
+    if (!Number.isSafeInteger(entry.externalProductId) || entry.externalProductId <= 0) return null;
+    const allowCardPricing = variants.length === 1;
+    variants = variants.filter((item) => (item.pricing?.cardmarket?.idProduct ?? (allowCardPricing ? card.pricing?.cardmarket?.idProduct : undefined)) === entry.externalProductId);
+    // A known product must never fall back to a similarly labelled different product.
+    if (variants.length === 0) return null;
+    if (variants.length === 1) return normalizedFinish(variants[0].type) === normalizedFinish(entry.finish) ? variants[0] : null;
   }
   const finishMatches = variants.filter((item) => normalizedFinish(item.type) === normalizedFinish(entry.finish));
   const stored = normalizedVariant(entry.variant);

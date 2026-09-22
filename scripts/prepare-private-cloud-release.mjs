@@ -36,15 +36,21 @@ for (const [name, originalHash] of Object.entries(expected)) {
 for (const directory of ['security', 'scan-knowledge']) {
   const out = path.join(release, 'backend', directory);
   fs.mkdirSync(out, { recursive: true });
-  const allow = directory === 'security' ? ['package.json', 'package-lock.json', 'firebase.mjs', 'images.mjs', 'deletion.mjs', 'routes.mjs'] : ['package.json', 'knowledge-aggregate.js'];
+  const allow = directory === 'security' ? ['package.json', 'package-lock.json', 'firebase.mjs', 'images.mjs', 'deletion.mjs', 'routes.mjs', 'access.mjs', 'sharing.mjs'] : ['package.json', 'knowledge-aggregate.js'];
   for (const name of allow) {
     let source = fs.readFileSync(path.join(root, 'backend', directory, name), 'utf8');
     if (name === 'images.mjs') source = source.replace("'../../lib/scanner-report.ts'", "'./scanner-report.mjs'");
+    if (name === 'sharing.mjs') source = source.replace("'../../lib/shared-binder.ts'", "'./shared-binder.mjs'");
+    source = source.replace("'../../lib/bounded-json.ts'", "'./bounded-json.mjs'");
     fs.writeFileSync(path.join(out, name), source);
   }
 }
 const normalizer = ts.transpileModule(fs.readFileSync(path.join(root, 'lib/scanner-report.ts'), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 fs.writeFileSync(path.join(release, 'backend/security/scanner-report.mjs'), normalizer);
+for (const file of ['domain', 'shared-binder', 'bounded-json']) {
+  const source = ts.transpileModule(fs.readFileSync(path.join(root, 'lib', `${file}.ts`), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText.replace("from './domain'", "from './domain.mjs'");
+  fs.writeFileSync(path.join(release, 'backend/security', `${file}.mjs`), source);
+}
 fs.writeFileSync(path.join(release, 'manifest.json'), JSON.stringify(manifest, null, 2));
 fs.copyFileSync(path.join(root, 'Dockerfile.private-cloud'), path.join(release, 'Dockerfile'));
 fs.copyFileSync(path.join(root, 'cloudbuild.private-cloud.yaml'), path.join(release, 'cloudbuild.yaml'));

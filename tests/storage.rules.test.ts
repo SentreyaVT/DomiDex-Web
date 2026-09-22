@@ -1,9 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
+import { doc, setDoc } from 'firebase/firestore';
 
 let environment: RulesTestEnvironment;
-const projectId = 'cardvault-715ac-web-storage-test';
+// Storage cross-service rules resolve Firestore in the emulator's configured
+// project, not an arbitrary bucket's test namespace.
+const projectId = process.env.GCLOUD_PROJECT || 'demo-domidex-privacy';
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({
@@ -73,5 +76,15 @@ describe('DomiDex Storage rules', () => {
     await assertFails(environment.unauthenticatedContext().storage().ref(path).getDownloadURL());
     await assertFails(Promise.resolve(user.storage().ref('scanner-report-images/report-2/capture.webp').put(new Uint8Array([1]), { ...metadata, customMetadata: { ...metadata.customMetadata, ownerUid: 'user', reportId: 'report-2' } })));
     await assertFails(Promise.resolve(tester.storage().ref('scanner-report-images/report-3/capture.webp').put(new Uint8Array([1]), { ...metadata, customMetadata: { ...metadata.customMetadata, reportId: 'report-3', captureType: 'AUTO_CAPTURE' } })));
+  });
+
+  it('revokes an already issued app token immediately for private Storage objects', async () => {
+    const owner = environment.authenticatedContext('owner', { appAccess: true });
+    const path = 'users/owner/cards/front.webp';
+    await assertSucceeds(Promise.resolve(owner.storage().ref(path).put(new Uint8Array([1]), { contentType: 'image/webp' })));
+    await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'accountAccess/owner'), { appAccess: false }));
+    await assertFails(owner.storage().ref(path).getDownloadURL());
+    await assertFails(Promise.resolve(owner.storage().ref(path).put(new Uint8Array([2]), { contentType: 'image/webp' })));
+    await assertFails(owner.storage().ref(path).delete());
   });
 });

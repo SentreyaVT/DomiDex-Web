@@ -36,6 +36,7 @@ export function legalHostingPlan(config, existingFiles, addedFiles, updateLegalP
 }
 
 async function main() {
+  if (process.argv.includes('--publish')) throw new Error('Standalone legal publication is retired. Build and deploy the complete reviewed application revision.');
   // No token is printed, persisted, passed in argv or included in error output.
   let token;
   try { token = execFileSync('pwsh.exe', ['-NoProfile', '-Command', '& gcloud auth print-access-token'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }

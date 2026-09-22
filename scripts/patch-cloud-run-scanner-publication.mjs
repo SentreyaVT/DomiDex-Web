@@ -1,10 +1,10 @@
 // Apply only the reviewed source-equivalent scanner publication fix to the
 // verified production runtime. Do not rebuild unrelated local UI/auth changes.
-const assert = require('node:assert/strict');
-const { readFileSync, writeFileSync, readdirSync, mkdirSync } = require('node:fs');
-const { join, dirname, basename, relative } = require('node:path');
-const { createHash, webcrypto } = require('node:crypto');
-const { runInNewContext } = require('node:vm');
+import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { join, dirname, basename, relative } from 'node:path';
+import { createHash, webcrypto } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
 
 const root = process.argv[2];
 const output = process.argv[3];
@@ -52,7 +52,8 @@ changed.set(clientPath, patchLab(client));
 changed.set(ssrPath, patchLab(ssr));
 
 async function verifyCompiledRoute() {
-  let writes = [], reads = 0, versions = [];
+  const writes = [];
+  let reads = 0, versions = [];
   const code = route.replace(/^import.*?;import.*?;/, '').replace('export{f as GET,p as POST};', 'globalThis.post=p;');
   assert(!code.includes('import{') && !code.includes('export{'));
   const context = {

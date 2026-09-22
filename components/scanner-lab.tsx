@@ -3,9 +3,9 @@
 import {
   ArrowLeft, Check, ChevronLeft, ChevronRight, ClipboardCheck, Copy, Database, FlaskConical,
   ImageIcon, Layers3, ListChecks, LoaderCircle, Plus, RefreshCw, Rocket, Save,
-  ShieldAlert, Trash2, Undo2, ZoomIn, ZoomOut,
+  ShieldAlert, Trash2, Undo2, Redo2, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useAuth } from './auth-provider';
 import {
   clampZone, createScannerDraft, layoutFamilies, scannerProductionActionBlockReason, scannerPublicationBlockReason, scopeLevels, validateScannerProfile,
@@ -13,6 +13,7 @@ import {
 } from '@/lib/scanner-profile';
 import type { ScannerReport, ScanReportStatus } from '@/lib/scanner-report';
 import { ScannerReportWorkspace } from './scanner-report-workspace';
+import { profileHistoryReducer } from '@/lib/scanner-profile-history';
 
 interface ReferenceResponse { connected: boolean; cards: ScannerReference[]; total: number; page: number; pageSize: number; stats: Record<string, number> | null; message?: string; }
 interface ScannerProfileSummary { profileId: string; name?: string; latestVersion?: number; latestStatus?: string; }
@@ -28,29 +29,40 @@ export function ScannerLab() {
   const [mode, setMode] = useState<LabMode>('reports');
   const [query, setQuery] = useState(''); const [page, setPage] = useState(1); const [selectedReference, setSelectedReference] = useState<ScannerReference | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ScannerProfileVersion>(() => createScannerDraft()); const [selectedZoneId, setSelectedZoneId] = useState('collector-number');
+  const [profileHistory, dispatchProfile] = useReducer(profileHistoryReducer, undefined, () => ({ present: createScannerDraft(), past: [], future: [], saved: '' }));
+  const draft = profileHistory.present;
+  const setDraft = (value: ScannerProfileVersion) => dispatchProfile({ type: 'replace', value });
+  const [selectedZoneId, setSelectedZoneId] = useState('collector-number');
   const [working, setWorking] = useState(false); const [message, setMessage] = useState(''); const [error, setError] = useState('');
   const [loadingMoreReports, setLoadingMoreReports] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [reportError, setReportError] = useState('');
   const [reviewDirty, setReviewDirty] = useState(false);
-  const [history, setHistory] = useState<ScannerProfileVersion[]>([]); const [historyIndex, setHistoryIndex] = useState(-1);
 
   const authorized = useCallback(async (url: string, init?: RequestInit) => {
     if (!user) throw new Error('Anmeldung erforderlich.'); const token = await user.getIdToken();
     const headers = new Headers(init?.headers); headers.set('Authorization', `Bearer ${token}`);
     const response = await fetch(url, { ...init, headers });
-    const body = await response.json() as { error?: unknown }; if (!response.ok) throw new Error(Array.isArray(body.error) ? body.error.join(' ') : typeof body.error === 'string' ? body.error : 'Anfrage fehlgeschlagen.');
+    const body = await response.json() as { error?: unknown; errorId?: string };
+    if (!response.ok) throw new Error(`${Array.isArray(body.error) ? body.error.join(' ') : typeof body.error === 'string' ? body.error : 'Anfrage fehlgeschlagen.'}${body.errorId ? ` Fehler-ID: ${body.errorId}` : ''}`);
     return body;
   }, [user]);
   const userToken = useCallback(() => user!.getIdToken(), [user]);
 
   const refreshProfiles = useCallback(async () => {
-    if (!isAdmin) return; setProfiles(await authorized('/api/admin/scanner-profiles') as ProfilesResponse);
+    if (!isAdmin) return;
+    setProfileError('');
+    try { setProfiles(await authorized('/api/admin/scanner-profiles') as ProfilesResponse); }
+    catch (reason) { setProfileError(reason instanceof Error ? reason.message : 'Profile konnten nicht geladen werden.'); }
   }, [authorized, isAdmin]);
 
   const refreshReports = useCallback(async () => {
     if (!isAdmin) return;
-    const next = await authorized('/api/admin/scan-reports?pageSize=48') as ReportsResponse;
-    setReports(next); setSelectedReportId((current) => current && next.reports.some((item) => item.documentId === current) ? current : next.reports[0]?.documentId ?? null);
+    setReportError('');
+    try {
+      const next = await authorized('/api/admin/scan-reports?pageSize=48') as ReportsResponse;
+      setReports(next); setSelectedReportId((current) => current && next.reports.some((item) => item.documentId === current) ? current : next.reports[0]?.documentId ?? null);
+    } catch (reason) { setReportError(reason instanceof Error ? reason.message : 'Fehlscans konnten nicht geladen werden.'); }
   }, [authorized, isAdmin]);
 
   const loadMoreReports = useCallback(async () => {
@@ -74,13 +86,13 @@ export function ScannerLab() {
   }, [reviewDirty]);
 
   useEffect(() => {
-    if (!reviewDirty) return;
+    if (!reviewDirty && !profileHistory.past.length) return;
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); };
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
-  }, [reviewDirty]);
+  }, [reviewDirty, profileHistory.past.length]);
 
-  useEffect(() => { if (isAdmin) void Promise.all([refreshProfiles(), refreshReports()]).catch((reason) => setError(reason.message)); }, [isAdmin, refreshProfiles, refreshReports]);
+  useEffect(() => { if (isAdmin) { void refreshProfiles(); void refreshReports(); } }, [isAdmin, refreshProfiles, refreshReports]);
   useEffect(() => {
     if (!isAdmin) return; const timer = window.setTimeout(() => {
       void authorized(`/api/admin/scanner-references?q=${encodeURIComponent(query)}&page=${page}&pageSize=24`).then((body) => {
@@ -90,18 +102,16 @@ export function ScannerLab() {
     }, 180); return () => window.clearTimeout(timer);
   }, [authorized, isAdmin, mode, page, query]);
 
-  const patchDraft = (next: ScannerProfileVersion) => {
-    setHistory((items) => [...items.slice(0, historyIndex + 1), draft].slice(-40)); setHistoryIndex((value) => Math.min(value + 1, 39)); setDraft(next);
-  };
-  const undo = () => { if (historyIndex < 0) return; const previous = history[historyIndex]; setDraft(previous); setHistoryIndex((value) => value - 1); };
+  const patchDraft = (next: ScannerProfileVersion, group?: string) => dispatchProfile({ type: 'edit', value: next, group });
+  const undo = () => dispatchProfile({ type: 'undo' });
   const selectedZone = draft.zones.find((zone) => zone.id === selectedZoneId) ?? null;
   const versions = profiles.versions.filter((version) => version.profileId === draft.profileId).sort((a, b) => b.profileVersion - a.profileVersion);
   const validation = validateScannerProfile(draft);
   const openProfile = (profileId: string) => {
     const latest = profiles.versions.filter((item) => item.profileId === profileId).sort((a, b) => b.profileVersion - a.profileVersion)[0];
-    if (latest) { setDraft(latest); setSelectedZoneId(latest.zones[0]?.id ?? ''); setHistory([]); setHistoryIndex(-1); }
+    if (latest) { setDraft(latest); setSelectedZoneId(latest.zones[0]?.id ?? ''); }
   };
-  const newProfile = () => { const next = createScannerDraft(); setDraft(next); setSelectedZoneId(next.zones[0]?.id ?? ''); setHistory([]); setHistoryIndex(-1); };
+  const newProfile = () => { const next = createScannerDraft(); setDraft(next); setSelectedZoneId(next.zones[0]?.id ?? ''); };
 
   const updateReport = async (report: ScannerReport, reviewStatus: ScanReportStatus, reviewNote: string, selection?: { reference: ScannerReference | null; variant: string | null }) => {
     setWorking(true); setError(''); setMessage('');
@@ -141,8 +151,10 @@ export function ScannerLab() {
   if (!isAdmin) return <main className="admin-gate"><ShieldAlert /><h1>403 · Scanner Lab geschützt</h1><p>Nur ein ausdrücklich freigegebener Firebase-Admin kann Scannerprofile lesen oder ändern.</p><button onClick={() => void refreshClaims()}>Berechtigung erneut prüfen</button></main>;
 
   return <main className="scanner-lab">
-    <header className="lab-header"><a href="/admin"><ArrowLeft /> Administration</a><div><p>DOMIDEX ENGINEERING</p><h1>Scanner Lab</h1><span>Fehlscans visuell prüfen, eindeutig zuordnen und Scannerprofile kontrolliert vorbereiten.</span></div>{mode === 'calibration' ? <div className="lab-actions"><button onClick={undo} disabled={historyIndex < 0}><Undo2 /> Rückgängig</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Entwurf speichern</button></div> : <div className="lab-actions"><button onClick={() => { if (confirmReviewNavigation()) void refreshReports(); }}><RefreshCw /> Reports aktualisieren</button></div>}</header>
-    {message && <div className="admin-success"><Check />{message}</div>}{error && <div className="form-error">{error}</div>}
+    <header className="lab-header"><a href="/admin"><ArrowLeft /> Administration</a><div><p>DOMIDEX ENGINEERING</p><h1>Scanner Lab</h1><span>Fehlscans visuell prüfen, eindeutig zuordnen und Scannerprofile kontrolliert vorbereiten.</span></div>{mode === 'calibration' ? <div className="lab-actions"><button onClick={undo} disabled={!profileHistory.past.length}><Undo2 /> Rückgängig</button><button onClick={() => dispatchProfile({ type: 'redo' })} disabled={!profileHistory.future.length}><Redo2 /> Wiederholen</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Entwurf speichern</button></div> : <div className="lab-actions"><button onClick={() => { if (confirmReviewNavigation()) void refreshReports(); }}><RefreshCw /> Reports aktualisieren</button></div>}</header>
+    {message && <div className="admin-success"><Check />{message}</div>}{error && <div className="form-error" role="alert">{error}</div>}
+    {profileError && <div className="form-error" role="alert"><p>{profileError}</p><button onClick={() => void refreshProfiles()}><RefreshCw /> Profile erneut laden</button></div>}
+    {reportError && <div className="form-error" role="alert"><p>{reportError}</p><button onClick={() => void refreshReports()}><RefreshCw /> Fehlscans erneut laden</button></div>}
     {mode === 'calibration' && <section className="lab-metrics">
       <Metric icon={Database} label="Referenzkarten" value={references.stats ? String(references.stats.cardsProcessed ?? references.total) : 'Nicht verbunden'} />
       <Metric icon={Layers3} label="Profile" value={String(profiles.profiles.length)} />
@@ -155,7 +167,7 @@ export function ScannerLab() {
     </nav>
     {mode === 'calibration' ? <div className="lab-workspace">
       <ReferenceBrowser data={references} query={query} setQuery={(value) => { setQuery(value); setPage(1); }} page={page} setPage={setPage} selected={selectedReference} onSelect={setSelectedReference} userToken={userToken} />
-      <CalibrationWorkspace reference={selectedReference} profile={draft} selectedZoneId={selectedZoneId} onSelectZone={setSelectedZoneId} onChange={setDraft} userToken={userToken} />
+      <CalibrationWorkspace reference={selectedReference} profile={draft} selectedZoneId={selectedZoneId} onSelectZone={setSelectedZoneId} onChange={patchDraft} userToken={userToken} />
       <ProfileEditor profile={draft} selectedZone={selectedZone} onChange={patchDraft} onSelectZone={setSelectedZoneId} validation={validation.errors} />
     </div> : <ScannerReportWorkspace reports={reports.reports} totalReports={reports.total} hasMore={!!reports.nextPageToken} nextPageToken={reports.nextPageToken ?? null} loadingMore={loadingMoreReports} selectedReportId={selectedReportId} profiles={profiles.versions} working={working} userToken={userToken} reviewDirty={reviewDirty} onReviewDirtyChange={setReviewDirty} onSelectReport={setSelectedReportId} onRefresh={refreshReports} onLoadMore={loadMoreReports} onSave={updateReport} onOpenCalibration={openCalibrationFromReport} />}
     {mode === 'calibration' && <section className="lab-bottom">
@@ -186,12 +198,12 @@ function ReferenceImage({ card, userToken, thumbnail = false }: { card: ScannerR
   return source ? <img className={thumbnail ? 'reference-thumbnail' : 'reference-image'} src={source} alt={card.nameDe} loading={thumbnail ? 'lazy' : 'eager'} /> : <span className={thumbnail ? 'reference-thumbnail placeholder' : 'reference-image placeholder'}><ImageIcon /></span>;
 }
 
-function CalibrationWorkspace({ reference, profile, selectedZoneId, onSelectZone, onChange, userToken }: { reference: ScannerReference | null; profile: ScannerProfileVersion; selectedZoneId: string; onSelectZone: (id: string) => void; onChange: (value: ScannerProfileVersion) => void; userToken: () => Promise<string> }) {
+function CalibrationWorkspace({ reference, profile, selectedZoneId, onSelectZone, onChange, userToken }: { reference: ScannerReference | null; profile: ScannerProfileVersion; selectedZoneId: string; onSelectZone: (id: string) => void; onChange: (value: ScannerProfileVersion, group?: string) => void; userToken: () => Promise<string> }) {
   const [zoom, setZoom] = useState(1); const [pan, setPan] = useState({ x: 0, y: 0 }); const [image, setImage] = useState('');
-  const drag = useRef<{ id: string; mode: 'move' | 'resize'; x: number; y: number; zone: ScannerZone } | null>(null);
+  const drag = useRef<{ id: string; mode: 'move' | 'resize'; x: number; y: number; zone: ScannerZone; group: string } | null>(null);
   useEffect(() => { let url = ''; if (!reference) { setImage(''); return; } void userToken().then((token) => fetch(`/api/admin/scanner-reference-image/${encodeURIComponent(reference.imageFile)}`, { headers: { Authorization: `Bearer ${token}` } })).then((response) => response.ok ? response.blob() : Promise.reject()).then((blob) => { url = URL.createObjectURL(blob); setImage(url); }).catch(() => setImage('')); return () => { if (url) URL.revokeObjectURL(url); }; }, [reference, userToken]);
-  const move = (event: React.PointerEvent<HTMLDivElement>) => { const state = drag.current; if (!state) return; const rect = event.currentTarget.getBoundingClientRect(); const dx = (event.clientX - state.x) / rect.width; const dy = (event.clientY - state.y) / rect.height; const next = profile.zones.map((zone) => zone.id !== state.id ? zone : clampZone(state.mode === 'move' ? { ...state.zone, x: state.zone.x + dx, y: state.zone.y + dy } : { ...state.zone, width: state.zone.width + dx, height: state.zone.height + dy })); onChange({ ...profile, zones: next }); };
-  return <section className="calibration-workspace lab-panel"><div className="lab-panel-title"><div><p>KALIBRIERUNGSFLÄCHE</p><h2>{reference?.nameDe ?? 'Referenz auswählen'}</h2></div><span>{reference ? `${reference.setId} · ${reference.localId}` : '—'}</span></div><div className="canvas-tools"><button onClick={() => setZoom((value) => Math.max(.7, value - .1))}><ZoomOut /></button><output>{Math.round(zoom * 100)} %</output><button onClick={() => setZoom((value) => Math.min(2.5, value + .1))}><ZoomIn /></button><label>X <input type="range" min="-40" max="40" value={pan.x} onChange={(event) => setPan((value) => ({ ...value, x: Number(event.target.value) }))} /></label><label>Y <input type="range" min="-40" max="40" value={pan.y} onChange={(event) => setPan((value) => ({ ...value, y: Number(event.target.value) }))} /></label><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}><RefreshCw /></button></div><div className="calibration-viewport"><div className="calibration-card" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})` }} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>{image ? <img src={image} alt={reference?.nameDe ?? ''} draggable={false} /> : <div className="reference-placeholder"><ImageIcon /><span>{reference ? 'Lokales Bild nicht verfügbar' : 'Karte auswählen'}</span></div>}{profile.zones.filter((zone) => zone.enabled).map((zone) => <button className={`analysis-zone zone-${zone.type} ${selectedZoneId === zone.id ? 'selected' : ''}`} style={{ left: `${zone.x * 100}%`, top: `${zone.y * 100}%`, width: `${zone.width * 100}%`, height: `${zone.height * 100}%` }} onPointerDown={(event) => { event.stopPropagation(); onSelectZone(zone.id); drag.current = { id: zone.id, mode: 'move', x: event.clientX, y: event.clientY, zone }; }} key={zone.id}><span>{zone.label}</span><i onPointerDown={(event) => { event.stopPropagation(); onSelectZone(zone.id); drag.current = { id: zone.id, mode: 'resize', x: event.clientX, y: event.clientY, zone }; }} /></button>)}</div></div><div className="zone-legend">{zoneTypes.slice(0, 9).map((type) => <span className={`zone-${type}`} key={type}><i />{type}</span>)}</div></section>;
+  const move = (event: React.PointerEvent<HTMLDivElement>) => { const state = drag.current; if (!state) return; const rect = event.currentTarget.getBoundingClientRect(); const dx = (event.clientX - state.x) / rect.width; const dy = (event.clientY - state.y) / rect.height; const next = profile.zones.map((zone) => zone.id !== state.id ? zone : clampZone(state.mode === 'move' ? { ...state.zone, x: state.zone.x + dx, y: state.zone.y + dy } : { ...state.zone, width: state.zone.width + dx, height: state.zone.height + dy })); onChange({ ...profile, zones: next }, state.group); };
+  return <section className="calibration-workspace lab-panel"><div className="lab-panel-title"><div><p>KALIBRIERUNGSFLÄCHE</p><h2>{reference?.nameDe ?? 'Referenz auswählen'}</h2></div><span>{reference ? `${reference.setId} · ${reference.localId}` : '—'}</span></div><div className="canvas-tools"><button onClick={() => setZoom((value) => Math.max(.7, value - .1))}><ZoomOut /></button><output>{Math.round(zoom * 100)} %</output><button onClick={() => setZoom((value) => Math.min(2.5, value + .1))}><ZoomIn /></button><label>X <input type="range" min="-40" max="40" value={pan.x} onChange={(event) => setPan((value) => ({ ...value, x: Number(event.target.value) }))} /></label><label>Y <input type="range" min="-40" max="40" value={pan.y} onChange={(event) => setPan((value) => ({ ...value, y: Number(event.target.value) }))} /></label><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}><RefreshCw /></button></div><div className="calibration-viewport"><div className="calibration-card" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})` }} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>{image ? <img src={image} alt={reference?.nameDe ?? ''} draggable={false} /> : <div className="reference-placeholder"><ImageIcon /><span>{reference ? 'Lokales Bild nicht verfügbar' : 'Karte auswählen'}</span></div>}{profile.zones.filter((zone) => zone.enabled).map((zone) => <button className={`analysis-zone zone-${zone.type} ${selectedZoneId === zone.id ? 'selected' : ''}`} style={{ left: `${zone.x * 100}%`, top: `${zone.y * 100}%`, width: `${zone.width * 100}%`, height: `${zone.height * 100}%` }} onPointerDown={(event) => { event.stopPropagation(); onSelectZone(zone.id); drag.current = { id: zone.id, mode: 'move', x: event.clientX, y: event.clientY, zone, group: crypto.randomUUID() }; event.currentTarget.setPointerCapture(event.pointerId); }} key={zone.id}><span>{zone.label}</span><i onPointerDown={(event) => { event.stopPropagation(); onSelectZone(zone.id); drag.current = { id: zone.id, mode: 'resize', x: event.clientX, y: event.clientY, zone, group: crypto.randomUUID() }; event.currentTarget.setPointerCapture(event.pointerId); }} /></button>)}</div></div><div className="zone-legend">{zoneTypes.slice(0, 9).map((type) => <span className={`zone-${type}`} key={type}><i />{type}</span>)}</div></section>;
 }
 
 function ProfileEditor({ profile, selectedZone, onChange, onSelectZone, validation }: { profile: ScannerProfileVersion; selectedZone: ScannerZone | null; onChange: (value: ScannerProfileVersion) => void; onSelectZone: (id: string) => void; validation: string[] }) {

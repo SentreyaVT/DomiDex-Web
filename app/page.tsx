@@ -129,7 +129,7 @@ export default function Home() {
       <section className="feature-section">
         <div className="section-heading"><p className="section-kicker">EIN SYSTEM</p><h2>Android scannt.<br />Web schafft Überblick.</h2><p>Firebase hält deine eigene Sammlung zwischen beiden Oberflächen synchron. Manuelle Web-Einträge bleiben Collection-Daten und erzeugen niemals ScanKnowledge.</p></div>
         <div className="feature-cards">
-          <article><ScanLine /><span>ANDROID</span><h3>Karten erfassen</h3><p>Scanner, manuelle Korrektur und Zustandswerkzeuge bleiben dort, wo die Kamera ist.</p></article>
+          <article><ScanLine /><span>ANDROID</span><h3>Karten erfassen</h3><p>Karten mit dem Scanner oder manuell über Set und Nummer erfassen. Der Scanner wird mit realen Karten weiter verbessert.</p></article>
           <article><BookOpen /><span>WEB</span><h3>Binder erleben</h3><p>Große Seiten, klare Varianten, Mengensteuerung und ein ruhiger Desktop-Arbeitsbereich.</p></article>
           <article><Cloud /><span>FIREBASE</span><h3>Eine Sammlung</h3><p>Dein Google-Konto verbindet Android und Web – ohne öffentliches Nutzerprofil.</p></article>
           <article><BadgeEuro /><span>MARKT</span><h3>Echte Trendpreise</h3><p>Nur eindeutige Cardmarket-Zuordnungen. Fehlt ein verlässlicher Wert, sagt DomiDex das offen.</p></article>
@@ -145,7 +145,7 @@ export default function Home() {
 
       <section id="kickstarter" className="kickstarter-section"><Rocket /><div><p className="section-kicker">UNTERSTÜTZE DIE VISION</p><h2>{kickstarterReady ? content.kickstarterCta : 'Kickstarter – Coming Soon'}</h2><p>Keine erfundenen Zahlen und kein Countdown: Sobald die Kampagne offiziell ist, führt dieser Bereich direkt dorthin.</p></div>{kickstarterReady ? <a className="primary-button" href={content.kickstarterUrl}>Kickstarter öffnen <ArrowRight /></a> : <span>In Vorbereitung</span>}</section>
 
-      <section id="community" className="community-grid"><article><MessageCircle /><div><h2>Discord Community</h2><p>{content.discordText}</p></div>{content.discordUrl ? <a href={content.discordUrl}>Discord öffnen <ArrowRight /></a> : <span>Link folgt</span>}</article><article><ShieldCheck /><div><h2>Private Pre-Beta</h2><p>Tester, Feedback und Entwicklungsupdates werden kontrolliert über die DomiDex Community koordiniert.</p></div><span>Google-Play-Testzugang in Vorbereitung</span></article></section>
+      <section id="community" className="community-grid"><article><MessageCircle /><div><h2>Discord Community</h2><p>{content.discordText}</p></div>{content.discordUrl ? <a href={content.discordUrl}>Discord öffnen <ArrowRight /></a> : <span>Link folgt</span>}</article><article><ShieldCheck /><div><h2>Private Pre-Beta</h2><p>Tester, Feedback und Entwicklungsupdates werden kontrolliert über die DomiDex Community koordiniert.</p></div><span>Interner Google-Play-Test · Zugang über Discord</span></article></section>
 
       <footer><div className="brand"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span></span></div><p>Privates Non-Profit-Projekt für Sammler · aktuelle Pre-Beta.</p><nav><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/kontakt">Kontakt</a></nav><small>© 2026 DomiDex. Pokémon und zugehörige Marken gehören ihren jeweiligen Rechteinhabern.</small></footer>
     </main>

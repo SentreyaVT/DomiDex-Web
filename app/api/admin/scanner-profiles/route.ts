@@ -1,4 +1,6 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
+import { privateOperations } from '@/lib/server/private-cloud-operations';
+import { serverFailure } from '@/lib/server/server-failure';
 import { commitDocuments, getDocument, listDocuments, setWrite } from '@/lib/server/firestore-rest';
 import { canTransition, profileStatuses, scannerProductionActionBlockReason, scopeLevels, validateScannerProfile, zoneTypes, type ScannerProfileStatus, type ScannerProfileVersion, type ScannerZone } from '@/lib/scanner-profile';
 
@@ -6,23 +8,25 @@ type Action = 'saveDraft' | 'markTesting' | 'createCandidate' | 'publish' | 'rol
 
 export async function GET(request: Request) {
   try {
-    const authorization = requiredAuthorization(request); await requireAdminToken(authorization);
+    await requireAdminToken(requiredAuthorization(request));
+    const authorization = await (await privateOperations()).serverAuthorization();
     const [profiles, rawVersions, benchmarks, manifest] = await Promise.all([
       listDocuments('scannerProfiles', authorization), listDocuments('scannerProfileVersions', authorization),
       listDocuments('scannerBenchmarks', authorization), getDocument('scannerReleaseManifest/production', authorization),
     ]);
     const versions = rawVersions as unknown as ScannerProfileVersion[];
-    return Response.json({ profiles, versions: versions.sort((a, b) => Number(b.profileVersion) - Number(a.profileVersion)), benchmarks, manifest });
+    return Response.json({ profiles, versions: versions.sort((a, b) => Number(b.profileVersion) - Number(a.profileVersion)), benchmarks, manifest }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) { return errorResponse(error); }
 }
 
 export async function POST(request: Request) {
   try {
-    const authorization = requiredAuthorization(request); const token = await requireAdminToken(authorization);
+    const token = await requireAdminToken(requiredAuthorization(request));
     const body = await request.json() as { action?: Action; profile?: unknown; sourceDocumentId?: string; confirm?: string; changelog?: string };
     if (!body.action) throw new Error('INVALID_ACTION');
     const publicationBlock = scannerProductionActionBlockReason(body.action);
     if (publicationBlock) return Response.json({ error: publicationBlock, code: 'SCANNER_BENCHMARK_NOT_CONNECTED' }, { status: 409 });
+    const authorization = await (await privateOperations()).serverAuthorization();
     const versions = (await listDocuments('scannerProfileVersions', authorization)) as unknown as ScannerProfileVersion[];
     const now = new Date().toISOString(); const actor = String(token.sub);
     if (body.action === 'saveDraft') {
@@ -126,4 +130,13 @@ async function checksumFor(value: ScannerProfileVersion) { const encoded = new T
 function stable(value: unknown): string { if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`; if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}`; return JSON.stringify(value) ?? 'null'; }
 function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
 function inputValue(value: Record<string, unknown>, key: string) { return value[key]; }
-function errorResponse(error: unknown) { const message = error instanceof Error ? error.message : 'UNKNOWN'; if (message === 'AUTH_REQUIRED') return Response.json({ error: 'Anmeldung erforderlich.' }, { status: 401 }); if (message === 'ADMIN_REQUIRED') return Response.json({ error: 'Administratorrechte erforderlich.' }, { status: 403 }); if (message.startsWith('PROFILE_INVALID:')) return Response.json({ error: message.slice(16).split('|') }, { status: 400 }); const known: Record<string, string> = { INVALID_ACTION: 'Unbekannte Aktion.', SOURCE_NOT_FOUND: 'Ausgangsversion wurde nicht gefunden.', INVALID_TRANSITION: 'Dieser Statuswechsel ist nicht zulässig.', CONFIRM_REQUIRED: 'Explizite Bestätigung fehlt.' }; return Response.json({ error: known[message] ?? 'Scannerprofil konnte nicht verarbeitet werden.' }, { status: 400 }); }
+function errorResponse(error: unknown) {
+  const message = error instanceof Error ? error.message : 'UNKNOWN';
+  const headers = { 'Cache-Control': 'private, no-store' };
+  if (message === 'AUTH_REQUIRED') return Response.json({ error: 'Anmeldung erforderlich.' }, { status: 401, headers });
+  if (message === 'ADMIN_REQUIRED') return Response.json({ error: 'Administratorrechte erforderlich.' }, { status: 403, headers });
+  if (message.startsWith('PROFILE_INVALID:')) return Response.json({ error: message.slice(16).split('|') }, { status: 400, headers });
+  const known: Record<string, string> = { INVALID_ACTION: 'Unbekannte Aktion.', SOURCE_NOT_FOUND: 'Ausgangsversion wurde nicht gefunden.', INVALID_TRANSITION: 'Dieser Statuswechsel ist nicht zulässig.', CONFIRM_REQUIRED: 'Explizite Bestätigung fehlt.' };
+  if (known[message]) return Response.json({ error: known[message] }, { status: 400, headers });
+  return serverFailure('scanner-profiles', error, 'Scannerprofile konnten gerade nicht geladen oder gespeichert werden. Bitte erneut versuchen.');
+}

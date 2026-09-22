@@ -55,18 +55,29 @@ describe('DomiDex Web Firestore rules', () => {
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'users/owner/collectionEntries/web-entry')));
   });
 
-  it('keeps scanner drafts private and exposes only production to signed-in clients', async () => {
+  it('keeps all profile publication server-only and limits production reads to app users', async () => {
     const admin = environment.authenticatedContext('admin', { admin: true }).firestore();
     const user = environment.authenticatedContext('user').firestore();
+    const appUser = environment.authenticatedContext('app-user', { appAccess: true }).firestore();
     const draft = doc(admin, 'scannerProfileVersions/profile-v1');
-    await assertSucceeds(setDoc(draft, scannerVersion('draft')));
+    await assertFails(setDoc(draft, scannerVersion('draft')));
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'scannerProfileVersions/profile-v1'), scannerVersion('draft'));
+      await setDoc(doc(context.firestore(), 'scannerProfileVersions/profile-v2'), scannerVersion('production', 2));
+      await setDoc(doc(context.firestore(), 'scannerReleaseManifest/production'), { schemaVersion: 1, profiles: {}, compatibility: {} });
+    });
+    await assertSucceeds(getDoc(draft));
     await assertFails(getDoc(doc(user, 'scannerProfileVersions/profile-v1')));
     const production = doc(admin, 'scannerProfileVersions/profile-v2');
-    await assertSucceeds(setDoc(production, scannerVersion('production', 2)));
-    await assertSucceeds(getDoc(doc(user, 'scannerProfileVersions/profile-v2')));
+    await assertFails(setDoc(production, scannerVersion('production', 2)));
+    await assertFails(getDoc(doc(user, 'scannerProfileVersions/profile-v2')));
+    await assertSucceeds(getDoc(doc(appUser, 'scannerProfileVersions/profile-v2')));
     await assertFails(setDoc(doc(user, 'scannerProfileVersions/rogue'), scannerVersion('production')));
-    await assertSucceeds(setDoc(doc(admin, 'scannerReleaseManifest/production'), { schemaVersion: 1, profiles: {}, compatibility: {} }));
-    await assertSucceeds(getDoc(doc(user, 'scannerReleaseManifest/production')));
+    await assertFails(setDoc(doc(admin, 'scannerReleaseManifest/production'), { schemaVersion: 1, profiles: {}, compatibility: {} }));
+    await assertFails(setDoc(doc(admin, 'scannerBenchmarks/forged'), { mode: 'REAL', passed: true }));
+    await assertFails(setDoc(doc(admin, 'scannerAudit/forged'), { action: 'PRODUCTION_PUBLISHED' }));
+    await assertFails(getDoc(doc(user, 'scannerReleaseManifest/production')));
+    await assertSucceeds(getDoc(doc(appUser, 'scannerReleaseManifest/production')));
     await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'scannerReleaseManifest/production')));
   });
 
@@ -103,6 +114,27 @@ describe('DomiDex Web Firestore rules', () => {
     await assertFails(getDoc(ref));
     await assertFails(setDoc(doc(owner, 'users/owner/collectionEntries/recreate'), entry('owner', 'recreate')));
     await assertFails(deleteDoc(doc(owner, 'accountDeletionLocks/owner')));
+  });
+
+  it('immediately denies revoked access even with an old valid appAccess token', async () => {
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
+    const ref = doc(owner, 'users/owner/collectionEntries/entry');
+    await assertSucceeds(setDoc(ref, entry('owner', 'entry')));
+    await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'accountAccess/owner'), { appAccess: false }));
+    await assertFails(getDoc(ref));
+    await assertFails(setDoc(doc(owner, 'users/owner/collectionEntries/recreate'), entry('owner', 'recreate')));
+    await assertFails(setDoc(doc(owner, 'accountAccess/owner'), { appAccess: true }));
+    await assertSucceeds(getDoc(doc(owner, 'accountAccess/owner')));
+    await assertFails(getDoc(doc(environment.authenticatedContext('other').firestore(), 'accountAccess/owner')));
+  });
+
+  it('never exposes share records or permits clients to create/revoke shares directly', async () => {
+    for (const context of [environment.unauthenticatedContext(), environment.authenticatedContext('owner', { appAccess: true }), environment.authenticatedContext('admin', { admin: true })]) {
+      const ref = doc(context.firestore(), `privateBinderShares/${'a'.repeat(64)}`);
+      await assertFails(getDoc(ref));
+      await assertFails(setDoc(ref, { ownerUid: 'owner', revokedAt: null }));
+      await assertFails(deleteDoc(ref));
+    }
   });
 });
 

@@ -1,4 +1,5 @@
 import { importPKCS8, SignJWT } from 'jose';
+import { privateOperations } from './private-cloud-operations';
 
 const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID?.trim()
   || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim()
@@ -68,26 +69,16 @@ export async function listManagedUsers(pageSize: number, pageToken?: string) {
   };
 }
 
-export async function setAppAccessClaim(uid: string, enabled: boolean) {
-  return setBooleanClaim(uid, 'appAccess', enabled);
+export async function setAppAccessClaim(uid: string, enabled: boolean, actorUid: string) {
+  return setBooleanClaim(uid, 'appAccess', enabled, actorUid);
 }
 
-export async function setPretesterClaim(uid: string, enabled: boolean) {
-  return setBooleanClaim(uid, 'pretester', enabled);
+export async function setPretesterClaim(uid: string, enabled: boolean, actorUid: string) {
+  return setBooleanClaim(uid, 'pretester', enabled, actorUid);
 }
 
-async function setBooleanClaim(uid: string, claim: 'pretester' | 'appAccess', enabled: boolean) {
-  const found = await identityRequest<{ users?: IdentityUser[] }>('accounts:lookup', {
-    method: 'POST', body: JSON.stringify({ localId: [uid] }),
-  });
-  const user = found.users?.[0];
-  if (!user) throw new Error('AUTH_USER_NOT_FOUND');
-  const claims = claim === 'pretester'
-    ? withPretesterClaim(parseClaims(user.customAttributes), enabled)
-    : withAppAccessClaim(parseClaims(user.customAttributes), enabled);
-  await identityRequest('accounts:update', {
-    method: 'POST', body: JSON.stringify({ localId: uid, customAttributes: JSON.stringify(claims) }),
-  });
+async function setBooleanClaim(uid: string, claim: 'pretester' | 'appAccess', enabled: boolean, actorUid: string) {
+  await (await privateOperations()).changeRole(uid, claim, enabled, actorUid);
   const verified = await identityRequest<{ users?: IdentityUser[] }>('accounts:lookup', {
     method: 'POST', body: JSON.stringify({ localId: [uid] }),
   });

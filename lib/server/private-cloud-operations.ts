@@ -3,6 +3,13 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 interface PrivateOperations {
+  createBinderShare(request: Request): Promise<Response>;
+  listBinderShares(request: Request): Promise<Response>;
+  revokeBinderShare(request: Request): Promise<Response>;
+  readBinderShare(request: Request, context: { params: Promise<{ token: string }> }): Promise<Response>;
+  authorize(authorization: string | null, role: 'admin' | 'tester' | 'app'): Promise<{ sub: string; admin: boolean; appAccess: boolean; pretester: boolean }>;
+  serverAuthorization(): Promise<string>;
+  changeRole(uid: string, role: 'appAccess' | 'pretester', enabled: boolean, actorUid: string): Promise<void>;
   uploadReport(request: Request): Promise<Response>;
   readReportImage(request: Request, context: { params: Promise<{ reportId: string }> }): Promise<Response>;
   deleteReport(request: Request): Promise<Response>;

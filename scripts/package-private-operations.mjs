@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import ts from 'typescript';
 
@@ -7,12 +7,14 @@ const root = process.cwd();
 const sourceDirectory = path.join(root, 'backend', 'security');
 const outputDirectory = path.join(root, 'dist', 'standalone', 'backend', 'security');
 const knowledgeOutputDirectory = path.join(root, 'dist', 'standalone', 'backend', 'scan-knowledge');
-const files = ['package.json', 'firebase.mjs', 'images.mjs', 'deletion.mjs', 'routes.mjs'];
+const files = ['package.json', 'firebase.mjs', 'images.mjs', 'deletion.mjs', 'routes.mjs', 'access.mjs', 'sharing.mjs'];
 
 await mkdir(outputDirectory, { recursive: true });
 for (const file of files) {
   let source = await readFile(path.join(sourceDirectory, file), 'utf8');
   if (file === 'images.mjs') source = source.replace("'../../lib/scanner-report.ts'", "'./scanner-report.mjs'");
+  if (file === 'sharing.mjs') source = source.replace("'../../lib/shared-binder.ts'", "'./shared-binder.mjs'");
+  source = source.replace("'../../lib/bounded-json.ts'", "'./bounded-json.mjs'");
   await writeFile(path.join(outputDirectory, file), source, 'utf8');
 }
 
@@ -20,6 +22,12 @@ const scannerReport = ts.transpileModule(await readFile(path.join(root, 'lib', '
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
 }).outputText;
 await writeFile(path.join(outputDirectory, 'scanner-report.mjs'), scannerReport, 'utf8');
+for (const file of ['domain', 'shared-binder', 'bounded-json']) {
+  const source = ts.transpileModule(await readFile(path.join(root, 'lib', `${file}.ts`), 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  }).outputText.replace("from './domain'", "from './domain.mjs'");
+  await writeFile(path.join(outputDirectory, `${file}.mjs`), source, 'utf8');
+}
 await mkdir(knowledgeOutputDirectory, { recursive: true });
 await writeFile(
   path.join(knowledgeOutputDirectory, 'knowledge-aggregate.js'),
@@ -28,12 +36,11 @@ await writeFile(
 );
 await writeFile(
   path.join(knowledgeOutputDirectory, 'package.json'),
-  JSON.stringify({ type: 'commonjs', private: true }, null, 2),
+  JSON.stringify({ type: 'module', private: true }, null, 2),
   'utf8',
 );
 
-const require = createRequire(import.meta.url);
-const packagedKnowledge = require(path.join(knowledgeOutputDirectory, 'knowledge-aggregate.js'));
+const packagedKnowledge = await import(pathToFileURL(path.join(knowledgeOutputDirectory, 'knowledge-aggregate.js')).href);
 if (typeof packagedKnowledge.aggregateVote !== 'function') throw new Error('PACKAGED_KNOWLEDGE_AGGREGATE_INVALID');
 
 console.log(`Packaged private Cloud Run operations in ${path.relative(root, outputDirectory)}.`);

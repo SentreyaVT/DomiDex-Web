@@ -1,15 +1,13 @@
-"use strict";
-
-const crypto = require("node:crypto");
-const { initializeApp } = require("firebase-admin/app");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
-const { onDocumentWritten } = require("firebase-functions/v2/firestore");
-const { aggregateVote } = require("./knowledge-aggregate");
-const { isCurrentEvidence } = require("./current-evidence");
+import crypto from 'node:crypto';
+import { initializeApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { aggregateVote } from './knowledge-aggregate.js';
+import { isCurrentEvidence } from './current-evidence.js';
 
 initializeApp();
 
-exports.aggregateScanKnowledge = onDocumentWritten(
+export const aggregateScanKnowledge = onDocumentWritten(
   { document: "users/{uid}/scanEvidence/{fingerprint}", region: "europe-west1", maxInstances: 10 },
   async event => {
     const evidence = event.data?.after?.data();

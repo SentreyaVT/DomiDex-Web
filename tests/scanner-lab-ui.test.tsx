@@ -32,6 +32,27 @@ function setup(reports = [report('scan-pikachu', 'Pikachu'), report('scan-glurak
 }
 
 describe('Scanner Lab review workspace', () => {
+  it('keeps reports usable when profiles fail and retries only the failed resource', async () => {
+    let profileAttempts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === '/api/admin/scanner-profiles') {
+        profileAttempts += 1;
+        return profileAttempts === 1
+          ? new Response(JSON.stringify({ error: 'Profile derzeit nicht erreichbar.', errorId: 'safe-id' }), { status: 503 })
+          : jsonResponse({ profiles: [], versions: [], benchmarks: [], manifest: null });
+      }
+      if (url.startsWith('/api/admin/scan-reports?')) return jsonResponse({ reports: [report('scan-pikachu', 'Pikachu')], total: 1 });
+      return jsonResponse({ connected: false, cards: [], total: 0, page: 1, pageSize: 24, stats: null });
+    }));
+    render(<ScannerLab />);
+    expect(await within(screen.getByLabelText('Scan-Report Warteschlange')).findByText('Pikachu')).toBeTruthy();
+    expect(await screen.findByText(/Fehler-ID: safe-id/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Profile erneut laden' }));
+    await waitFor(() => expect(screen.queryByText(/Fehler-ID: safe-id/)).toBeNull());
+    expect(profileAttempts).toBe(2);
+  });
+
   it('shows real reports, metrics and filters without inventing a confidence', () => {
     setup();
     expect(screen.getByText('2 Reports')).toBeTruthy();

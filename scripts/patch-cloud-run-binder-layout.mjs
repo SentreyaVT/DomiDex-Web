@@ -1,9 +1,9 @@
 // Preserve the verified production runtime; apply only the approved binder patch.
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const { createHash } = require('node:crypto');
-const { runInNewContext } = require('node:vm');
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
 const [stage, output] = process.argv.slice(2);
 assert(stage && output, 'Usage: patch <scanner-publication stage> <new overlay>');
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');

@@ -8,8 +8,9 @@ import {
   signOut,
   type User,
 } from 'firebase/auth';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { firebaseAuth, googleProvider } from '@/lib/firebase-client';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { firebaseAuth, firestore, googleProvider } from '@/lib/firebase-client';
 
 interface AuthState {
   user: User | null;
@@ -17,6 +18,7 @@ interface AuthState {
   isAdmin: boolean;
   isPretester: boolean;
   hasAppAccess: boolean;
+  accessError: 'unavailable' | 'timeout' | null;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
   refreshClaims: () => Promise<void>;
@@ -27,17 +29,33 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setAdmin] = useState(false);
-  const [isPretester, setPretester] = useState(false);
-  const [hasAppAccess, setAppAccess] = useState(false);
+  const [claims, setClaims] = useState<Record<string, unknown>>({});
+  const [access, setAccess] = useState<Record<string, unknown> | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessError, setAccessError] = useState<AuthState['accessError']>(null);
+  const [accessAttempt, setAccessAttempt] = useState(0);
+  const generation = useRef(0);
+  const observedUid = useRef<string | null>(null);
+  const roleAllowed = (role: string) => access !== null && access.disabled !== true && (!(role in access) || access[role] === true);
+  const isAdmin = claims.admin === true && roleAllowed('admin');
+  const hasAppAccess = isAdmin || (claims.appAccess === true && roleAllowed('appAccess'));
+  const isPretester = isAdmin || (claims.pretester === true && roleAllowed('pretester'));
 
   const readClaims = useCallback(async (next: User | null, force = false) => {
+    const currentGeneration = ++generation.current;
+    if (observedUid.current !== (next?.uid ?? null)) {
+      observedUid.current = next?.uid ?? null;
+      setClaims({}); setAccess(null); setAccessError(null); setAccessLoading(!!next);
+    }
     setUser(next);
-    const claims = next ? (await next.getIdTokenResult(force)).claims : {};
-    setAdmin(claims.admin === true);
-    setPretester(claims.pretester === true);
-    setAppAccess(claims.appAccess === true || claims.admin === true);
-    setLoading(false);
+    try {
+      const nextClaims = next ? (await next.getIdTokenResult(force)).claims : {};
+      if (currentGeneration === generation.current) setClaims(nextClaims);
+    } catch {
+      if (currentGeneration === generation.current) { setClaims({}); setAccessError('unavailable'); }
+    } finally {
+      if (currentGeneration === generation.current) setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -45,12 +63,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return onIdTokenChanged(firebaseAuth, (next) => void readClaims(next));
   }, [readClaims]);
 
+  useEffect(() => {
+    setAccess(null);
+    setAccessError(null);
+    setAccessLoading(!!user);
+    if (!user) return;
+    let active = true;
+    const timeout = window.setTimeout(() => {
+      if (active) { setAccess(null); setAccessError('timeout'); setAccessLoading(false); }
+    }, 10_000);
+    const stop = onSnapshot(doc(firestore, 'accountAccess', user.uid), { includeMetadataChanges: true }, (snapshot) => {
+      if (active && !snapshot.metadata.fromCache) {
+        window.clearTimeout(timeout); setAccess(snapshot.data() || {}); setAccessError(null); setAccessLoading(false);
+      }
+    }, () => {
+      if (active) { window.clearTimeout(timeout); setAccess(null); setAccessError('unavailable'); setAccessLoading(false); }
+    });
+    return () => { active = false; window.clearTimeout(timeout); stop(); };
+  }, [user, accessAttempt]);
+
   const value = useMemo<AuthState>(() => ({
     user,
-    loading,
+    loading: loading || accessLoading,
     isAdmin,
     isPretester,
     hasAppAccess,
+    accessError,
     signIn: async () => {
       try {
         await signInWithPopup(firebaseAuth, googleProvider);
@@ -64,8 +102,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     logout: () => signOut(firebaseAuth),
-    refreshClaims: async () => readClaims(firebaseAuth.currentUser, true),
-  }), [hasAppAccess, isAdmin, isPretester, loading, readClaims, user]);
+    refreshClaims: async () => {
+      setAccess(null); setAccessError(null); setAccessLoading(!!firebaseAuth.currentUser);
+      await readClaims(firebaseAuth.currentUser, true);
+      // Firestore error callbacks terminate the subscription; refreshing a token alone cannot retry it.
+      setAccessAttempt((attempt) => attempt + 1);
+    },
+  }), [hasAppAccess, isAdmin, isPretester, loading, accessLoading, accessError, readClaims, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

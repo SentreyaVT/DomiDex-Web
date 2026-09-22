@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, PATCH } from '@/app/api/admin/scan-reports/route';
 import { requireAdminToken } from '@/lib/server/firebase-token';
 import { loadScannerIndex } from '@/lib/server/scanner-references';
+import { privateOperations } from '@/lib/server/private-cloud-operations';
 
 vi.mock('@/lib/server/firebase-token', () => ({ requireAdminToken: vi.fn() }));
 vi.mock('@/lib/server/scanner-references', () => ({ loadScannerIndex: vi.fn() }));
@@ -10,6 +11,7 @@ vi.mock('@/lib/server/private-cloud-operations', () => ({ privateOperations: vi.
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(requireAdminToken).mockResolvedValue({ sub: 'admin-user' } as never);
+  vi.mocked(privateOperations).mockResolvedValue({ serverAuthorization: async () => 'Bearer server-only' } as never);
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -19,7 +21,7 @@ describe('scanner report admin route', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
       if (url.endsWith(':runAggregationQuery')) {
-        expect(init?.headers).toMatchObject({ Authorization: 'Bearer admin-token' });
+        expect(init?.headers).toMatchObject({ Authorization: 'Bearer server-only' });
         return jsonResponse([{ result: { aggregateFields: { total: { integerValue: '61' } } } }]);
       }
       return jsonResponse({

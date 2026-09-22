@@ -25,13 +25,13 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    await requireAdminToken(request.headers.get('authorization'));
+    const actor = await requireAdminToken(request.headers.get('authorization'));
     const body = await request.json() as { uid?: unknown; pretester?: unknown; appAccess?: unknown };
     const uid = cleanUid(body.uid);
     const pretesterChange = typeof body.pretester === 'boolean';
     const appAccessChange = typeof body.appAccess === 'boolean';
     if (!uid || pretesterChange === appAccessChange) throw new Error('INVALID_CHANGE');
-    const updated = pretesterChange ? await setPretesterClaim(uid, body.pretester as boolean) : await setAppAccessClaim(uid, body.appAccess as boolean);
+    const updated = pretesterChange ? await setPretesterClaim(uid, body.pretester as boolean, String(actor.sub)) : await setAppAccessClaim(uid, body.appAccess as boolean, String(actor.sub));
     return json({ configured: true, user: updated, tokenRefreshRequired: true });
   } catch (error) { return errorResponse(error); }
 }
@@ -48,5 +48,6 @@ function errorResponse(error: unknown) {
   if (message === 'AUTH_USER_NOT_FOUND') return json({ error: 'Kein Firebase-Nutzer mit diesen Daten gefunden.' }, 404);
   if (message === 'INVALID_EMAIL') return json({ error: 'Bitte eine gültige E-Mail-Adresse eingeben.' }, 400);
   if (message === 'INVALID_CHANGE') return json({ error: 'Ungültige Rollenänderung.' }, 400);
+  if (message === 'ACCESS_CHANGE_BUSY') return json({ error: 'Die Freigabe wird gerade geändert. Bitte erneut versuchen.' }, 409);
   return json({ error: 'Firebase Auth konnte die Anfrage nicht sicher verarbeiten.' }, 502);
 }

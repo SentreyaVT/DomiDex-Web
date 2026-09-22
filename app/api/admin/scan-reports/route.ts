@@ -1,13 +1,14 @@
 import { scanReportStatuses, normalizeScannerReport, type ScanReportStatus } from '@/lib/scanner-report';
 import { requireAdminToken } from '@/lib/server/firebase-token';
+import { serverFailure } from '@/lib/server/server-failure';
 import { commitDocuments, countDocuments, getDocument, listDocumentsPage, setWrite } from '@/lib/server/firestore-rest';
 import { loadScannerIndex } from '@/lib/server/scanner-references';
 import { privateOperations } from '@/lib/server/private-cloud-operations';
 
 export async function GET(request: Request) {
   try {
-    const authorization = requiredAuthorization(request);
-    await requireAdminToken(authorization);
+    await requireAdminToken(requiredAuthorization(request));
+    const authorization = await (await privateOperations()).serverAuthorization();
     const url = new URL(request.url);
     const pageSize = Math.min(100, Math.max(12, Number(url.searchParams.get('pageSize')) || 48));
     const pageToken = (url.searchParams.get('pageToken') ?? '').slice(0, 2_048);
@@ -25,8 +26,8 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const authorization = requiredAuthorization(request);
-    const actor = await requireAdminToken(authorization);
+    const actor = await requireAdminToken(requiredAuthorization(request));
+    const authorization = await (await privateOperations()).serverAuthorization();
     const body = await request.json() as {
       reportId?: unknown;
       reviewStatus?: unknown;
@@ -97,5 +98,6 @@ function errorResponse(error: unknown) {
     INVALID_VARIANT: 'Die gewählte Variante gehört nicht zur Referenzkarte.',
     REFERENCE_UNAVAILABLE: 'Das private Referenzarchiv ist für diese Zuordnung nicht verbunden.',
   };
-  return json({ error: known[message] ?? 'Scan-Report konnte nicht verarbeitet werden.' }, 400);
+  if (known[message]) return json({ error: known[message] }, 400);
+  return serverFailure('scan-reports', error, 'Fehlscans konnten gerade nicht verarbeitet werden. Bitte erneut versuchen.');
 }

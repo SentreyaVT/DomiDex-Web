@@ -4,12 +4,13 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { createHash, randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { isCurrentEvidence } from '../backend/scan-knowledge/current-evidence.js';
 import sharp from 'sharp';
 import { uploadReport, readReportImage, deleteReport } from '../backend/security/images.mjs';
 import { deletionRequest, advanceDeletion } from '../backend/security/deletion.mjs';
+import { authorize, changeRole } from '../backend/security/access.mjs';
+import { createBinderShare, listBinderShares, readBinderShare, revokeBinderShare } from '../backend/security/sharing.mjs';
 
-const { isCurrentEvidence } = createRequire(import.meta.url)('../backend/scan-knowledge/current-evidence.js');
 const projectId = 'demo-domidex-privacy';
 let app, context, tokens;
 const uidHash = (uid) => createHash('sha256').update(uid).digest('hex');
@@ -65,13 +66,140 @@ beforeEach(async () => {
   if (users.users.length) await context.auth.deleteUsers(users.users.map((user) => user.uid));
   const [files] = await context.bucket.getFiles();
   await Promise.all(files.map((file) => file.delete()));
-  delete context.beforeDelete; delete context.now;
+  delete context.beforeDelete; delete context.now; delete context.sharingEnabled; delete context.cardFor;
   context.bucket.getMetadata = async () => [{ softDeletePolicy: { retentionDurationSeconds: '0' } }];
   tokens = { a: await login('owner-a', { appAccess: true, pretester: true }), b: await login('owner-b', { appAccess: true }), admin: await login('operator', { admin: true }) };
 }, 30_000);
 afterAll(async () => deleteApp(app));
 
+describe('Read-only binder sharing server boundary', () => {
+  const card = { id: 'sv1-200', localId: '200', name: 'Public card', image: 'https://assets.tcgdex.net/de/sv/sv1/200', set: { id: 'sv1', name: 'Public set' }, variants_detailed: [{ type: 'Normal', size: 'Standard', pricing: { cardmarket: { idProduct: 42, trend: 2.5, unit: 'EUR' } } }] };
+  async function seed() {
+    context.sharingEnabled = true; context.cardFor = async () => card;
+    await context.db.doc('users/owner-a/privateBinders/binder-a').set({ binderId: 'binder-a', ownerUid: 'owner-a', name: 'My explicitly shared binder', coverStyle: 'galaxy', minimumPageCount: 2, deleted: false, description: 'PRIVATE_DESCRIPTION' });
+    await context.db.doc('users/owner-a/privateBinderPlacements/placement-a').set({ ownerUid: 'owner-a', binderId: 'binder-a', entrySyncId: 'entry-a', slotPosition: 1, holoEffectId: 'galaxy', holoIntensity: .7, deleted: false });
+    await context.db.doc('users/owner-a/collectionEntries/entry-a').set({ ownerUid: 'owner-a', sourceCardId: 'sv1-200', sourceSetId: 'sv1', setId: 'sv1', collectorNumber: '200/198', finish: 'Normal', variant: 'Standard', externalProductId: 42, deleted: false, quantity: 12, notes: 'PRIVATE_NOTES', acquisitionPriceMinor: 9000, imageUrl: 'https://private.invalid/secret' });
+  }
+  async function make(extra = {}) {
+    const response = await createBinderShare(request(tokens.a, { binderId: 'binder-a', confirm: true, ...extra }), context);
+    expect(response.status).toBe(201);
+    return response.json();
+  }
+  const read = (token, suffix = '') => readBinderShare(new Request(`http://localhost/shared${suffix}`), { params: Promise.resolve({ token }) }, context);
+  it('is off by default and requires explicit owner confirmation and app access', async () => {
+    expect((await createBinderShare(request(tokens.a, { binderId: 'binder-a', confirm: true }), context)).status).toBe(404);
+    await seed();
+    expect((await createBinderShare(request(tokens.a, { binderId: 'binder-a' }), context)).status).toBe(400);
+    expect((await createBinderShare(request(tokens.b, { binderId: 'binder-a', ownerUid: 'owner-a', confirm: true }), context)).status).toBe(404);
+    expect((await read('owner-a')).status).toBe(404);
+    expect((await read('a'.repeat(43))).status).toBe(404);
+    const forgedBrowser = new Request('http://localhost/api/binder-shares', { method: 'POST', headers: { Cookie: `session=${tokens.a}`, Origin: 'https://attacker.invalid', 'Content-Type': 'application/json' }, body: JSON.stringify({ binderId: 'binder-a', confirm: true }) });
+    expect((await createBinderShare(forgedBrowser, context)).status).toBe(401);
+    expect((await createBinderShare(request(tokens.a, { binderId: 'binder-a', confirm: true, padding: 'x'.repeat(3000) }), context)).status).toBe(413);
+  });
+  it('issues 256-bit tokens and returns only the DTO without default owner or price data', async () => {
+    await seed(); const created = await make(); const token = created.path.split('/').pop();
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const saved = (await context.db.doc(`privateBinderShares/${created.shareId}`).get()).data();
+    expect(JSON.stringify(saved)).not.toContain(token);
+    const response = await read(token, '?showPrices=true&showTotal=true&showDisplayName=true');
+    expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toContain('no-store');
+    const body = await response.json();
+    expect(body.cards[0]).toMatchObject({ name: 'Public card', slot: 1, holoEffectId: 'galaxy', holoIntensity: .7 });
+    expect(JSON.stringify(body)).not.toMatch(/owner-a|PRIVATE_|entry-a|placement-a|quantity|acquisition|price|total|displayName|private.invalid/);
+    expect((await context.db.doc('users/owner-a/collectionEntries/entry-a').get()).get('quantity')).toBe(12);
+    expect((await read(created.shareId)).status).toBe(404);
+  });
+  it('keeps pricing and total opt-ins independent, with quantity excluded from market total', async () => {
+    await seed(); const created = await make({ showTotal: true });
+    const body = await (await read(created.path.split('/').pop())).json();
+    expect(body.total).toEqual({ amount: 2.5, currency: 'EUR', complete: true, pricedCards: 1, visibleCards: 1 });
+    expect(body.cards[0].price).toBeUndefined();
+    const named = await make({ showPrices: true, showDisplayName: true, displayName: 'Sammler' });
+    const namedBody = await (await read(named.path.split('/').pop())).json();
+    expect(namedBody.displayName).toBe('Sammler'); expect(namedBody.cards[0].price.amount).toBe(2.5); expect(namedBody.total).toBeUndefined();
+  });
+  it('only allows the owner to list/revoke and makes revocation immediately effective', async () => {
+    await seed(); const created = await make(); const token = created.path.split('/').pop();
+    const list = await listBinderShares(new Request('http://localhost/shares?binderId=binder-a', { headers: { Authorization: `Bearer ${tokens.a}` } }), context);
+    expect((await list.json()).shares).toHaveLength(1);
+    expect((await revokeBinderShare(request(tokens.b, { shareId: created.shareId, confirm: true }), context)).status).toBe(404);
+    expect((await revokeBinderShare(request(tokens.a, { shareId: created.shareId, confirm: true }), context)).status).toBe(200);
+    expect((await read(token)).status).toBe(404);
+  });
+  it('rechecks a revocation during catalog work and owner revocation without refreshing client tokens', async () => {
+    await seed(); const created = await make();
+    context.cardFor = async () => { await context.db.doc(`privateBinderShares/${created.shareId}`).update({ revokedAt: Date.now() }); return card; };
+    expect((await read(created.path.split('/').pop())).status).toBe(404);
+    context.cardFor = async () => card;
+    const second = await make();
+    await context.db.doc('accountAccess/owner-a').set({ appAccess: false });
+    expect((await read(second.path.split('/').pop())).status).toBe(404);
+  });
+  it('fails closed on corrupt placement ownership and unavailable exact prices', async () => {
+    await seed(); const created = await make({ showTotal: true, showPrices: true });
+    context.cardFor = async () => ({ ...card, variants_detailed: [{ type: 'Normal', pricing: { cardmarket: { idProduct: 999, trend: 800 } } }] });
+    const missing = await (await read(created.path.split('/').pop())).json();
+    expect(missing.total.amount).toBeNull(); expect(missing.total.complete).toBe(false); expect(missing.cards[0].price.amount).toBeNull();
+    await context.db.doc('users/owner-a/privateBinderPlacements/placement-a').update({ ownerUid: 'owner-b' });
+    expect((await read(created.path.split('/').pop())).status).toBe(503);
+  });
+});
+
 describe('Private image server boundary', () => {
+  it('does not treat a malformed explicit deletion target as the calling admin', async () => {
+    for (const uid of ['', null, 0, {}, 'bad/path']) {
+      expect((await deletionRequest(request(tokens.admin, { uid, confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context)).status).toBe(400);
+    }
+    expect((await context.auth.getUser('operator')).disabled).toBe(false);
+    expect((await context.db.collection('accountDeletionJobs').get()).empty).toBe(true);
+  });
+  it.each([['a', 'owner-a', 'pretester'], ['admin', 'operator', 'admin']])('denies and cleans in-flight %s uploads revoked before final commit', async (tokenKey, uid, role) => {
+    const run = context.db.runTransaction.bind(context.db);
+    let count = 0;
+    context.db.runTransaction = async (work) => {
+      count++;
+      if (count === 2) await context.db.doc(`accountAccess/${uid}`).set({ [role]: false });
+      return run(work);
+    };
+    try {
+      expect((await upload(tokens[tokenKey])).status).toBe(403);
+      expect((await context.db.collection('scannerReports').get()).empty).toBe(true);
+      expect((await context.db.collection('privateUploadOperations').get()).empty).toBe(true);
+      expect((await context.bucket.getFiles())[0]).toHaveLength(0);
+    } finally { context.db.runTransaction = run; }
+  });
+  it('fences stale role tokens, preserves unrelated claims and records an attribution-only access audit', async () => {
+    await context.auth.setCustomUserClaims('owner-a', { appAccess: true, pretester: true, feature: 'keep' });
+    await changeRole('owner-a', 'appAccess', false, 'operator', context);
+    expect((await context.auth.getUser('owner-a')).customClaims).toEqual({ pretester: true, feature: 'keep' });
+    expect((await context.db.doc('accountAccess/owner-a').get()).get('appAccess')).toBe(false);
+    await expect(authorize(`Bearer ${tokens.a}`, 'app', context)).rejects.toThrow();
+    const audit = (await context.db.collection('accessAudit').get()).docs[0].data();
+    expect(audit).toMatchObject({ targetUid: 'owner-a', actorUid: 'operator', role: 'appAccess', enabled: false });
+    expect(audit.email).toBeUndefined();
+    // pretester is an independent entitlement. Auth revocation timestamps have second
+    // precision, so assert its authoritative override, not incidental token expiry.
+    await changeRole('owner-a', 'pretester', false, 'operator', context);
+    expect((await upload(tokens.a)).status).not.toBe(201);
+  });
+
+  it('leaves the affected role denied if the Auth update fails', async () => {
+    const broken = { ...context, auth: { getUser: context.auth.getUser.bind(context.auth), setCustomUserClaims: async () => { throw new Error('INJECTED_FAILURE'); } } };
+    await expect(changeRole('owner-a', 'pretester', false, 'operator', broken)).rejects.toThrow('INJECTED_FAILURE');
+    expect((await context.db.doc('accountAccess/owner-a').get()).get('pretester')).toBe(false);
+    expect((await upload(tokens.a)).status).toBe(403);
+  });
+
+  it('never serves an image whose owner/hash no longer matches its report', async () => {
+    const uploaded = await upload(tokens.a);
+    const { reportId } = await uploaded.json();
+    await context.db.doc(`scannerReports/${reportId}`).update({ imageSha256: 'f'.repeat(64) });
+    const response = await image(tokens.admin, reportId);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: 'REPORT_IMAGE_RELATION_UNSAFE' });
+  });
+
   it('preserves upload contract and permits only a current admin to read bytes', async () => {
     expect((await upload()).status).toBe(401);
     expect((await upload(tokens.b)).status).toBe(403);

@@ -5,6 +5,17 @@ import { actorFor, fail, failure, json, services } from './firebase.mjs';
 const types = new Map([['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp']]);
 const maxBody = 11 * 1024 * 1024;
 
+async function assertUploadAccess(transaction, context, actor) {
+  const [lock, status] = await Promise.all([
+    transaction.get(context.db.doc(`accountDeletionLocks/${actor.uid}`)),
+    transaction.get(context.db.doc(`accountAccess/${actor.uid}`)),
+  ]);
+  if (lock.exists) fail('ACCOUNT_DELETING', 403);
+  const access = status.data() || {};
+  const allowed = (role) => !(role in access) || access[role] === true;
+  if (access.disabled === true || !((actor.admin && allowed('admin')) || (actor.pretesterClaim && allowed('pretester')))) fail('ACCESS_DENIED', 403);
+}
+
 async function boundedForm(request) {
   if (Number(request.headers.get('content-length') || 0) > maxBody) fail('IMAGE_TOO_LARGE', 413);
   if (!request.body) fail('INVALID_REPORT', 400);
@@ -44,11 +55,10 @@ export async function uploadReport(request, context = services()) {
       reviewStatus: 'NEW', referenceCardId: null, referenceCardKey: null, referenceVariant: null, reviewNote: '', reviewedAt: null });
     if (!normalized || Object.keys(normalized.zoneConfidence).length > 64) fail('INVALID_REPORT', 400);
     const { documentId: _id, ...report } = normalized;
-    const lock = context.db.doc(`accountDeletionLocks/${actor.uid}`);
     const operation = context.db.doc(`privateUploadOperations/${reportId}`);
     // Durable ownership precedes bytes: interrupted uploads remain discoverable.
     await context.db.runTransaction(async (tx) => {
-      if ((await tx.get(lock)).exists) fail('ACCOUNT_DELETING', 403);
+      await assertUploadAccess(tx, context, actor);
       tx.create(operation, { ownerUid: actor.uid, path, reportId, startedAt: Date.now() });
     });
     const file = context.bucket.file(path);
@@ -58,8 +68,9 @@ export async function uploadReport(request, context = services()) {
         contentType: image.type, cacheControl: 'private, no-store',
         metadata: { ownerUid: actor.uid, reportId, captureType: 'MANUAL_CAPTURE', contentSha256: hash },
       } });
+      const currentActor = await actorFor(request, context, 'tester');
       await context.db.runTransaction(async (tx) => {
-        if ((await tx.get(lock)).exists) fail('ACCOUNT_DELETING', 403);
+        await assertUploadAccess(tx, context, currentActor);
         tx.create(context.db.doc(`scannerReports/${reportId}`), { schemaVersion: 1, ...report, ownerUid: actor.uid });
         tx.delete(operation);
       });
@@ -85,8 +96,14 @@ export async function readReportImage(request, route, context = services()) {
     const document = await context.db.doc(`scannerReports/${reportId}`).get();
     const report = document.exists ? normalizeScannerReport({ ...document.data(), documentId: reportId }) : null;
     if (!report?.captureImagePath) fail('NOT_FOUND', 404);
+    if (report.captureImagePath !== `scanner-report-images/${reportId}/capture.${types.get(report.imageContentType)}`) fail('REPORT_IMAGE_RELATION_UNSAFE', 409);
     const file = context.bucket.file(report.captureImagePath);
     const [metadata] = await file.getMetadata();
+    const ownership = metadata.metadata || {};
+    if (!document.get('ownerUid') || ownership.ownerUid !== document.get('ownerUid') || ownership.reportId !== reportId
+      || ownership.contentSha256 !== report.imageSha256 || ownership.captureType !== 'MANUAL_CAPTURE'
+      || metadata.contentType !== report.imageContentType || Number(metadata.size) !== report.imageSizeBytes
+      || ownership.firebaseStorageDownloadTokens) fail('REPORT_IMAGE_RELATION_UNSAFE', 409);
     if (!types.has(metadata.contentType) || Number(metadata.size) > 10 * 1024 * 1024) fail('NOT_FOUND', 404);
     const [bytes] = await file.download({ validation: 'crc32c' });
     const thumbnail = new URL(request.url).searchParams.get('view') === 'thumb';

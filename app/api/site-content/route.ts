@@ -1,4 +1,5 @@
 import { defaultSiteContent } from '@/lib/domain';
+import { currentSiteContent } from '@/lib/site-content-current';
 
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'cardvault-715ac';
 const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/siteContent/public`;
@@ -11,7 +12,7 @@ export async function GET() {
     const document = await response.json() as { fields?: Record<string, FirestoreValue> };
     const decoded = fromFields(document.fields ?? {}) as Partial<typeof defaultSiteContent>;
     const allowed = Object.fromEntries(Object.keys(defaultSiteContent).flatMap((key) => key in decoded ? [[key, decoded[key as keyof typeof decoded]]] : []));
-    return Response.json({ ...defaultSiteContent, ...allowed }, { headers: cacheHeaders });
+    return Response.json(currentSiteContent(allowed), { headers: cacheHeaders });
   } catch {
     return Response.json(defaultSiteContent, { headers: { 'Cache-Control': 'no-store' } });
   }

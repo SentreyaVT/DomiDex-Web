@@ -25,6 +25,13 @@ describe('exactTrendPrice', () => {
     expect(exactTrendPrice({ ...card, pricing: { cardmarket: { trend: 0, 'trend-holo': 0 } } }, { type: 'Normal' })).toBeNull();
     expect(exactTrendPrice({ ...card, pricing: { cardmarket: { trend: null, 'trend-holo': 2 } } }, { type: 'Normal' })).toBeNull();
   });
+  it.each([undefined, 0, -1, 1.2, Infinity, NaN])('does not display a price without a valid exact product ID (%s)', (idProduct) => {
+    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { idProduct, trend: 99 } } }, { type: 'Normal' })).toBeNull();
+  });
+  it('does not render non-finite amounts or label foreign currency as EUR', () => {
+    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { idProduct: 1, trend: Infinity } } }, { type: 'Normal' })).toBeNull();
+    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { idProduct: 1, trend: 10, unit: 'USD' } } }, { type: 'Normal' })).toBeNull();
+  });
 
   it.each([
     '1steditionholofoil',

@@ -38,7 +38,7 @@ export async function listDocuments(collection: string, authorization: string) {
   for (let page = 0; page < 50; page += 1) {
     const query = new URLSearchParams({ pageSize: '300' });
     if (pageToken) query.set('pageToken', pageToken);
-    const response = await fetch(`${root}/${collection}?${query}`, { headers: { Authorization: authorization } });
+    const response = await fetch(`${root}/${collection}?${query}`, { headers: { Authorization: authorization }, signal: AbortSignal.timeout(15_000) });
     if (response.status === 404) return documents;
     if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
     const body = await response.json() as { documents?: Array<{ name: string; fields?: Record<string, Record<string, unknown>> }>; nextPageToken?: string };
@@ -54,7 +54,7 @@ export async function listDocumentsPage(collection: string, authorization: strin
   const query = new URLSearchParams({ pageSize: String(pageSize) });
   if (options.pageToken) query.set('pageToken', options.pageToken);
   if (options.orderBy) query.set('orderBy', options.orderBy);
-  const response = await fetch(`${root}/${collection}?${query}`, { headers: { Authorization: authorization } });
+  const response = await fetch(`${root}/${collection}?${query}`, { headers: { Authorization: authorization }, signal: AbortSignal.timeout(15_000) });
   if (response.status === 404) return { documents: [] as Array<{ documentId: string } & Record<string, unknown>>, nextPageToken: '' };
   if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
   const body = await response.json() as { documents?: Array<{ name: string; fields?: Record<string, Record<string, unknown>> }>; nextPageToken?: string };
@@ -66,6 +66,7 @@ export async function listDocumentsPage(collection: string, authorization: strin
 
 export async function countDocuments(collection: string, authorization: string) {
   const response = await fetch(`${root}:runAggregationQuery`, {
+    signal: AbortSignal.timeout(15_000),
     method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' },
     body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: { from: [{ collectionId: collection }] }, aggregations: [{ alias: 'total', count: {} }] } }),
   });
@@ -76,7 +77,7 @@ export async function countDocuments(collection: string, authorization: string) 
 }
 
 export async function getDocument(path: string, authorization: string) {
-  const response = await fetch(`${root}/${path}`, { headers: { Authorization: authorization } });
+  const response = await fetch(`${root}/${path}`, { headers: { Authorization: authorization }, signal: AbortSignal.timeout(15_000) });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
   const body = await response.json() as { name: string; fields?: Record<string, Record<string, unknown>> };
@@ -85,6 +86,7 @@ export async function getDocument(path: string, authorization: string) {
 
 export async function commitDocuments(writes: Array<Record<string, unknown>>, authorization: string) {
   const response = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`, {
+    signal: AbortSignal.timeout(15_000),
     method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' }, body: JSON.stringify({ writes }),
   });
   if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);

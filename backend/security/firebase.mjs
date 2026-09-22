@@ -18,7 +18,7 @@ export function json(value, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
 }
 export function failure(error) {
-  const known = new Set(['AUTH_REQUIRED', 'ACCESS_DENIED', 'RECENT_LOGIN_REQUIRED', 'ACCOUNT_DELETING', 'INVALID_REQUEST', 'INVALID_REPORT', 'IMAGE_TOO_LARGE', 'INVALID_IMAGE_TYPE', 'NOT_FOUND', 'DELETION_DISABLED', 'CONFIRMATION_REQUIRED', 'REPORT_IMAGE_RELATION_UNSAFE']);
+  const known = new Set(['AUTH_REQUIRED', 'ACCESS_DENIED', 'RECENT_LOGIN_REQUIRED', 'ACCOUNT_DELETING', 'INVALID_REQUEST', 'REQUEST_TOO_LARGE', 'INVALID_REPORT', 'IMAGE_TOO_LARGE', 'INVALID_IMAGE_TYPE', 'NOT_FOUND', 'DELETION_DISABLED', 'CONFIRMATION_REQUIRED', 'REPORT_IMAGE_RELATION_UNSAFE']);
   return json({ ok: false, error: known.has(error?.message) ? error.message : 'SERVER_OPERATION_FAILED' }, error?.status || 503);
 }
 export async function actorFor(request, context, role) {
@@ -34,10 +34,17 @@ export async function actorFor(request, context, role) {
     fail('AUTH_REQUIRED', 401);
   }
   if (user.disabled) fail('ACCESS_DENIED', 403);
+  const access = (await context.db.doc(`accountAccess/${decoded.uid}`).get()).data() || {};
+  if (access.disabled === true) fail('ACCESS_DENIED', 403);
   const claims = user.customClaims || {};
-  const admin = claims.admin === true && decoded.admin === true;
-  const tester = admin || (claims.pretester === true && decoded.pretester === true);
-  if ((role === 'admin' && !admin) || (role === 'tester' && !tester)) fail('ACCESS_DENIED', 403);
+  const allowed = (role) => !(role in access) || access[role] === true;
+  const admin = claims.admin === true && decoded.admin === true && allowed('admin');
+  const appAccess = admin || (claims.appAccess === true && decoded.appAccess === true && allowed('appAccess'));
+  const tester = admin || (claims.pretester === true && decoded.pretester === true && allowed('pretester'));
+  if ((role === 'admin' && !admin) || (role === 'tester' && !tester) || (role === 'app' && !appAccess)) fail('ACCESS_DENIED', 403);
   if ((await context.db.doc(`accountDeletionLocks/${decoded.uid}`).get()).exists) fail('ACCOUNT_DELETING', 403);
-  return { uid: decoded.uid, admin, authTime: Number(decoded.auth_time || 0) * 1000 };
+  return { uid: decoded.uid, admin, appAccess, pretester: tester,
+    // Kept separate from admin-derived tester access for in-transaction revocation checks.
+    pretesterClaim: claims.pretester === true && decoded.pretester === true,
+    authTime: Number(decoded.auth_time || 0) * 1000 };
 }

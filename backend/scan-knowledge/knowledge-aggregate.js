@@ -1,11 +1,9 @@
-"use strict";
-
 const MAX_IDENTITIES_PER_PATTERN = 32;
 
-function aggregateVote(summary = {}, previousVote, nextVote) {
-  const votes = { ...(summary.votes || {}) };
-  const correctionVotes = { ...(summary.correctionVotes || {}) };
-  const identities = { ...(summary.identities || {}) };
+export function aggregateVote(summary = {}, previousVote, nextVote) {
+  const votes = { ...summary.votes };
+  const correctionVotes = { ...summary.correctionVotes };
+  const identities = { ...summary.identities };
 
   if (previousVote?.cardId) {
     votes[previousVote.cardId] = Math.max(0, (votes[previousVote.cardId] || 0) - 1);
@@ -44,5 +42,3 @@ function aggregateVote(summary = {}, previousVote, nextVote) {
     },
   };
 }
-
-module.exports = { aggregateVote };

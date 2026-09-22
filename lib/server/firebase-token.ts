@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { privateOperations } from './private-cloud-operations';
 
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'cardvault-715ac';
 const keys = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'));
@@ -17,19 +18,22 @@ export async function verifyFirebaseToken(authorization: string | null): Promise
 }
 
 export async function requireAdminToken(authorization: string | null) {
-  const token = await verifyFirebaseToken(authorization);
-  if (token.admin !== true) throw new Error('ADMIN_REQUIRED');
-  return token;
+  return currentAuthorization(authorization, 'admin', 'ADMIN_REQUIRED');
 }
 
 export async function requirePretesterToken(authorization: string | null) {
-  const token = await verifyFirebaseToken(authorization);
-  if (token.admin !== true && token.pretester !== true) throw new Error('PRETESTER_REQUIRED');
-  return token;
+  return currentAuthorization(authorization, 'tester', 'PRETESTER_REQUIRED');
 }
 
 export async function requireAppAccessToken(authorization: string | null) {
-  const token = await verifyFirebaseToken(authorization);
-  if (token.admin !== true && token.appAccess !== true) throw new Error('APP_ACCESS_REQUIRED');
-  return token;
+  return currentAuthorization(authorization, 'app', 'APP_ACCESS_REQUIRED');
+}
+
+async function currentAuthorization(authorization: string | null, role: 'admin' | 'tester' | 'app', denied: string): Promise<VerifiedFirebaseToken> {
+  if (!authorization) throw new Error('AUTH_REQUIRED');
+  try { return await (await privateOperations()).authorize(authorization, role); }
+  catch (error) {
+    if (error instanceof Error && ['ACCESS_DENIED', 'ACCOUNT_DELETING'].includes(error.message)) throw new Error(denied);
+    throw error;
+  }
 }

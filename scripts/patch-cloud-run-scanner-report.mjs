@@ -1,9 +1,9 @@
 // Emergency publication: retain the verified runtime and all frontend assets.
 // The source equivalent remains in lib/server/firestore-rest.ts.
-const assert = require('node:assert/strict');
-const { readFileSync, writeFileSync, readdirSync } = require('node:fs');
-const { join } = require('node:path');
-const { runInNewContext } = require('node:vm');
+import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 const directory = process.argv[2] || '/app/dist/server';
 function filesUnder(directory) {
