@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { resolveCollectionPrice, sumKnownPrices } from '@/lib/collection-prices';
+import { formatKnownValuation, resolveCollectionPrice, sumKnownPrices } from '@/lib/collection-prices';
 import { useCollectionPrices } from '@/components/use-collection-prices';
 import { loadCard } from '@/lib/tcgdex';
 import type { CollectionEntry, TcgCardDetail } from '@/lib/domain';
@@ -36,6 +36,17 @@ describe('honest bounded collection price states', () => {
   });
   it('does not invent portfolio value for unknown cards', () => {
     expect(sumKnownPrices([entry, { ...entry, syncId: 'unknown', quantity: 3 }], { a: 12.34, unknown: null })).toEqual({ value: 24.68, priced: 2, quantity: 5 });
+  });
+  it('distinguishes an empty binder from an entirely unpriced binder', () => {
+    expect(formatKnownValuation(sumKnownPrices([], {}))).toMatch(/^0,00/);
+    expect(formatKnownValuation(sumKnownPrices([entry], { a: null }))).toBe('Preis nicht verfügbar');
+  });
+  it('labels partial binder and per-set values instead of presenting a complete valuation', () => {
+    expect(formatKnownValuation(sumKnownPrices([entry, { ...entry, syncId: 'missing', quantity: 3 }], { a: 12.34 }))).toContain('Teilwert · 2/5');
+    expect(formatKnownValuation(sumKnownPrices([entry], { a: 12.34 }))).not.toContain('Teilwert');
+  });
+  it('does not count zero, negative or non-finite source values as priced', () => {
+    for (const value of [0, -1, Infinity, NaN]) expect(formatKnownValuation(sumKnownPrices([entry], { a: value }))).toBe('Preis nicht verfügbar');
   });
   it('finishes failed entries and can retry successfully', async () => {
     vi.mocked(loadCard).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(card);
