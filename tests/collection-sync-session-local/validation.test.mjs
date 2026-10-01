@@ -17,6 +17,7 @@ const documentFixture = scenario => ({ path: entryPath(scenario), data: finalEnt
 const scenarioSeeds = scenario => seedFixtures(scenario, runId, seedStamp(scenario))
   .map(item => ({ method: scenario.method, ...item }));
 const finalDocuments = index => SCENARIOS.slice(0, index + 1).flatMap(scenario => ['missing', 'session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key) ? [] :
+  scenario.key === 'deferred-point-read' ? seedFixtures(scenario, runId, seedStamp(scenario)) :
   [...(scenario.key === 'late-parent' ? lateParentSeedFixtures(runId, seedStamp(scenario)) : []), documentFixture(scenario)]);
 const snapshot = (index, before = false) => {
   const current = SCENARIOS[index];
@@ -42,8 +43,8 @@ const proof = () => ({ project: PROJECT, runId, verified: true, accountUnchanged
 
 void test('exact demo/AVD and path-safe run ID are fixed, with no project/serial/port override', () => {
   assert.equal(PROJECT, 'demo-domidex-privacy'); assert.equal(SERIAL, 'emulator-5554'); assert.equal(AVD, 'DomiDex_R27_Baseline_API36');
-  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 11);
-  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect']);
+  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 12);
+  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect', 'deferred-point-read']);
   assert.deepEqual(PORTS, { auth: 9097, firestore: 8187, storage: 9297, hub: 4407, logging: 4507, websocket: 9150 });
   assert.equal(validRunId(runId), runId); assert.ok(parseSessionOptions(['--android-root', '.'])['--android-root']);
   for (const value of ['', '../bad', 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), undefined, 1e31, {}]) assert.throws(() => validRunId(value));
@@ -104,7 +105,7 @@ void test('every independent readback checks exact Google accounts, no access ov
   }
 });
 void test('remote commit alone, RED, missing teardown PASS or missing readback never count as a passing session proof', () => {
-  assert.equal(validateServerProof(proof(), runId).androidCases, 10);
+  assert.equal(validateServerProof(proof(), runId).androidCases, 11);
   for (const mutate of [value => { value.verified = false; }, value => { value.accountUnchanged = false; },
     value => { value.project = 'production'; }, value => { value.runId = 'b'.repeat(32); },
     value => { value.errors.push({ method: SCENARIOS[1].method, error: 'STALE_SESSION_ACKED_COMMITTED_MUTATION' }); },
@@ -201,7 +202,7 @@ void test('pending overlay requires the exact rev1 seed and actual agreed rev2 w
   const equal = proof();
   for (const item of [...equal.readbacks.slice(5), ...equal.preflights.slice(6)])
     item.entries.find(row => row.path === entryPath(scenario)).data.updatedAt = structuredClone(seed.data.updatedAt);
-  assert.equal(validateServerProof(equal, runId).androidCases, 10);
+  assert.equal(validateServerProof(equal, runId).androidCases, 11);
 });
 void test('late parent preserves all three orphan seeds, requires only the client-created parent and rejects extras', () => {
   const scenario = SCENARIOS[6]; const valid = proof();
@@ -210,7 +211,8 @@ void test('late parent preserves all three orphan seeds, requires only the clien
   assert.equal(valid.preflights[6].entries.some(item => item.path === entryPath(scenario)), false);
   const placementPath = `users/${scenario.owner}/privateBinderPlacements/late-parent-placement`;
   for (const mutate of [
-    value => { value.seeds.pop(); }, value => { value.seeds.push(structuredClone(value.seeds[3])); },
+    value => { value.seeds = value.seeds.filter(item => !(item.method === scenario.method && item.path === placementPath)); },
+    value => { value.seeds.push(structuredClone(value.seeds[3])); },
     value => { value.seeds[3].method = SCENARIOS[5].method; },
     value => { value.seeds[3].data.updatedAt.nanoseconds++; },
     value => { value.seeds[3].data.lastMutationId = 'unknown'; },
@@ -230,7 +232,7 @@ void test('late parent preserves all three orphan seeds, requires only the clien
 });
 
 void test('three session-only cases are exact nominal Google owners, unseeded and entirely server-read-only', () => {
-  assert.deepEqual(SCENARIOS.slice(7), [
+  assert.deepEqual(SCENARIOS.slice(7, 10), [
     { key: 'session-healthy', owner: 'sdk-proof-collection-session-healthy', method: 'sessionHealthyStartConfirmsAccessWithoutRunningWorkers' },
     { key: 'session-offline', owner: 'sdk-proof-collection-session-offline', method: 'offlineSessionNeedsExplicitRecheckWithinObservedReconnectWindow' },
     { key: 'session-reconnect', owner: 'sdk-proof-collection-session-reconnect', method: 'usableConnectivitySignalRechecksActualEntitlementWithoutManualSync' },
@@ -292,5 +294,133 @@ void test('session-only proof rejects server writes, new claims, missing phases 
       const broken = proof(); mutate(broken);
       assert.throws(() => validateServerProof(broken, runId));
     }
+  }
+});
+
+void test('deferred point-read appends one nominal owner with exactly three immutable valid server seeds', () => {
+  const scenario = SCENARIOS[10];
+  assert.deepEqual(scenario, { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read',
+    method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' });
+  assert.equal(SCENARIOS.length, 11); assert.equal(ACCOUNTS.length, 12);
+  assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
+    uid: scenario.owner, email: `${scenario.owner}@example.invalid`, emailVerified: true,
+    disabled: false, customClaims: { appAccess: true },
+    providerData: [{ providerId: 'google.com', uid: `${scenario.owner}-google`, email: `${scenario.owner}@example.invalid` }],
+  });
+  const expected = [
+    { path: entryPath(scenario), data: entryFixture(scenario, runId, seedStamp(scenario)) },
+    { path: `users/${scenario.owner}/privateBinders/deferred-binder`, data: {
+      binderId: 'deferred-binder', ownerUid: scenario.owner, name: 'Synthetic deferred binder', description: null,
+      coverStyle: 'DOMIDEX', minimumPageCount: 1, createdAtClient: 1700000000000,
+      updatedAtClient: 1700000000000, lastOpenedAtClient: null, deleted: false,
+      revision: 1, lastMutationId: `deferred-${runId}-binder`, updatedAt: seedStamp(scenario),
+    } },
+    { path: `users/${scenario.owner}/privateBinderPlacements/deferred-placement`, data: {
+      placementId: 'deferred-placement', ownerUid: scenario.owner, binderId: 'deferred-binder',
+      entrySyncId: 'entry', slotPosition: 4, holoEffectId: 'rainbow', holoIntensity: 0.5,
+      createdAtClient: 1700000000000, updatedAtClient: 1700000000000, deleted: false,
+      revision: 1, lastMutationId: `deferred-${runId}-placement`, updatedAt: seedStamp(scenario),
+    } },
+  ].sort((left, right) => lexical(left.path, right.path));
+  assert.deepEqual(seedFixtures(scenario, runId, seedStamp(scenario)), expected);
+  const valid = proof();
+  assert.deepEqual(valid.seeds.filter(item => item.method === scenario.method), expected.map(item => ({ method: scenario.method, ...item })));
+  assert.deepEqual(valid.preflights[10], valid.readbacks[10]);
+  assert.deepEqual(valid.preflights[10].entries,
+    [...valid.readbacks[9].entries, ...expected].sort((left, right) => lexical(left.path, right.path)));
+  assert.equal(valid.readbacks[10].collectionPaths.length, 12);
+  assert.equal(valid.readbacks[10].documentPaths.length, 19);
+  const summary = validateServerProof(valid, runId);
+  assert.equal(summary.androidCases, 11);
+  assert.equal(summary.readOnlyDeferredPointReadCases, 1);
+  for (const prior of valid.readbacks[9].entries)
+    assert.deepEqual(valid.readbacks[10].entries.find(item => item.path === prior.path), prior);
+});
+
+void test('deferred point-read rejects changed seeds, all client writes, owner changes and incomplete proof', () => {
+  const scenario = SCENARIOS[10];
+  const parent = entryPath(scenario);
+  const binder = `users/${scenario.owner}/privateBinders/deferred-binder`;
+  const placement = `users/${scenario.owner}/privateBinderPlacements/deferred-placement`;
+  const paths = [parent, binder, placement];
+  const row = (snapshot, path) => snapshot.entries.find(item => item.path === path);
+  const seed = (value, path) => value.seeds.find(item => item.method === scenario.method && item.path === path);
+  const addDocument = (snapshot, path, data) => {
+    snapshot.entries.push({ path, data }); snapshot.entries.sort((a, b) => lexical(a.path, b.path));
+    const parts = path.split('/');
+    for (let length = 1; length <= parts.length; length++) {
+      const inventory = length % 2 === 0 ? snapshot.documentPaths : snapshot.collectionPaths;
+      const item = parts.slice(0, length).join('/');
+      if (!inventory.includes(item)) inventory.push(item);
+      inventory.sort(lexical);
+    }
+  };
+  const removeDocument = (snapshot, path) => {
+    snapshot.entries = snapshot.entries.filter(item => item.path !== path);
+    snapshot.documentPaths = snapshot.documentPaths.filter(item => item !== path);
+  };
+  for (const path of paths) {
+    for (const change of [
+      data => { data.ownerUid = OTHER_OWNER; },
+      data => { data.revision = 2; },
+      data => { data.lastMutationId = 'unexpected-client-write'; },
+      data => { data.updatedAtClient++; },
+      data => { data.deleted = true; },
+      data => { data.extra = 'unexpected'; },
+      data => { delete data.revision; },
+    ]) {
+      // Mutating seed plus BOTH complete snapshots cannot bless another valid-looking identity/revision.
+      const broken = proof();
+      change(seed(broken, path).data);
+      change(row(broken.preflights[10], path).data);
+      change(row(broken.readbacks[10], path).data);
+      assert.throws(() => validateServerProof(broken, runId));
+    }
+    for (const change of [
+      value => { seed(value, path).data.updatedAt.nanoseconds++; },
+      value => { row(value.preflights[10], path).data.updatedAt.nanoseconds++; },
+      value => { row(value.readbacks[10], path).data.updatedAt.nanoseconds++; },
+      value => { seed(value, path).method = SCENARIOS[9].method; },
+      value => { seed(value, path).path += '-wrong'; },
+      value => { removeDocument(value.preflights[10], path); },
+      value => { removeDocument(value.readbacks[10], path); },
+      value => { value.seeds = value.seeds.filter(item => !(item.method === scenario.method && item.path === path)); },
+      value => { value.seeds.push(structuredClone(seed(value, path))); },
+    ]) {
+      const broken = proof(); change(broken);
+      assert.throws(() => validateServerProof(broken, runId));
+    }
+  }
+  for (const change of [
+    value => { row(value.readbacks[10], parent).data.quantity++; },
+    value => { row(value.readbacks[10], binder).data.name = 'Client changed binder'; },
+    value => { row(value.readbacks[10], placement).data.entrySyncId = 'other-entry'; },
+    value => { row(value.preflights[10], placement).data.binderId = 'other-binder'; },
+    value => { row(value.readbacks[10], placement).data.slotPosition++; },
+    value => { row(value.readbacks[10], placement).data.holoIntensity = 1; },
+    value => { row(value.readbacks[10], placement).data.holoEffectId = 'other'; },
+    value => { addDocument(value.readbacks[10], `users/${scenario.owner}/collectionEntries/extra`, entryFixture(scenario, runId, finalStamp(scenario))); },
+    value => { addDocument(value.preflights[10], `users/${scenario.owner}/collectionPriceSelections/entry`, { ownerUid: scenario.owner }); },
+    value => { addDocument(value.readbacks[10], `users/${OTHER_OWNER}/collectionEntries/entry`, { ownerUid: OTHER_OWNER }); },
+    value => { addDocument(value.readbacks[10], `accountAccess/${scenario.owner}`, { appAccess: true }); },
+    value => { value.readbacks[10].documentPaths.push(`users/${scenario.owner}/privateBinders/empty-reference`); },
+    value => { value.readbacks[10].collectionPaths.push(`users/${scenario.owner}/unknown`); },
+    value => { value.preflights[10].entries[0].data.updatedAt.nanoseconds++; },
+    value => { value.readbacks[10].entries[0].data.updatedAt.nanoseconds++; },
+    value => { value.readbacks[10].accounts.find(item => item.uid === scenario.owner).customClaims.admin = true; },
+    value => { value.preflights[10].accounts.find(item => item.uid === scenario.owner).customClaims = {}; },
+    value => { value.readbacks[10].accounts.find(item => item.uid === scenario.owner).providerData[0].providerId = 'password'; },
+    value => { value.preflights[10].accounts.find(item => item.uid === scenario.owner).providerData[0].uid = 'wrong-google'; },
+    value => { value.readbacks[10].accounts.find(item => item.uid === scenario.owner).disabled = true; },
+    value => { value.readbacks[10].accounts = value.readbacks[10].accounts.filter(item => item.uid !== scenario.owner); },
+    value => { value.phases.pop(); },
+    value => { value.phases[10] = structuredClone(value.phases[9]); },
+    value => { value.preflights.pop(); },
+    value => { value.readbacks.pop(); },
+    value => { value.errors.push({ method: scenario.method, error: 'deferred marker lost after Room reopen' }); },
+    value => { value.readbackErrors.push({ method: scenario.method, error: 'incomplete Admin tree' }); },
+  ]) {
+    const broken = proof(); change(broken);
+    assert.throws(() => validateServerProof(broken, runId));
   }
 });

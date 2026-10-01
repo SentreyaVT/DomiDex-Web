@@ -70,7 +70,7 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 11); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 12); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
     const scenario = SCENARIOS[index]; const { method } = scenario;
@@ -81,6 +81,8 @@ try {
     // its actual collection parent is created by the second nominal SDK client.
     // The three session-only scenarios get no server seeds and never run workers.
     // Their original pending mutations exist only inside the Android Room fixture.
+    // Deferred point-read seeds a valid parent/binder/placement. Its Android
+    // client may only read: all three seed documents remain fully unchanged.
     for (const fixture of seedFixtures(scenario, runId, FieldValue.serverTimestamp())) {
       const reference = db.doc(fixture.path);
       await reference.create(fixture.data);

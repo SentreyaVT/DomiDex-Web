@@ -15,6 +15,7 @@ export const SCENARIOS = Object.freeze([
   { key: 'session-healthy', owner: 'sdk-proof-collection-session-healthy', method: 'sessionHealthyStartConfirmsAccessWithoutRunningWorkers' },
   { key: 'session-offline', owner: 'sdk-proof-collection-session-offline', method: 'offlineSessionNeedsExplicitRecheckWithinObservedReconnectWindow' },
   { key: 'session-reconnect', owner: 'sdk-proof-collection-session-reconnect', method: 'usableConnectivitySignalRechecksActualEntitlementWithoutManualSync' },
+  { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read', method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' },
 ]);
 const isReadOnlySession = scenario => ['session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key);
 export const OTHER_OWNER = 'sdk-proof-collection-other';
@@ -68,9 +69,27 @@ export function lateParentSeedFixtures(runId, timestamp) {
       revision: 1, lastMutationId: `late-parent-${runId}-placement`, updatedAt: timestamp } });
   return documents.sort((left, right) => lexical(left.path, right.path));
 }
+export function deferredPointReadSeedFixtures(runId, timestamp) {
+  validRunId(runId);
+  const scenario = SCENARIOS[10]; const ownerUid = scenario.owner;
+  return [
+    { path: entryPath(scenario), data: entryFixture(scenario, runId, timestamp) },
+    { path: `users/${ownerUid}/privateBinders/deferred-binder`,
+      data: { binderId: 'deferred-binder', ownerUid, name: 'Synthetic deferred binder', description: null,
+        coverStyle: 'DOMIDEX', minimumPageCount: 1, createdAtClient: 1700000000000,
+        updatedAtClient: 1700000000000, lastOpenedAtClient: null, deleted: false,
+        revision: 1, lastMutationId: `deferred-${runId}-binder`, updatedAt: timestamp } },
+    { path: `users/${ownerUid}/privateBinderPlacements/deferred-placement`,
+      data: { placementId: 'deferred-placement', ownerUid, binderId: 'deferred-binder',
+        entrySyncId: 'entry', slotPosition: 4, holoEffectId: 'rainbow', holoIntensity: 0.5,
+        createdAtClient: 1700000000000, updatedAtClient: 1700000000000, deleted: false,
+        revision: 1, lastMutationId: `deferred-${runId}-placement`, updatedAt: timestamp } },
+  ].sort((left, right) => lexical(left.path, right.path));
+}
 export function seedFixtures(scenario, runId, timestamp) {
   entryPath(scenario);
   if (scenario.key === 'late-parent') return lateParentSeedFixtures(runId, timestamp);
+  if (scenario.key === 'deferred-point-read') return deferredPointReadSeedFixtures(runId, timestamp);
   return ['malformed', 'confirmed', 'pending-overlay'].includes(scenario.key)
     ? [{ path: entryPath(scenario), data: entryFixture(scenario, runId, timestamp) }] : [];
 }
@@ -124,6 +143,8 @@ function expectedDocuments(phaseIndex, before, runId) {
     const scenario = SCENARIOS[index];
     if (before && index === phaseIndex) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
+    } else if (scenario.key === 'deferred-point-read') {
+      records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
     } else if (scenario.key !== 'missing' && !isReadOnlySession(scenario)) {
       if (scenario.key === 'late-parent') records.push(...lateParentSeedFixtures(runId, null).map(item => ({ ...item, scenario, seed: true })));
       records.push({ path: entryPath(scenario), scenario, seed: false });
@@ -134,7 +155,7 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All eleven nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All twelve nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
@@ -182,11 +203,11 @@ export function validateReadbacks(readbacks, seeds, runId, preflights) {
     validatePreflight(preflights[index], index, runId, readbacks[index - 1], currentSeeds);
     validateReadback(item, index, runId);
     assertPreviousEntriesUnchanged(item, readbacks[index - 1]);
-    if (isReadOnlySession(scenario)) {
+    if (isReadOnlySession(scenario) || scenario.key === 'deferred-point-read') {
       // Includes method, all accounts, every collection/document reference,
       // and every field/timestamp in every existing document. No filter drops
       // an unexpected owner, sidecar or access override before comparison.
-      assert.deepEqual(item, preflights[index], 'Read-only session must leave the complete Admin tree and identities unchanged');
+      assert.deepEqual(item, preflights[index], 'Read-only case must leave the complete Admin tree and identities unchanged');
     }
     for (const seed of currentSeeds) {
       const observed = item.entries.find(value => value.path === seed.path);
@@ -208,10 +229,11 @@ export function validateServerProof(proof, runId) {
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
   assert.deepEqual(proof.preflights?.map(item => item.method), SCENARIOS.map(item => item.method));
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
-  return { verified: true, androidCases: 10, independentAdminReadbacks: 10, independentAdminPreflights: 10,
+  return { verified: true, androidCases: 11, independentAdminReadbacks: 11, independentAdminPreflights: 11,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
     readOnlySessionCharacterizationCases: 2,
     readOnlyConnectivityRecoveryCases: 1,
+    readOnlyDeferredPointReadCases: 1,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }
