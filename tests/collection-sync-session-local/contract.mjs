@@ -7,6 +7,9 @@ export const TEST_CLASS = 'com.dominik.cardvault.data.sync.CollectionSyncSession
 export const SCENARIOS = Object.freeze([
   { key: 'healthy', owner: 'sdk-proof-collection-healthy', method: 'healthyCollectionPushAcknowledgesAndRereads' },
   { key: 'stale', owner: 'sdk-proof-collection-stale', method: 'staleSessionCannotAcknowledgeCommittedMutation' },
+  { key: 'missing', owner: 'sdk-proof-collection-missing', method: 'missingRereadRetainsCheckpoint' },
+  { key: 'malformed', owner: 'sdk-proof-collection-malformed', method: 'malformedRereadRetainsCheckpoint' },
+  { key: 'confirmed', owner: 'sdk-proof-collection-confirmed', method: 'confirmedRereadCompletesCheckpoint' },
 ]);
 export const OTHER_OWNER = 'sdk-proof-collection-other';
 export const ACCOUNTS = Object.freeze([...SCENARIOS.map(item => item.owner), OTHER_OWNER].sort().map(uid => ({
@@ -22,7 +25,7 @@ export function entryPath(scenario) {
 }
 export function entryFixture(scenario, runId, timestamp) {
   validRunId(runId); entryPath(scenario);
-  return { syncId: 'entry', ownerUid: scenario.owner, revision: 1,
+  const entry = { syncId: 'entry', ownerUid: scenario.owner, revision: 1,
     lastMutationId: `collection-session-${runId}-${scenario.key}`, updatedAt: timestamp,
     updatedAtClient: 1700000000000, deleted: false, deletedAtClient: null,
     name: 'Synthetic collection card', setId: 'synthetic-set', setName: 'Synthetic collection set',
@@ -32,8 +35,11 @@ export function entryFixture(scenario, runId, timestamp) {
     externalProductSource: null, externalProductId: null, imageUrl: null, effectOverride: null,
     sourceSetId: 'synthetic-set', sourceCardId: 'synthetic-set-001',
     binderId: 'inbox', binderSetKey: 'tcgdex-synthetic-set', binderName: 'Synthetic collection set', binderHeroAsset: null };
+  if (scenario.key === 'malformed') delete entry.name;
+  return entry;
 }
 export function assertEntry(data, scenario, runId) {
+  assert.notEqual(scenario.key, 'missing', 'The missing reread owner must have no server document');
   const normalized = normalize(data); const stamp = normalized?.updatedAt;
   assert.deepEqual(Object.keys(stamp ?? {}).sort(), ['nanoseconds', 'seconds']);
   assert.ok(Number.isSafeInteger(stamp.seconds) && stamp.seconds > 1700000000);
@@ -63,15 +69,34 @@ export function validateInstrumentation(text, method) {
   return { passed: 1, method, successEvidence: true };
 }
 export function validateReadback(item, phaseIndex, runId) {
-  assert.ok(phaseIndex === 0 || phaseIndex === 1); validRunId(runId);
-  const expected = SCENARIOS.slice(0, phaseIndex + 1);
+  assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
+  const expected = SCENARIOS.slice(0, phaseIndex + 1).filter(value => value.key !== 'missing');
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All three nominal Google accounts and their exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All six nominal Google accounts and their exact claims stay unchanged');
   assert.deepEqual(item.collectionPaths, ['users', ...expected.map(value => `users/${value.owner}/collectionEntries`)].sort());
   assert.deepEqual(item.documentPaths, expected.flatMap(value => [`users/${value.owner}`, entryPath(value)]).sort());
   assert.deepEqual(item.entries?.map(value => value.path), expected.map(entryPath).sort());
   for (const scenario of expected) assertEntry(item.entries.find(value => value.path === entryPath(scenario)).data, scenario, runId);
-  return { method: item.method, confirmedEntries: expected.length, unrelatedOwnerUntouched: true };
+  return { method: item.method, serverDocuments: expected.length, unrelatedOwnerUntouched: true };
+}
+export function validateReadbacks(readbacks, seeds, runId) {
+  assert.ok(Array.isArray(readbacks) && readbacks.length > 0 && readbacks.length <= SCENARIOS.length);
+  const seeded = SCENARIOS.slice(0, readbacks.length).filter(value => value.key === 'malformed' || value.key === 'confirmed');
+  assert.deepEqual(seeds?.map(value => value.method), seeded.map(value => value.method), 'Exactly the just-in-time resumed-checkpoint seeds');
+  for (const [index, item] of readbacks.entries()) {
+    validateReadback(item, index, runId);
+    if (index > 0) for (const previous of readbacks[index - 1].entries) {
+      assert.deepEqual(item.entries.find(value => value.path === previous.path), previous, 'Earlier owner documents must stay byte-for-field unchanged');
+    }
+  }
+  for (const [index, scenario] of seeded.entries()) {
+    const seed = seeds[index];
+    assert.deepEqual(Object.keys(seed).sort(), ['data', 'method', 'path']);
+    assert.equal(seed.path, entryPath(scenario)); assertEntry(seed.data, scenario, runId);
+    const readback = readbacks.find(value => value.method === scenario.method);
+    assert.deepEqual(readback.entries.find(value => value.path === seed.path), { path: seed.path, data: seed.data },
+      'Resumed-checkpoint reread must not rewrite the actual Admin seed, including its server timestamp');
+  }
 }
 export function validateServerProof(proof, runId) {
   validRunId(runId); assert.equal(proof.project, PROJECT); assert.equal(proof.runId, runId);
@@ -80,8 +105,8 @@ export function validateServerProof(proof, runId) {
   assert.equal(proof.error, undefined);
   assert.deepEqual(proof.phases, SCENARIOS.map(({ method }) => ({ passed: 1, method, successEvidence: true })));
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
-  proof.readbacks.forEach((item, index) => validateReadback(item, index, runId));
-  assert.deepEqual(proof.readbacks[1].entries[0], proof.readbacks[0].entries[0], 'Stale-owner test must not rewrite healthy owner');
-  return { verified: true, androidCases: 2, independentAdminReadbacks: 2, unrelatedOwnerUntouched: true,
+  validateReadbacks(proof.readbacks, proof.seeds, runId);
+  return { verified: true, androidCases: 5, independentAdminReadbacks: 5, unrelatedOwnerUntouched: true,
+    resumedCheckpointCases: 3, actualWorkerCommitCases: 2,
     intermediateStaleAndFreshIdempotencyEvidence: 'Android named control SDK assertions; final state independently read by Admin' };
 }

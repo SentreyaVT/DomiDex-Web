@@ -10,16 +10,17 @@ const adb = process.env.DOMIDEX_COLLECTION_SESSION_ADB;
 if (!root || !directory || path.resolve(directory) !== process.cwd() || !adb || !path.isAbsolute(adb)) throw Error('Isolated driver context required');
 const { assertTestEnvironment, runChild } = await import(pathToFileURL(path.join(root, 'tests/private-operations-local/safety.mjs')));
 const { PROJECT, SERIAL, TEST_CLASS, SCENARIOS, ACCOUNTS, validRunId, normalize, validateInstrumentation,
-  assertNoInstrumentation, validateReadback, validateServerProof } = await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/contract.mjs')));
+  assertNoInstrumentation, entryPath, entryFixture, assertEntry, validateReadbacks,
+  validateServerProof } = await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/contract.mjs')));
 const env = { ...process.env }; delete env.FIREBASE_CONFIG;
 assertTestEnvironment(env); delete process.env.FIREBASE_CONFIG;
 const runId = validRunId(env.DOMIDEX_COLLECTION_SESSION_RUN_ID);
 const require = createRequire(path.join(root, 'package.json'));
 const { initializeApp, applicationDefault, deleteApp } = require('firebase-admin/app');
-const { getAuth } = require('firebase-admin/auth'); const { getFirestore } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth'); const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const app = initializeApp({ projectId: PROJECT, credential: applicationDefault() }, `collection-session-admin-${runId}`);
 const db = getFirestore(app); const auth = getAuth(app);
-const proof = { project: PROJECT, runId, verified: false, phases: [], readbacks: [], accountUnchanged: false, errors: [], readbackErrors: [] };
+const proof = { project: PROJECT, runId, verified: false, phases: [], seeds: [], readbacks: [], accountUnchanged: false, errors: [], readbackErrors: [] };
 function saveProof() { writeFileSync(path.join(directory, 'server-proof.json'), JSON.stringify(proof, null, 2)); }
 async function noInstrumentation() {
   let output = '';
@@ -69,17 +70,27 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 3); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 6); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
-    const { method } = SCENARIOS[index];
+    const scenario = SCENARIOS[index]; const { method } = scenario;
+    if (scenario.key === 'malformed' || scenario.key === 'confirmed') {
+      // Only these resumed-checkpoint fixtures are seeded. Healthy/stale remain
+      // genuine Android-created commits; missing must remain absent throughout.
+      await noInstrumentation();
+      const reference = db.doc(entryPath(scenario));
+      await reference.create(entryFixture(scenario, runId, FieldValue.serverTimestamp()));
+      const document = await reference.get(); assert.equal(document.exists, true);
+      const seed = { method, path: reference.path, data: normalize(document.data()) };
+      proof.seeds.push(seed); saveProof(); assertEntry(seed.data, scenario, runId);
+    }
     try { proof.phases.push(await android(method)); }
     catch (error) { proof.errors.push({ method, error: error.message }); process.exitCode = 1; console.error(error); }
     // Always retain independent readback after a failed assertion too. A real remote
     // commit followed by a forbidden local ACK is RED, never a server-write success.
     try {
       const readback = { method, ...await databaseSnapshot(), accounts: await accountsSnapshot() };
-      proof.readbacks.push(readback); saveProof(); validateReadback(readback, index, runId);
+      proof.readbacks.push(readback); saveProof(); validateReadbacks(proof.readbacks, proof.seeds, runId);
     } catch (error) { proof.readbackErrors.push({ method, error: error.message }); process.exitCode = 1; console.error(error); }
     saveProof(); await noInstrumentation(); // Never start another case while one may still be running.
   }

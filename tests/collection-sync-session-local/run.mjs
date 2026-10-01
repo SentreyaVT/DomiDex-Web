@@ -78,7 +78,7 @@ async function main() {
     for (const port of [PORTS.firestore, PORTS.auth]) { adbCommand(['reverse', '--no-rebind', `tcp:${port}`, `tcp:${port}`]); ownedReverse.push(port); }
     manifest.result = await runChild(process.execPath, [cli, 'emulators:exec', '--only', 'auth,firestore', '--project', PROJECT,
       '--config', path.join(directory, 'firebase.json'), 'node execute.mjs'], {
-      cwd: directory, env, timeoutMs: 600_000, onOutput: chunk => {
+      cwd: directory, env, timeoutMs: 1_080_000, onOutput: chunk => {
         appendFileSync(path.join(directory, 'emulator.log'), chunk); process.stdout.write(chunk);
       } });
     process.exitCode = manifest.result.code;
