@@ -65,6 +65,58 @@ Konfiguration ist nicht automatisch auch in der Produktion nicht vorhanden.
   Provider-Requestlogs und deren URL-/IP-Behandlung sind zusätzlich extern zu prüfen;
   die vorhandenen privaten Antwortheader lösen dieses Infrastrukturthema nicht.
 
+## Web-Viewer: konkrete Request-Lebensdauerbefunde
+
+Ergänzender Source-Audit von `components/shared-binder-viewer.tsx`,
+`tests/shared-binder-ui.test.tsx` und `tests/shared-binder-viewer-refresh.test.tsx`.
+Die folgenden Abläufe sind aus dem Code abgeleitet, keine gemessenen
+Produktionslatenzen und keine Aussage über eine Provider-SLA.
+
+- Initialer Aufruf, 15-Sekunden-Intervall und Visibility-Aktualisierung verwenden
+  denselben Controller der Effect-Lebensdauer. Ein weiterer Aufruf erhöht
+  `requestVersion`, bricht den Vorgänger aber nicht ab. Der Versionsvergleich
+  verhindert die Veröffentlichung veralteter Antworten, nicht parallele Requests.
+- Konkreter Verwerfungsfall: Bei durchgehend sichtbarem Tab und angenommenen
+  20 Sekunden Antwortdauer starten Requests bei Sekunde 0, 15 und 30. Die erste
+  Antwort bei Sekunde 20 ist bereits veraltet, die zweite bei Sekunde 35 ebenfalls.
+  Setzt sich dieser Ablauf fort, wird keine erfolgreiche Antwort veröffentlicht.
+  Ohne vorherige Daten bleibt die Ladeanzeige stehen; bereits dargestellte Daten
+  werden durch diese verworfenen Antworten nicht aktualisiert. Zusätzliche
+  Visibility-Aufrufe können weitere Requests und Versionen erzeugen.
+- „Erneut versuchen“ erzeugt einen eigenen `AbortController`, speichert ihn
+  jedoch nicht für das Cleanup. Mehrfache Klicks können daher ebenfalls überlappen;
+  dieser manuelle Request wird bei Unmount oder Freigabewechsel nicht durch den
+  Effect-Controller abgebrochen. Die Versionsprüfung schützt weiterhin vor einer
+  alten Antwort nach einem neu gestarteten Request. Normale Effect-Requests werden
+  bei Seiten-/Tokenwechsel und Unmount dagegen bereits abgebrochen.
+- Die bestehenden Viewer-Tests belegen die jüngste zulässige DTO-Veröffentlichung,
+  das Entfernen widerrufener Preise/Karten und den Schutz vor verspäteten alten
+  Antworten. Sie belegen keine Obergrenze tatsächlich laufender Requests und kein
+  lückenloses Controller-Cleanup manueller Retries.
+
+Der Viewer ruft direkt Browser-`fetch` mit einem Signal auf. Der API-Router und
+`privateOperations` reichen das `Request`-Objekt an `readBinderShare` weiter;
+die Operation wertet dessen `request.signal` aber nicht aus. Die Katalogphase
+verwendet ihren eigenen 12-Sekunden-Abbruch, und die Firestore-Reads sind nicht
+an den Browser-Abbruch gebunden. Ein Client-Abbruch ist somit kein Nachweis dafür,
+dass die bereits gestartete Server-/Firestore-/Providerarbeit endet oder deren
+Kosten entfallen. Die Katalogdeadline ist außerdem keine Gesamtdeadline der
+HTTP-Anfrage einschließlich Datenbank- und abschließender Berechtigungsprüfungen.
+
+Der lokal ergänzte Pool mit 32 aktiven Loadern und 512 FIFO-Wartenden begrenzt
+Loader-Promises pro Cacheinstanz. Er löst weder diesen Browser-Lebensdauerbefund
+noch anonymes Rate-Limiting, deploymentsweite Parallelität oder garantierte
+Socket-/Gesamtspeichergrenzen.
+
+**Noch keine Polling-/Timeout-Änderung:** Abbruch vor jedem Intervallrequest würde
+den beschriebenen Verwerfungsfall nicht beheben. Automatisches Zusammenfassen
+gleichzeitiger Aktualisierungen könnte eine langsame Antwort fertig werden lassen,
+würde aber die Frequenz neuer Widerrufprüfungen ändern; ohne weitere Grenze könnte
+ein hängender Request diese dauerhaft aufhalten. Controllerbesitz, bewusst gewählte
+Frische-/Timeout-Semantik und ihre Tests müssen daher vor einer Produktänderung
+getrennt entschieden werden. Der bestehende 15-Sekunden-Takt, die finalen
+Berechtigungsprüfungen und die Darstellung privater Auswahlen bleiben unverändert.
+
 ## Vorhandene Technik, die gezielt wiederverwendbar wäre
 
 `backend/security/rate-limit.mjs` limitiert nur verifizierte UID-Schreibaktionen:
