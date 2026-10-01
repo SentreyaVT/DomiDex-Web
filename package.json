@@ -17,6 +17,7 @@
     "test:rate-limits": "vitest run --config vitest.config.ts tests/write-rate-limit.test.mjs tests/rate-limit-runtime.test.mjs tests/private-package.test.mjs",
     "test:app-check": "vitest run --config vitest.config.ts tests/app-check.test.mjs tests/app-check-runtime.test.mjs tests/app-check-forwarding.test.ts tests/app-check-services.test.mjs",
     "test:owner-snapshots": "vitest run --config vitest.config.ts tests/owner-snapshots.test.ts tests/collection-layouts.test.ts tests/private-binder-view.test.ts tests/private-binder-gallery.test.tsx",
+    "test:public-catalog-cache": "node tests/public-catalog-cache/run.mjs",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.config.ts tests/firestore.rules.test.ts\"",
     "test:sync-emulator": "firebase emulators:exec --project demo-domidex-sync --only firestore \"vitest run --config vitest.config.ts --no-file-parallelism tests/sync-two-client.rules.test.ts\"",
     "test:storage-rules": "firebase emulators:exec --only firestore,storage \"vitest run --config vitest.config.ts tests/storage.rules.test.ts\"",

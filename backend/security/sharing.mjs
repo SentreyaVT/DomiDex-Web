@@ -3,6 +3,7 @@ import { actorFor, fail, failure, services } from './firebase.mjs';
 import { publicCardId, sharedCardDto, sharedVisualId } from '../../lib/shared-binder.ts';
 import { boundedJson } from '../../lib/bounded-json.ts';
 import { consumeWriteQuota } from './rate-limit.mjs';
+import { createPublicCatalogCache } from './public-catalog-cache.mjs';
 
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const safeId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -109,12 +110,13 @@ async function catalogCard(id, signal) {
     return card;
   } catch { return null; }
 }
+const publicCatalog = createPublicCatalogCache({ load: catalogCard });
 async function catalogCards(ids, context) {
   const catalog = new Map(); const queue = [...new Set(ids)]; const signal = AbortSignal.timeout(12_000);
   await Promise.all(Array.from({ length: Math.min(6, queue.length) }, async () => {
     while (queue.length && !signal.aborted) {
       const id = queue.shift();
-      catalog.set(id, await (context.cardFor ?? catalogCard)(id, signal));
+      catalog.set(id, await (context.cardFor ?? publicCatalog.get)(id, signal));
     }
   }));
   return catalog;
