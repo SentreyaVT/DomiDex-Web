@@ -229,12 +229,23 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    // Validate projected post-commit parents as well as standalone writes.
+    // A batch must not activate a child while deleting or changing its parent.
+    function liveCollectionEntryAfter(uid, entrySyncId) {
+      let entryPath = /databases/$(database)/documents/users/$(uid)/collectionEntries/$(entrySyncId);
+      return existsAfter(entryPath) && getAfter(entryPath).data.deleted == false;
+    }
+    function livePrivateBinderAfter(uid, binderId) {
+      let binderPath = /databases/$(database)/documents/users/$(uid)/privateBinders/$(binderId);
+      return existsAfter(binderPath) && getAfter(binderPath).data.deleted == false;
+    }
+
     function validCollectionPriceSelection(uid, entrySyncId) {
       let data = request.resource.data;
       let entryPath = /databases/$(database)/documents/users/$(uid)/collectionEntries/$(entrySyncId);
       return ownApp(uid)
         && entrySyncId.matches('[A-Za-z0-9._-]{1,128}')
-        && exists(entryPath)
+        && existsAfter(entryPath)
         && data.keys().hasOnly([
           'schemaVersion', 'ownerUid', 'entrySyncId', 'revision', 'lastMutationId',
           'updatedAt', 'updatedAtClient', 'cleared', 'sourceSetId', 'sourceCardId',
@@ -261,8 +272,8 @@ service cloud.firestore {
           && data.productId == null && data.metric == null && data.amountMinor == null
           && data.currency == null && data.sourceAt == null && data.selectedAt == null)
         || (!data.cleared
-          && get(entryPath).data.deleted == false
-          && get(entryPath).data.get('externalProductSource', null) == 'CARDMARKET_PUBLIC_DOWNLOAD'
+          && getAfter(entryPath).data.deleted == false
+          && getAfter(entryPath).data.get('externalProductSource', null) == 'CARDMARKET_PUBLIC_DOWNLOAD'
           && data.sourceSetId is string && data.sourceSetId.size() > 0 && data.sourceSetId.size() <= 120
           && data.sourceCardId is string && data.sourceCardId.size() > 0 && data.sourceCardId.size() <= 120
           && data.collectorNumber is string && data.collectorNumber.size() > 0 && data.collectorNumber.size() <= 80
@@ -282,13 +293,13 @@ service cloud.firestore {
           && data.currency == 'EUR'
           && data.sourceAt is int && data.sourceAt > 0 && data.sourceAt <= 9007199254740991
           && data.selectedAt is int && data.selectedAt > 0 && data.selectedAt <= 9007199254740991
-          && data.sourceSetId == get(entryPath).data.get('sourceSetId', null)
-          && data.sourceCardId == get(entryPath).data.get('sourceCardId', null)
-          && data.collectorNumber == get(entryPath).data.get('collectorNumber', null)
-          && data.language == get(entryPath).data.get('language', null)
-          && data.finish == get(entryPath).data.get('finish', null)
-          && data.variant == get(entryPath).data.get('variant', null)
-          && data.productId == get(entryPath).data.get('externalProductId', null)));
+          && data.sourceSetId == getAfter(entryPath).data.get('sourceSetId', null)
+          && data.sourceCardId == getAfter(entryPath).data.get('sourceCardId', null)
+          && data.collectorNumber == getAfter(entryPath).data.get('collectorNumber', null)
+          && data.language == getAfter(entryPath).data.get('language', null)
+          && data.finish == getAfter(entryPath).data.get('finish', null)
+          && data.variant == getAfter(entryPath).data.get('variant', null)
+          && data.productId == getAfter(entryPath).data.get('externalProductId', null)));
     }
 
     match /users/{uid}/collectionEntries/{entryId} {
@@ -321,10 +332,8 @@ service cloud.firestore {
       allow create: if validPrivateBinderPlacement(uid, placementId)
         && request.resource.data.revision == 1
         && (request.resource.data.deleted == true || (
-          exists(/databases/$(database)/documents/users/$(uid)/privateBinders/$(request.resource.data.binderId))
-          && get(/databases/$(database)/documents/users/$(uid)/privateBinders/$(request.resource.data.binderId)).data.deleted == false
-          && exists(/databases/$(database)/documents/users/$(uid)/collectionEntries/$(request.resource.data.entrySyncId))
-          && get(/databases/$(database)/documents/users/$(uid)/collectionEntries/$(request.resource.data.entrySyncId)).data.deleted == false
+          livePrivateBinderAfter(uid, request.resource.data.binderId)
+          && liveCollectionEntryAfter(uid, request.resource.data.entrySyncId)
         ));
       allow update: if validPrivateBinderPlacement(uid, placementId)
         && request.resource.data.ownerUid == resource.data.ownerUid
@@ -332,7 +341,11 @@ service cloud.firestore {
         && request.resource.data.binderId == resource.data.binderId
         && request.resource.data.entrySyncId == resource.data.entrySyncId
         && request.resource.data.revision == resource.data.revision + 1
-        && (!resource.data.deleted || request.resource.data.deleted);
+        && (!resource.data.deleted || request.resource.data.deleted)
+        && (request.resource.data.deleted == true || (
+          livePrivateBinderAfter(uid, request.resource.data.binderId)
+          && liveCollectionEntryAfter(uid, request.resource.data.entrySyncId)
+        ));
       allow delete: if false;
     }
 
@@ -340,12 +353,12 @@ service cloud.firestore {
       allow read: if ownApp(uid);
       allow create: if validCollectionLayout(uid, entrySyncId)
         && request.resource.data.revision == 1
-        && exists(/databases/$(database)/documents/users/$(uid)/collectionEntries/$(entrySyncId))
-        && get(/databases/$(database)/documents/users/$(uid)/collectionEntries/$(entrySyncId)).data.deleted == false;
+        && liveCollectionEntryAfter(uid, entrySyncId);
       allow update: if validCollectionLayout(uid, entrySyncId)
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.entrySyncId == resource.data.entrySyncId
-        && request.resource.data.revision == resource.data.revision + 1;
+        && request.resource.data.revision == resource.data.revision + 1
+        && (request.resource.data.visibleInSetBinder == false || liveCollectionEntryAfter(uid, entrySyncId));
       allow delete: if false;
     }
 
