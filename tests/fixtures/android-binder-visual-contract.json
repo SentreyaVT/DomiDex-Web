@@ -1,12 +1,19 @@
 {
   "source": {
     "repository": "CardVault",
-    "commit": "b28c16c3097950a8efc225a74003ebbf7749e857",
+    "commit": "096aa356b5efc513483fd081bc2256683a5196d9",
     "path": "app/src/main/java/com/dominik/cardvault/ui/PrivateBinderVisualEngine.kt",
-    "gitBlobSha256": "1b7b2d879c5bbdd67fa7828aa1fc017e74319d96123082d68e66a8d33c5e9de2",
+    "workingTreeSha256": "0f22001d8c7163825164cf8dbdf5cb635bd1ded38ab83cff59ac7728d07553d0",
+    "proceduralSources": {
+      "PrivateBinderPremiumFoil.kt": "d46543449503013777adaf05e88e786d7d78f14006c548edd9c2b86173de5a7c",
+      "PrivateBinderAdditionalFoil.kt": "0affc98f37e197cf5dbe7604326a1b9deda7b155c443a640017cf7cdf0ee5a6e",
+      "PrivateBinderElementFoil.kt": "f4f0df61bc36a83dfb6727794afa7e8296f5f1c65d7b423fc71c1658d8b49fae"
+    },
+    "anniversaryPath": "app/src/main/java/com/dominik/cardvault/ui/PrivateBinderAnniversaryFoil.kt",
+    "anniversaryWorkingTreeSha256": "a9a9a9fb1f06a9934dc14a0de0bde9b71e85a0cd9aea1ad4ba1029bcddb3f93b",
     "atlasDirectory": "app/src/main/res/drawable-nodpi",
     "verifiedAt": "2026-09-22",
-    "method": "Extracted from committed Android source and atlas blobs, not from the Web implementation."
+    "method": "Extracted from the current Android working-tree source, including premium/additional/element procedural designs and the anniversary source. Original atlas blobs and legacy designs are preserved. Web uses the Android MEDIUM geometry budget."
   },
   "atlasSha256": {
     "private_binder_cover_atlas.png": "bae2fc4c10c6f7f1a95938c98e16951360b917c6a139f4654424f1577f1d3032",
@@ -314,6 +321,11 @@
         "#8FE9FF",
         "#FFFFFF"
       ]
+    },
+    {
+      "id": "anniversary_30",
+      "pattern": "ANNIVERSARY",
+      "colors": ["#FFC95C", "#FFE6A2", "#C48DFF"]
     }
   ]
 }

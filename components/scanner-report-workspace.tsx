@@ -8,6 +8,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ScannerProfileVersion, ScannerReference, ScannerZoneType } from '@/lib/scanner-profile';
 import type { ScannerReport, ScanReportStatus } from '@/lib/scanner-report';
+import { scannerFeedbackMessage } from '@/lib/scanner-feedback';
 
 interface ReferenceResponse {
   connected: boolean;
@@ -31,12 +32,15 @@ interface Props {
   working: boolean;
   userToken: () => Promise<string>;
   reviewDirty: boolean;
+  canDelete: boolean;
+  canCalibrate: boolean;
   onReviewDirtyChange: (dirty: boolean) => void;
   onSelectReport: (id: string) => void;
   onRefresh: () => Promise<void>;
   onLoadMore: () => Promise<void>;
   onSave: (report: ScannerReport, status: ScanReportStatus, note: string, selection?: ReferenceSelection) => Promise<void>;
   onOpenCalibration: (report: ScannerReport, reference: ScannerReference) => void;
+  onReauthenticate?: () => Promise<void>;
 }
 
 type StatusFilter = 'ALL' | 'OPEN' | 'RESOLVED' | 'REJECTED';
@@ -48,7 +52,7 @@ const statusLabels: Record<ScanReportStatus, string> = {
 };
 const decisionLabels: Record<Decision, string> = { ACCEPTED: 'Eindeutig', AMBIGUOUS: 'Mehrdeutig', REJECTED: 'Nicht erkannt', UNKNOWN: 'Nicht übermittelt' };
 
-export function ScannerReportWorkspace({ reports, totalReports, hasMore, nextPageToken, loadingMore, selectedReportId, profiles, working, userToken, reviewDirty, onReviewDirtyChange, onSelectReport, onRefresh, onLoadMore, onSave, onOpenCalibration }: Props) {
+export function ScannerReportWorkspace({ reports, totalReports, hasMore, nextPageToken, loadingMore, selectedReportId, profiles, working, userToken, reviewDirty, canDelete, canCalibrate, onReviewDirtyChange, onSelectReport, onRefresh, onLoadMore, onSave, onOpenCalibration, onReauthenticate }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [decisionFilter, setDecisionFilter] = useState<Decision | 'ALL'>('ALL');
@@ -58,6 +62,8 @@ export function ScannerReportWorkspace({ reports, totalReports, hasMore, nextPag
   const [deleteTargets, setDeleteTargets] = useState<ScannerReport[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteWorking, setDeleteWorking] = useState(false);
+  const [needsReauthentication, setNeedsReauthentication] = useState(false);
+  const [reauthenticating, setReauthenticating] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const automaticPageAttempts = useRef(new Set<string>());
@@ -97,28 +103,38 @@ export function ScannerReportWorkspace({ reports, totalReports, hasMore, nextPag
   }, [confirmNavigation, onRefresh]);
 
   const requestDelete = (targets: ScannerReport[]) => {
+    if (!canDelete) return;
     setDeleteTargets(targets);
     setDeleteConfirmation('');
     setError('');
   };
 
   const confirmDelete = async () => {
-    if (deleteConfirmation !== 'LÖSCHEN' || deleteTargets.length === 0) return;
+    if (!canDelete || deleteConfirmation !== 'LÖSCHEN' || deleteTargets.length === 0) return;
     setDeleteWorking(true); setError(''); setNotice('');
     const failures: string[] = [];
+    const remaining = new Set<string>();
     let removed = 0;
     try {
       const token = await userToken();
-      for (const report of deleteTargets) {
+      for (const [index, report] of deleteTargets.entries()) {
         const response = await fetch('/api/admin/scan-reports', {
           method: 'DELETE', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ reportId: report.documentId, confirm: `DELETE_SCAN_REPORT:${report.documentId}` }),
         });
         const result = await response.json() as { ok?: boolean; error?: string; imageDeleted?: boolean; reportDeleted?: boolean };
-        if (!response.ok || !result.ok) failures.push(`${shortId(report.documentId)}: ${deleteError(result.error)}`);
+        if (!response.ok || !result.ok) {
+          failures.push(`${shortId(report.documentId)}: ${deleteError(result.error)}`);
+          remaining.add(report.documentId);
+          if (result.error === 'RECENT_LOGIN_REQUIRED' || result.error === 'AUTH_REQUIRED') {
+            setNeedsReauthentication(true);
+            deleteTargets.slice(index).forEach(item => remaining.add(item.documentId));
+            break; // Do not issue the same rejected request for every selected scan.
+          }
+        }
         else removed += 1;
       }
-      setDeleteTargets([]); setDeleteConfirmation(''); setSelectedForDelete(new Set());
+      setDeleteTargets([]); setDeleteConfirmation(''); setSelectedForDelete(remaining);
       await onRefresh();
       if (removed) setNotice(`${removed} Scan-Report${removed === 1 ? '' : 's'} entfernt. Zugeordnete Bilder wurden aus dem aktiven Speicher gelöscht; eine zeitlich begrenzte Provider-Aufbewahrung kann bestehen.`);
       if (failures.length) setError(`Nicht vollständig gelöscht: ${failures.join(' · ')} Bitte erneut prüfen; globale Scanner-Daten wurden nicht verändert.`);
@@ -126,6 +142,21 @@ export function ScannerReportWorkspace({ reports, totalReports, hasMore, nextPag
       setError(reason instanceof Error ? reason.message : 'Löschen konnte nicht abgeschlossen werden.');
       await onRefresh().catch(() => undefined);
     } finally { setDeleteWorking(false); }
+  };
+
+  const reauthenticateForDeletion = async () => {
+    if (!canDelete || !onReauthenticate || reauthenticating) return;
+    setReauthenticating(true); setError(''); setNotice('');
+    try {
+      await onReauthenticate();
+      setNeedsReauthentication(false);
+      setNotice('Google-Anmeldung bestätigt. Es wurde nichts automatisch gelöscht. Bitte die ausgewählten Scans prüfen und das Löschen erneut bestätigen.');
+    } catch (reason) {
+      const code = typeof reason === 'object' && reason && 'code' in reason ? String(reason.code) : '';
+      setError(code.includes('popup-blocked') ? 'Bitte das Google-Anmeldefenster im Browser erlauben und erneut versuchen.'
+        : code.includes('user-mismatch') ? 'Bitte dasselbe Google-Konto wie hier im Scanner Lab bestätigen.'
+        : 'Google-Anmeldung nicht bestätigt. Es wurde nichts gelöscht. Bitte erneut versuchen.');
+    } finally { setReauthenticating(false); }
   };
 
   const toggleVisibleSelection = () => {
@@ -138,11 +169,17 @@ export function ScannerReportWorkspace({ reports, totalReports, hasMore, nextPag
   };
 
   return <section className="sl-report-shell">
+    <ol className="sl-review-guide" aria-label="So prüfst du einen Fehlscan">
+      <li><b>1 · Foto ansehen</b><span>Wähle links einen Fehlscan und prüfe die Aufnahme.</span></li>
+      <li><b>2 · Karte auswählen</b><span>Vergleiche die Karte mit dem Katalog. Suche bei Bedarf nach Set oder Nummer.</span></li>
+      <li><b>3 · Ergebnis speichern</b><span>Bestätige die Karte oder speichere den Fall zur weiteren Prüfung.</span></li>
+    </ol>
     <DashboardMetrics reports={reports} totalReports={totalReports} />
     {notice && <div className="sl-notice success"><CheckCircle2 />{notice}</div>}
     {error && <div className="sl-notice error"><AlertTriangle />{error}</div>}
+    {canDelete && needsReauthentication && <div className="sl-notice"><ShieldCheck /><div><p>Zum sicheren Löschen muss deine Google-Anmeldung erneut bestätigt werden. Die noch nicht gelöschten Scans bleiben ausgewählt.</p>{onReauthenticate && <button className="primary" disabled={reauthenticating} onClick={() => void reauthenticateForDeletion()}>{reauthenticating ? 'Google-Anmeldung läuft …' : 'Google-Anmeldung bestätigen'}</button>}</div></div>}
     <div className="sl-toolbar">
-      <label className="sl-search"><Search /><span className="sr-only">Reports durchsuchen</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, Set, Nummer oder Scan-ID suchen" /></label>
+      <label className="sl-search"><Search /><span className="sr-only">Fehlscans durchsuchen</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, Set, Nummer oder Scan-ID suchen" /></label>
       <label><Filter /><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}><option value="ALL">Alle Status</option><option value="OPEN">Offen</option><option value="RESOLVED">Gelöst</option><option value="REJECTED">Verworfen</option></select></label>
       <label><CircleHelp /><span>Ergebnis</span><select value={decisionFilter} onChange={(event) => setDecisionFilter(event.target.value as Decision | 'ALL')}><option value="ALL">Alle Ergebnisse</option>{Object.entries(decisionLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
       <label><Clock3 /><span>Zeitraum</span><select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as 'ALL' | 'TODAY' | '7D')}><option value="ALL">Gesamter Zeitraum</option><option value="TODAY">Heute</option><option value="7D">Letzte 7 Tage</option></select></label>
@@ -150,31 +187,31 @@ export function ScannerReportWorkspace({ reports, totalReports, hasMore, nextPag
     </div>
     <div className="sl-main-grid">
       <aside className="sl-queue" aria-label="Scan-Report Warteschlange">
-        <header><div><p>FALLLISTE</p><h2>{filtered.length} Reports</h2></div><span>{openReports.length} offen</span></header>
-        <div className="sl-bulkbar">
+        <header><div><p>ZUM PRÜFEN AUSWÄHLEN</p><h2>{filtered.length} Fehlscans</h2></div><span>{openReports.length} offen</span></header>
+        {canDelete && <div className="sl-bulkbar">
           <label><input type="checkbox" checked={visibleReports.length > 0 && visibleReports.every((report) => selectedForDelete.has(report.documentId))} onChange={toggleVisibleSelection} /> Seite auswählen</label>
           <button disabled={selectedForDelete.size === 0} onClick={() => requestDelete(reports.filter((report) => selectedForDelete.has(report.documentId)))}><Trash2 /> {selectedForDelete.size || ''}</button>
-        </div>
+        </div>}
         <div className="sl-report-list">
           {visibleReports.map((report) => <article className={report.documentId === selectedReportId ? 'active' : ''} key={report.documentId}>
-            <label className="sl-select-report" title="Zum Löschen auswählen"><span className="sr-only">Scan-Report {shortId(report.documentId)} zum Löschen auswählen</span><input type="checkbox" checked={selectedForDelete.has(report.documentId)} onChange={() => setSelectedForDelete((current) => toggleSet(current, report.documentId))} /></label>
+            {canDelete && <label className="sl-select-report" title="Zum Löschen auswählen"><span className="sr-only">Scan-Report {shortId(report.documentId)} zum Löschen auswählen</span><input type="checkbox" checked={selectedForDelete.has(report.documentId)} onChange={() => setSelectedForDelete((current) => toggleSet(current, report.documentId))} /></label>}
             <button className="sl-report-open" onClick={() => selectReport(report.documentId)}>
               <div className="sl-report-thumb">{report.captureImagePath ? <PrivateImage endpoint={`/api/admin/scan-reports/${encodeURIComponent(report.documentId)}/image?view=thumb`} alt="Vorschau der Scanaufnahme" userToken={userToken} lazy /> : <ImageIcon />}</div>
               <div className="sl-report-copy"><span><StatusBadge status={report.reviewStatus} /><DecisionBadge decision={scanDecision(report)} /></span><b>{report.guessedName ?? 'Karte nicht erkannt'}</b><small>{report.guessedSet ?? 'Set unbekannt'} · {report.guessedNumber ?? 'Nummer unbekannt'}</small><time>{formatTimestamp(report.createdAt)} · {confidenceText(report.confidence)}</time></div>
             </button>
           </article>)}
-          {!visibleReports.length && <div className="sl-empty"><Search /><h3>Keine passenden Reports</h3><p>Filter ändern oder neue manuell übermittelte Fehlscans abwarten.</p></div>}
+          {!visibleReports.length && <div className="sl-empty"><Search /><h3>Keine passenden Fehlscans</h3><p>Ändere die Filter oder aktualisiere die Liste, nachdem ein Fehlscan aus der App gesendet wurde.</p>{exhaustiveFilter && <button onClick={() => { setSearch(''); setStatusFilter('ALL'); setDecisionFilter('ALL'); setDateFilter('ALL'); }}>Alle Fehlscans anzeigen</button>}</div>}
         </div>
         <footer><button aria-label="Vorherige Report-Seite" title="Vorherige Report-Seite" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></button><span>Seite {page} von {totalPages} · {reports.length}/{totalReports} geladen</span><button aria-label="Nächste Report-Seite" title="Nächste Report-Seite" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}><ChevronRight /></button>{hasMore && <button className="sl-load-more" disabled={loadingMore} onClick={() => void onLoadMore()}>{loadingMore ? <LoaderCircle className="spin" /> : <PlusLabel />} Mehr</button>}</footer>
       </aside>
       <ReportReviewPanel
         key={selectedReport?.documentId ?? 'empty'}
-        report={selectedReport} reports={filtered} profiles={profiles} working={working} userToken={userToken}
+        report={selectedReport} reports={filtered} profiles={profiles} working={working} userToken={userToken} canDelete={canDelete} canCalibrate={canCalibrate}
         onSave={onSave} onOpenCalibration={(report, reference) => { if (confirmNavigation()) onOpenCalibration(report, reference); }} onSelectReport={selectReport} onDirtyChange={onReviewDirtyChange}
         onDelete={(report) => requestDelete([report])}
       />
     </div>
-    {deleteTargets.length > 0 && <DeleteDialog targets={deleteTargets} confirmation={deleteConfirmation} working={deleteWorking} onConfirmation={setDeleteConfirmation} onCancel={() => { if (!deleteWorking) { setDeleteTargets([]); setDeleteConfirmation(''); } }} onConfirm={() => void confirmDelete()} />}
+    {canDelete && deleteTargets.length > 0 && <DeleteDialog targets={deleteTargets} confirmation={deleteConfirmation} working={deleteWorking} onConfirmation={setDeleteConfirmation} onCancel={() => { if (!deleteWorking) { setDeleteTargets([]); setDeleteConfirmation(''); } }} onConfirm={() => void confirmDelete()} />}
   </section>;
 }
 
@@ -198,8 +235,9 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: st
   return <article className={`sl-metric ${tone}`}><span>{label}</span><strong>{value.toLocaleString('de-DE')}</strong></article>;
 }
 
-function ReportReviewPanel({ report, reports, profiles, working, userToken, onSave, onOpenCalibration, onSelectReport, onDelete, onDirtyChange }: {
+function ReportReviewPanel({ report, reports, profiles, working, userToken, canDelete, canCalibrate, onSave, onOpenCalibration, onSelectReport, onDelete, onDirtyChange }: {
   report: ScannerReport | null; reports: ScannerReport[]; profiles: ScannerProfileVersion[]; working: boolean; userToken: () => Promise<string>;
+  canDelete: boolean; canCalibrate: boolean;
   onSave: Props['onSave']; onOpenCalibration: Props['onOpenCalibration']; onSelectReport: (id: string) => void; onDelete: (report: ScannerReport) => void; onDirtyChange: (dirty: boolean) => void;
 }) {
   const [status, setStatus] = useState<ScanReportStatus>(report?.reviewStatus ?? 'NEW');
@@ -254,15 +292,15 @@ function ReportReviewPanel({ report, reports, profiles, working, userToken, onSa
 
   if (!report) return <main className="sl-review sl-empty"><ImageIcon /><h2>Noch kein Scan-Report ausgewählt</h2><p>Wähle links einen echten, manuell gesendeten Fehlscan aus.</p></main>;
   return <main className="sl-review">
-    <header className="sl-review-header"><div><p>SCAN {shortId(report.scanId)}</p><h2>{report.guessedName ?? 'Unbekannte Karte'}</h2><span>{formatTimestamp(report.createdAt)} · {report.captureType === 'MANUAL_CAPTURE' ? 'Manuell an ScanLab gesendet' : 'Aufnahmetyp unbekannt'}</span></div><div><StatusBadge status={report.reviewStatus} /><button className="danger" onClick={() => onDelete(report)}><Trash2 /> Löschen</button></div></header>
+    <header className="sl-review-header"><div><p>FEHLSCAN {shortId(report.scanId)}</p><h2>{report.guessedName ?? 'Unbekannte Karte'}</h2><span>{formatTimestamp(report.createdAt)} · {report.captureType === 'MANUAL_CAPTURE' ? 'Manuell zur Prüfung gesendet' : 'Aufnahmetyp unbekannt'}</span></div><div><StatusBadge status={report.reviewStatus} />{canDelete && <button className="danger" onClick={() => onDelete(report)}><Trash2 /> Löschen</button>}</div></header>
     <section className="sl-identity-strip">
-      <div><span>Angenommene Identität</span><strong>{[report.guessedName, report.guessedSet, report.guessedNumber].filter(Boolean).join(' · ') || 'Keine Identität übermittelt'}</strong></div>
+      <div><span>Vom Scanner vermutete Karte</span><strong>{[report.guessedName, report.guessedSet, report.guessedNumber].filter(Boolean).join(' · ') || 'Noch nicht erkannt'}</strong></div>
       <div><span>Scanner-Ergebnis</span><DecisionBadge decision={scanDecision(report)} /></div>
-      <div><span>Confidence</span><strong>{confidenceText(report.confidence)}</strong></div>
-      <div><span>Review-Status</span><strong>{statusLabels[report.reviewStatus]}</strong></div>
+      <div><span>Erkennungssicherheit</span><strong>{confidenceText(report.confidence)}</strong></div>
+      <div><span>Bearbeitungsstand</span><strong>{statusLabels[report.reviewStatus]}</strong></div>
     </section>
     <section className="sl-analysis-grid">
-      <ReportImageViewer report={report} profile={exactProfile} userToken={userToken} />
+      <ReportImageViewer report={report} profile={exactProfile} userToken={userToken} canInspect={canCalibrate} />
       <div className="sl-analysis-summary">
         <header><p>ANALYSE</p><h3>Was ist passiert?</h3></header>
         <p className="sl-human-summary">{humanSummary(report)}</p>
@@ -277,31 +315,34 @@ function ReportReviewPanel({ report, reports, profiles, working, userToken, onSa
       </div>
     </section>
     <section className="sl-correction">
-      <header><div><p>KORREKTUR</p><h3>Richtige Karte bestätigen</h3></div><button className="secondary" onClick={() => setPickerOpen((value) => !value)}>{pickerOpen ? <X /> : <Search />}{pickerOpen ? 'Auswahl schließen' : 'Andere Karte auswählen'}</button></header>
+      <header><div><p>SCHRITT 2</p><h3>Passende Karte auswählen</h3></div><button className="secondary" onClick={() => setPickerOpen((value) => !value)}>{pickerOpen ? <X /> : <Search />}{pickerOpen ? 'Auswahl schließen' : 'Andere Karte auswählen'}</button></header>
       {currentReferenceId && <div className="sl-current-reference">{reference ? <span className="sl-current-reference-image"><PrivateImage endpoint={`/api/admin/scanner-reference-image/${encodeURIComponent(reference.imageFile)}`} alt={`Referenzkarte ${reference.nameDe}`} userToken={userToken} /></span> : <CheckCircle2 />}<div><span>Referenzkarte zum visuellen Vergleich</span><strong>{reference ? `${reference.nameDe} · ${reference.setId} · ${reference.localId}` : currentReferenceId}</strong>{variant && <small>Variante: {variant}</small>}</div></div>}
-      {!currentReferenceId && <div className="sl-current-reference empty"><CircleHelp /><div><span>Noch keine eindeutige Referenz</span><strong>Bitte die Karte über Set und Nummer auswählen.</strong></div></div>}
+      {!currentReferenceId && <div className="sl-current-reference empty"><CircleHelp /><div><span>Noch keine passende Karte ausgewählt</span><strong>Öffne „Andere Karte auswählen“ und suche nach Set oder Kartennummer.</strong></div></div>}
       {pickerOpen && <ReferencePicker report={report} selected={reference} selectedVariant={variant} userToken={userToken} onSelect={(card, nextVariant) => { setReference(card); setVariant(nextVariant); }} />}
       {reference && reference.variants.length > 0 && <label className="sl-variant"><span>Variante</span><select value={variant ?? ''} onChange={(event) => setVariant(event.target.value || null)}><option value="">Variante auswählen</option>{reference.variants.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
+      <h3 className="sl-save-heading">3 · Ergebnis speichern</h3>
+      <p className="sl-save-help">Stimmen Foto, Karte und Variante überein? Mit der Bestätigung wird die geprüfte Zuordnung als Erkennungshinweis für Scanner und Analyse bereitgestellt, wenn diese Aufnahme eine Analysekennung enthält. Wenn du unsicher bist, wähle „In Prüfung speichern“.</p>
+      <p className="sl-save-help" role="status" aria-label="Weitergabe an Scanner und Analyse">{scannerFeedbackMessage(report.recognitionFeedback ?? 'NOT_CONFIRMED')}</p>
       <div className="sl-review-actions">
-        <button className="primary" disabled={working || !reference || (reference.variants.length > 0 && !variant)} onClick={() => void persist('RESOLVED', { reference, variant })}><Check /> Diese Karte ist korrekt</button>
+        <button className="primary" disabled={working || !reference || (reference.variants.length > 0 && !variant)} onClick={() => void persist('RESOLVED', { reference, variant })}><Check /> Karte bestätigen und speichern</button>
         <button disabled={working} onClick={() => void persist('IN_REVIEW', reference ? { reference, variant } : undefined)}><Save /> In Prüfung speichern</button>
         <button disabled={working} onClick={() => void persist('REJECTED', reference ? { reference, variant } : undefined)}><X /> Als nicht zuordenbar markieren</button>
-        <button disabled={!reference} onClick={() => reference && onOpenCalibration(report, reference)}><Layers3 /> Profil visuell prüfen</button>
+        {canCalibrate && <button disabled={!reference} onClick={() => reference && onOpenCalibration(report, reference)}><Layers3 /> Profil visuell prüfen</button>}
         {nextOpen && <button className="next" onClick={() => onSelectReport(nextOpen.documentId)}>Nächster offener Fall · {Math.max(0, reports.filter((item) => isOpenStatus(item.reviewStatus)).length - 1)} weitere <ChevronRight /></button>}
         {saveMessage && <span className="sl-saved"><Check />{saveMessage}</span>}
       </div>
-      <label className="sl-review-note"><span>Interne Review-Notiz</span><textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Nur reale Beobachtungen dokumentieren …" /></label>
-      <details className="sl-technical"><summary><span><Eye /> Technische Details</span><small>OCR, Zonen, Bildmetadaten und IDs</small></summary><div>
+      <label className="sl-review-note"><span>Notiz zur Prüfung (optional)</span><textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Zum Beispiel: Kartennummer auf dem Foto schwer lesbar." /></label>
+      {canCalibrate && <details className="sl-technical"><summary><span><Eye /> Technische Details für Fortgeschrittene</span><small>Texterkennung, Analysezonen und Bilddaten</small></summary><div>
         <section><h4>OCR-Tokens</h4><p>{report.ocrTokens.length ? report.ocrTokens.join(' · ') : 'Nicht übermittelt'}</p></section>
         <section><h4>Zonen-Confidence</h4><p>{Object.keys(report.zoneConfidence).length ? Object.entries(report.zoneConfidence).map(([key, value]) => `${key}: ${percent(value)}`).join(' · ') : 'Nicht übermittelt'}</p></section>
         <section><h4>Private Bilddaten</h4><p>{report.imageContentType ?? 'Typ unbekannt'} · {report.imageSizeBytes ? formatBytes(report.imageSizeBytes) : 'Größe unbekannt'} · SHA-256 {report.imageSha256 ? `${report.imageSha256.slice(0, 12)}…` : 'nicht übermittelt'}</p></section>
         <section><h4>Stabile IDs</h4><p>Report {report.documentId} · Scan {report.scanId} · Referenz {report.referenceCardKey ?? 'nicht gesetzt'}</p></section>
-      </div></details>
+      </div></details>}
     </section>
   </main>;
 }
 
-function ReportImageViewer({ report, profile, userToken }: { report: ScannerReport; profile: ScannerProfileVersion | null; userToken: () => Promise<string> }) {
+function ReportImageViewer({ report, profile, userToken, canInspect }: { report: ScannerReport; profile: ScannerProfileVersion | null; userToken: () => Promise<string>; canInspect: boolean }) {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -318,7 +359,7 @@ function ReportImageViewer({ report, profile, userToken }: { report: ScannerRepo
     if (next && enabledTypes.size === 0) setEnabledTypes(new Set(availableZones.map((zone) => zone.type)));
   };
   return <div className="sl-viewer">
-    <header><div><p>ORIGINALAUFNAHME</p><span>{report.captureImagePath ? 'Privates Adminbild' : 'Kein Bild'}</span></div><div className="sl-viewer-tools">
+    <header><div><p>1 · FOTO ANSEHEN</p><span>{report.captureImagePath ? 'Private Scanaufnahme' : 'Kein Bild'}</span></div><div className="sl-viewer-tools">
       <button onClick={() => setZoom((value) => Math.max(.5, value - .2))} aria-label="Verkleinern"><ZoomOut /></button><output>{Math.round(zoom * 100)} %</output><button onClick={() => setZoom((value) => Math.min(4, value + .2))} aria-label="Vergrößern"><ZoomIn /></button>
       <button onClick={() => setRotation((value) => (value + 90) % 360)} aria-label="Ansicht drehen"><RotateCw /></button>
       <button onClick={() => { setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }); setOriginal((value) => !value); }} aria-label="Originalgröße" aria-pressed={original}><Maximize2 /></button>
@@ -328,7 +369,7 @@ function ReportImageViewer({ report, profile, userToken }: { report: ScannerRepo
       {report.captureImagePath ? <div className="sl-image-plane" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)` }}><PrivateImage endpoint={`/api/admin/scan-reports/${encodeURIComponent(report.documentId)}/image`} alt="Private Originalaufnahme des Scan-Reports" userToken={userToken} />{overlays && availableZones.map((zone) => enabledTypes.has(zone.type) && <span className={`sl-zone-overlay zone-${zone.type}`} style={{ left: `${zone.x * 100}%`, top: `${zone.y * 100}%`, width: `${zone.width * 100}%`, height: `${zone.height * 100}%` }} key={zone.id}>{zone.label}</span>)}</div> : <div className="sl-image-missing"><ImageIcon /><span>Kein Bild übermittelt</span></div>}
       <span className="sl-pan-hint"><Move /> Ziehen zum Verschieben</span>
     </div>
-    <footer><button disabled={!availableZones.length} className={overlays ? 'active' : ''} onClick={toggleOverlay}>{overlays ? <Eye /> : <EyeOff />} Analysezonen {availableZones.length ? `(${availableZones.length})` : 'nicht verfügbar'}</button>{overlays && <div>{Array.from(new Set(availableZones.map((zone) => zone.type))).map((type) => <label key={type}><input type="checkbox" checked={enabledTypes.has(type)} onChange={() => setEnabledTypes((current) => toggleSet(current, type))} /><i className={`zone-${type}`} />{zoneLabel(type)}</label>)}</div>}</footer>
+    {canInspect && <footer><button disabled={!availableZones.length} className={overlays ? 'active' : ''} onClick={toggleOverlay}>{overlays ? <Eye /> : <EyeOff />} Analysezonen {availableZones.length ? `(${availableZones.length})` : 'nicht verfügbar'}</button>{overlays && <div>{Array.from(new Set(availableZones.map((zone) => zone.type))).map((type) => <label key={type}><input type="checkbox" checked={enabledTypes.has(type)} onChange={() => setEnabledTypes((current) => toggleSet(current, type))} /><i className={`zone-${type}`} />{zoneLabel(type)}</label>)}</div>}</footer>}
   </div>;
 }
 
@@ -358,11 +399,11 @@ function ReferencePicker({ report, selected, selectedVariant, userToken, onSelec
   const pages = Math.max(1, Math.ceil(data.total / Math.max(1, data.pageSize)));
   return <div className="sl-reference-picker">
     <div className="sl-picker-steps">
-      <label><span>1 · Set-ID oder Setname</span><input value={setValue} onChange={(event) => { setSetValue(event.target.value); setPage(1); }} placeholder="z. B. sv3 oder Obsidianflammen" /></label>
-      <label><span>2 · Kartennummer</span><input value={numberValue} onChange={(event) => { setNumberValue(event.target.value); setPage(1); }} placeholder="z. B. 137" /></label>
-      <label><span>3 · Kartenname (optional)</span><input value={nameValue} onChange={(event) => { setNameValue(event.target.value); setPage(1); }} placeholder="Kartenname" /></label>
+      <label><span>Setname oder Set-Kürzel</span><input value={setValue} onChange={(event) => { setSetValue(event.target.value); setPage(1); }} placeholder="z. B. sv3 oder Obsidianflammen" /></label>
+      <label><span>Kartennummer</span><input value={numberValue} onChange={(event) => { setNumberValue(event.target.value); setPage(1); }} placeholder="z. B. 137" /></label>
+      <label><span>Kartenname (optional)</span><input value={nameValue} onChange={(event) => { setNameValue(event.target.value); setPage(1); }} placeholder="Kartenname" /></label>
     </div>
-    {loading && <div className="sl-picker-state"><LoaderCircle className="spin" /> Reale Referenzen werden gesucht …</div>}
+    {loading && <div className="sl-picker-state"><LoaderCircle className="spin" /> Karten werden gesucht …</div>}
     {error && <div className="sl-picker-state error"><AlertTriangle />{error}</div>}
     {!loading && !error && !data.connected && <div className="sl-picker-state"><AlertTriangle />{data.message ?? 'Referenzarchiv nicht verbunden.'}</div>}
     {!loading && data.connected && <div className="sl-reference-results">{data.cards.map((card) => <button className={selected?.id === card.id ? 'active' : ''} onClick={() => onSelect(card, selected?.id === card.id ? selectedVariant : card.variants[0] ?? null)} key={card.cardKey}><PrivateImage endpoint={`/api/admin/scanner-reference-image/${encodeURIComponent(card.imageFile)}`} alt={card.nameDe} userToken={userToken} lazy /><span><b>{card.nameDe}</b><small>{card.setName ?? card.setId} · {card.setId} · #{card.localId}</small><em>{card.rarity ?? card.layoutFamily}</em></span>{selected?.id === card.id && <CheckCircle2 />}</button>)}</div>}
@@ -436,9 +477,9 @@ function scanDecision(report: ScannerReport): Decision {
 function humanSummary(report: ScannerReport) {
   const found = [report.guessedName && 'Name', report.guessedSet && 'Set', report.guessedNumber && 'Nummer'].filter(Boolean);
   const missing = [!report.guessedName && 'Name', !report.guessedSet && 'Set', !report.guessedNumber && 'Nummer'].filter(Boolean);
-  if (!found.length) return 'Die App hat keine belastbare Kartenidentität übermittelt. Es wird kein Treffer erfunden; bitte die echte Karte im Referenzkatalog auswählen.';
-  if (missing.length) return `${found.join(', ')} wurden übermittelt. ${missing.join(', ')} fehlen; deshalb ist die Identität noch nicht vollständig belegt.`;
-  return 'Name, Set und Kartennummer wurden übermittelt. Prüfe die Aufnahme und bestätige anschließend die exakt passende Referenz und Variante.';
+  if (!found.length) return 'Der Scanner konnte die Karte noch nicht zuordnen. Sieh dir das Foto an und suche unten die passende Karte.';
+  if (missing.length) return `${found.join(', ')} wurden erkannt. ${missing.join(', ')} fehlen noch. Vergleiche das Foto mit der Auswahl unten.`;
+  return 'Vergleiche Name, Set und Kartennummer auf dem Foto. Bestätige anschließend die passende Karte und Variante.';
 }
 function reportMatches(report: ScannerReport, search: string, status: StatusFilter, decision: Decision | 'ALL', date: 'ALL' | 'TODAY' | '7D') {
   const needle = search.trim().toLocaleLowerCase('de');

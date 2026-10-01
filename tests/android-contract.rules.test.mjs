@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, test } from "node:test";
 import { assertFails, assertSucceeds, initializeTestEnvironment } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 
 let environment;
 const id = "11111111-1111-4111-8111-111111111111";
@@ -30,6 +30,17 @@ function evidence(fingerprint) {
     candidateIds: ["source:sv1:sv1-001|normal|standard"], originalConfidence: 84,
     corrected: false, scannerVersion: "scanner-v2.1", knowledgeVersion: 1,
     observedAtClient: 1_788_220_800_000, updatedAt: serverTimestamp(),
+  };
+}
+
+function priceSelection(ownerUid, entrySyncId) {
+  return {
+    schemaVersion: 1, ownerUid, entrySyncId, revision: 1, lastMutationId: "selection-1",
+    updatedAt: serverTimestamp(), updatedAtClient: 1_788_220_800_000, cleared: false,
+    sourceSetId: "sv-test", sourceCardId: "sv-test-001", collectorNumber: "001/100",
+    language: "GERMAN", finish: "Normal", variant: "Standard", productId: 733596,
+    metric: "normal_avg_sell", amountMinor: 123, currency: "EUR",
+    sourceAt: 1_788_220_700_000, selectedAt: 1_788_220_800_000,
   };
 }
 
@@ -82,6 +93,19 @@ void test("source identity is optional but must be a valid complete pair", async
   const malformedId = "33333333-3333-4333-8333-333333333333";
   const malformed = { ...entry("A"), syncId: malformedId, sourceSetId: "SV 08", sourceCardId: "001" };
   await assertFails(setDoc(doc(userA, `users/A/collectionEntries/${malformedId}`), malformed));
+});
+
+void test("manual price choice is a private revisioned sidecar tied to the exact entry", async () => {
+  const userA = environment.authenticatedContext("A", { appAccess: true }).firestore();
+  const userB = environment.authenticatedContext("B", { appAccess: true }).firestore();
+  const entryReference = doc(userA, `users/A/collectionEntries/${id}`);
+  const selectionReference = doc(userA, `users/A/collectionPriceSelections/${id}`);
+  await assertSucceeds(setDoc(entryReference, { ...entry("A"), sourceSetId: "sv-test", sourceCardId: "sv-test-001", externalProductSource: "CARDMARKET_PUBLIC_DOWNLOAD", externalProductId: 733596 }));
+  await assertSucceeds(setDoc(selectionReference, priceSelection("A", id)));
+  await assertFails(getDoc(doc(userB, `users/A/collectionPriceSelections/${id}`)));
+  await assertFails(updateDoc(selectionReference, { collectorNumber: "002/100", revision: 2, lastMutationId: "selection-2", updatedAt: serverTimestamp(), updatedAtClient: 1_788_220_900_000 }));
+  await assertSucceeds(updateDoc(selectionReference, { revision: 2, lastMutationId: "selection-2", updatedAt: serverTimestamp(), updatedAtClient: 1_788_220_900_000, cleared: true, sourceSetId: null, sourceCardId: null, collectorNumber: null, language: null, finish: null, variant: null, productId: null, metric: null, amountMinor: null, currency: null, sourceAt: null, selectedAt: null }));
+  await assertFails(deleteDoc(selectionReference));
 });
 
 void test("scan evidence is private, idempotent and shape constrained", async () => {

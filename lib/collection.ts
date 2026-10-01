@@ -39,8 +39,7 @@ export async function addExactCard(
   const finish = normalizeFinish(selectedVariant.type);
   const variant = collectionVariantLabel(selectedVariant);
   const productId = exactCardmarketProductId(card, selectedVariant);
-  const exact = current.find((entry) => samePrinting(card, selectedVariant, entry, finish, variant));
-  const syncId = exact?.syncId ?? deterministicSourceSyncId(user.uid, card.set.id, canonicalTcgCardId(card.id), 'Near Mint', finish, variant);
+  const syncId = collectionSyncIdForExactCard(user.uid, card, selectedVariant, current);
   const reference = doc(firestore, 'users', user.uid, 'collectionEntries', syncId);
 
   await runTransaction(firestore, async (transaction) => {
@@ -97,6 +96,13 @@ export async function addExactCard(
   });
 
   return exactTrendPrice(card, selectedVariant);
+}
+
+export function collectionSyncIdForExactCard(ownerUid: string, card: TcgCardDetail, selectedVariant: TcgVariant, current: CollectionEntry[]) {
+  const finish = normalizeFinish(selectedVariant.type);
+  const variant = collectionVariantLabel(selectedVariant);
+  const exact = current.find((entry) => samePrinting(card, selectedVariant, entry, finish, variant));
+  return exact?.syncId ?? deterministicSourceSyncId(ownerUid, card.set.id, canonicalTcgCardId(card.id), 'Near Mint', finish, variant);
 }
 
 export async function changeQuantity(user: User, entry: CollectionEntry, delta: number) {

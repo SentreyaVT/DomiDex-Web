@@ -18,7 +18,15 @@
 .scanner-lab .canvas-tools label { min-width: 100px; }
 .scanner-lab .canvas-tools input[type=range] { min-height: 44px; }
 .scanner-lab .analysis-zone:focus-visible { outline-offset: 1px; }
+.scanner-lab .sl-review-guide { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0; margin: 0 0 16px; list-style: none; }
+.scanner-lab .sl-review-guide li { display: grid; gap: 6px; padding: 16px; border: 1px solid var(--sl-line); border-radius: 12px; background: var(--sl-panel); }
+.scanner-lab .sl-review-guide b { font-size: 14px; color: #ece2ff; }
+.scanner-lab .sl-review-guide span, .scanner-lab .sl-save-help { font-size: 13px; line-height: 1.5; color: #b7b2c5; }
+.scanner-lab .sl-save-heading { margin-top: 22px; font-size: 15px; }
+.scanner-lab .sl-save-help { margin: 6px 0 12px; }
+.scanner-lab .sl-report-open:only-child { grid-column: 1 / -1; }
 @media (max-width: 620px) {
+  .scanner-lab .sl-review-guide { grid-template-columns: 1fr; gap: 8px; }
   .scanner-lab .lab-header { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .scanner-lab .lab-header > a { display: inline-flex; align-items: center; min-height: 44px; }
   .scanner-lab .lab-actions { display: flex; flex-wrap: wrap; gap: 8px; }

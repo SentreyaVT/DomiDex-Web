@@ -55,12 +55,15 @@ export function buildBinderSlots(cards: TcgCardSummary[], entries: CollectionEnt
 }
 
 export function binderPrintings(card: TcgCardSummary, printedTotal: number): Printing[] {
-  if (isStandardBinderCard(card, printedTotal)) return [{ finish: 'Normal', variant: 'Standard', standardSlot: true }];
   const declared = (card.printVariants?.length ? card.printVariants : ['normal'])
     .map(printingFromSource)
     .filter((item): item is Printing => Boolean(item));
   const distinct = declared.filter((printing, index) => declared.findIndex((candidate) =>
     finishKey(candidate.finish) === finishKey(printing.finish) && normalize(candidate.variant) === normalize(printing.variant)) === index);
+  // Verified named printings (such as the Pokémon Center Nidorina) keep their own
+  // ownership and selection even when the numbered promo is beyond a set's total.
+  if (distinct.some((printing) => printing.variant.includes('Stempel:'))) return distinct;
+  if (isStandardBinderCard(card, printedTotal)) return [{ finish: 'Normal', variant: 'Standard', standardSlot: true }];
   if (!distinct.length) return [{ finish: 'Normal', variant: 'Standard' }];
 
   const number = Number.parseInt(card.localId.match(/\d+/)?.[0] ?? '', 10);
@@ -100,6 +103,8 @@ export function paginateBinderSlots(slots: BinderSlot[], pageSize = 8): BinderSl
 }
 
 function printingFromSource(value: string): Printing | null {
+  const stampedHolo = value.match(/^holo\s*·\s*(Standard\s*·\s*Stempel:.+)$/i);
+  if (stampedHolo) return { finish: 'Holo', variant: stampedHolo[1] };
   if (/reverse/i.test(value)) return { finish: 'Reverse Holo', variant: 'Standard' };
   if (/holo/i.test(value)) return { finish: 'Holo', variant: 'Standard' };
   if (/normal|unlimited|1stedition/i.test(value)) return { finish: 'Normal', variant: /1stedition/i.test(value) ? '1. Edition' : 'Standard' };

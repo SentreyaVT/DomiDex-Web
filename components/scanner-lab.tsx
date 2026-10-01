@@ -12,6 +12,7 @@ import {
   zoneTypes, type ScannerProfileVersion, type ScannerReference, type ScannerScopeLevel, type ScannerZone, type ScannerZoneType,
 } from '@/lib/scanner-profile';
 import type { ScannerReport, ScanReportStatus } from '@/lib/scanner-report';
+import { scannerFeedbackMessage } from '@/lib/scanner-feedback';
 import { ScannerReportWorkspace } from './scanner-report-workspace';
 import { profileHistoryReducer } from '@/lib/scanner-profile-history';
 import './scanner-lab-accessibility.css';
@@ -23,11 +24,14 @@ interface ReportsResponse { reports: ScannerReport[]; total: number; nextPageTok
 type LabMode = 'calibration' | 'reports';
 
 export function ScannerLab() {
-  const { user, loading, isAdmin, refreshClaims } = useAuth();
+  const { user, loading, isAdmin, hasScannerLabAccess, refreshClaims, reauthenticate } = useAuth();
   const [references, setReferences] = useState<ReferenceResponse>({ connected: false, cards: [], total: 0, page: 1, pageSize: 24, stats: null });
   const [profiles, setProfiles] = useState<ProfilesResponse>({ profiles: [], versions: [], benchmarks: [], manifest: null });
   const [reports, setReports] = useState<ReportsResponse>({ reports: [], total: 0 });
-  const [mode, setMode] = useState<LabMode>('reports');
+  const [reportsLoaded, setReportsLoaded] = useState(false);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [requestedMode, setMode] = useState<LabMode>('reports');
+  const mode = isAdmin ? requestedMode : 'reports';
   const [query, setQuery] = useState(''); const [page, setPage] = useState(1); const [selectedReference, setSelectedReference] = useState<ScannerReference | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [profileHistory, dispatchProfile] = useReducer(profileHistoryReducer, undefined, () => ({ present: createScannerDraft(), past: [], future: [], saved: '' }));
@@ -51,23 +55,24 @@ export function ScannerLab() {
   const userToken = useCallback(() => user!.getIdToken(), [user]);
 
   const refreshProfiles = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!hasScannerLabAccess) return;
     setProfileError('');
     try { setProfiles(await authorized('/api/admin/scanner-profiles') as ProfilesResponse); }
     catch (reason) { setProfileError(reason instanceof Error ? reason.message : 'Profile konnten nicht geladen werden.'); }
-  }, [authorized, isAdmin]);
+  }, [authorized, hasScannerLabAccess]);
 
   const refreshReports = useCallback(async () => {
-    if (!isAdmin) return;
-    setReportError('');
+    if (!hasScannerLabAccess) return;
+    setReportError(''); setLoadingReports(true);
     try {
       const next = await authorized('/api/admin/scan-reports?pageSize=48') as ReportsResponse;
-      setReports(next); setSelectedReportId((current) => current && next.reports.some((item) => item.documentId === current) ? current : next.reports[0]?.documentId ?? null);
+      setReports(next); setReportsLoaded(true); setSelectedReportId((current) => current && next.reports.some((item) => item.documentId === current) ? current : next.reports[0]?.documentId ?? null);
     } catch (reason) { setReportError(reason instanceof Error ? reason.message : 'Fehlscans konnten nicht geladen werden.'); }
-  }, [authorized, isAdmin]);
+    finally { setLoadingReports(false); }
+  }, [authorized, hasScannerLabAccess]);
 
   const loadMoreReports = useCallback(async () => {
-    if (!isAdmin || !reports.nextPageToken || loadingMoreReports) return;
+    if (!hasScannerLabAccess || !reports.nextPageToken || loadingMoreReports) return;
     setLoadingMoreReports(true);
     try {
       const next = await authorized(`/api/admin/scan-reports?pageSize=48&pageToken=${encodeURIComponent(reports.nextPageToken)}`) as ReportsResponse;
@@ -77,7 +82,7 @@ export function ScannerLab() {
       });
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Weitere Scan-Reports konnten nicht geladen werden.'); }
     finally { setLoadingMoreReports(false); }
-  }, [authorized, isAdmin, loadingMoreReports, reports.nextPageToken]);
+  }, [authorized, hasScannerLabAccess, loadingMoreReports, reports.nextPageToken]);
 
   const confirmReviewNavigation = useCallback(() => {
     if (!reviewDirty) return true;
@@ -93,15 +98,15 @@ export function ScannerLab() {
     return () => window.removeEventListener('beforeunload', guard);
   }, [reviewDirty, profileHistory.past.length]);
 
-  useEffect(() => { if (isAdmin) { void refreshProfiles(); void refreshReports(); } }, [isAdmin, refreshProfiles, refreshReports]);
+  useEffect(() => { if (hasScannerLabAccess) { void refreshProfiles(); void refreshReports(); } }, [hasScannerLabAccess, refreshProfiles, refreshReports]);
   useEffect(() => {
-    if (!isAdmin) return; const timer = window.setTimeout(() => {
+    if (!hasScannerLabAccess) return; const timer = window.setTimeout(() => {
       void authorized(`/api/admin/scanner-references?q=${encodeURIComponent(query)}&page=${page}&pageSize=24`).then((body) => {
         const next = body as ReferenceResponse; setReferences(next);
         if (mode === 'calibration') setSelectedReference((current) => current && next.cards.some((item) => item.id === current.id) ? current : next.cards[0] ?? null);
       }).catch((reason) => setError(reason.message));
     }, 180); return () => window.clearTimeout(timer);
-  }, [authorized, isAdmin, mode, page, query]);
+  }, [authorized, hasScannerLabAccess, mode, page, query]);
 
   const patchDraft = (next: ScannerProfileVersion, group?: string) => dispatchProfile({ type: 'edit', value: next, group });
   const undo = () => dispatchProfile({ type: 'undo' });
@@ -119,13 +124,14 @@ export function ScannerLab() {
     try {
       const payload: Record<string, unknown> = { reportId: report.documentId, reviewStatus, reviewNote };
       if (selection !== undefined) payload.reference = selection.reference ? { id: selection.reference.id, cardKey: selection.reference.cardKey, variant: selection.variant } : null;
-      await authorized('/api/admin/scan-reports', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      setMessage('Scan-Review wurde sicher gespeichert.'); await refreshReports();
+      const saved = await authorized('/api/admin/scan-reports', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }) as { report: ScannerReport };
+      setMessage(reviewStatus === 'RESOLVED' ? scannerFeedbackMessage(saved.report.recognitionFeedback ?? 'UNSUPPORTED_REFERENCE') : 'Prüfung gespeichert. Nicht bestätigte Zuordnungen werden nicht an den Scanner weitergegeben.'); await refreshReports();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Scan-Review konnte nicht gespeichert werden.'); throw reason; }
     finally { setWorking(false); }
   };
 
   const openCalibrationFromReport = (report: ScannerReport, reference: ScannerReference) => {
+    if (!isAdmin) return;
     const reported = report.profileId ? profiles.versions.filter((item) => item.profileId === report.profileId).sort((a, b) => b.profileVersion - a.profileVersion)[0] : null;
     const base = reported ?? createScannerDraft();
     setDraft({ ...base, documentId: undefined, status: 'draft', scope: { level: 'card', value: reference.id }, layoutFamily: reference.layoutFamily, changelog: `Kalibrierung aus Scan ${report.scanId}` });
@@ -133,6 +139,7 @@ export function ScannerLab() {
   };
 
   const execute = async (action: string, sourceDocumentId?: string) => {
+    if (!isAdmin) return;
     setWorking(true); setError(''); setMessage('');
     try {
       const publicationBlock = scannerProductionActionBlockReason(action);
@@ -149,28 +156,29 @@ export function ScannerLab() {
 
   if (loading) return <main className="admin-gate"><LoaderCircle className="spin" /><p>Scanner Lab wird geschützt geöffnet …</p></main>;
   if (!user) return <main className="admin-gate"><ShieldAlert /><h1>Anmeldung erforderlich</h1><a href="/login">Zum Login</a></main>;
-  if (!isAdmin) return <main className="admin-gate"><ShieldAlert /><h1>403 · Scanner Lab geschützt</h1><p>Nur ein ausdrücklich freigegebener Firebase-Admin kann Scannerprofile lesen oder ändern.</p><button onClick={() => void refreshClaims()}>Berechtigung erneut prüfen</button></main>;
+  if (!hasScannerLabAccess) return <main className="admin-gate"><ShieldAlert /><h1>403 · Scanner Lab geschützt</h1><p>Zum Öffnen wird eine ausdrückliche Scanner-Lab-Freigabe benötigt.</p><button onClick={() => void refreshClaims()}>Berechtigung erneut prüfen</button><a href="/">Zur Startseite</a></main>;
 
   return <main className="scanner-lab">
-    <header className="lab-header"><a href="/admin"><ArrowLeft /> Administration</a><div><p>DOMIDEX ENGINEERING</p><h1>Scanner Lab</h1><span>Fehlscans visuell prüfen, eindeutig zuordnen und Scannerprofile kontrolliert vorbereiten.</span></div>{mode === 'calibration' ? <div className="lab-actions"><button onClick={undo} disabled={!profileHistory.past.length}><Undo2 /> Rückgängig</button><button onClick={() => dispatchProfile({ type: 'redo' })} disabled={!profileHistory.future.length}><Redo2 /> Wiederholen</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Entwurf speichern</button></div> : <div className="lab-actions"><button onClick={() => { if (confirmReviewNavigation()) void refreshReports(); }}><RefreshCw /> Reports aktualisieren</button></div>}</header>
+    <header className="lab-header"><a href={isAdmin ? '/admin' : '/'}><ArrowLeft /> {isAdmin ? 'Administration' : 'Startseite'}</a><div><p>DOMIDEX · GEMEINSAM KARTEN PRÜFEN</p><h1>Scanner Lab</h1><span>Fehlscans und Aufnahmen visuell prüfen und eindeutig zuordnen.</span></div>{mode === 'calibration' ? <div className="lab-actions"><button onClick={undo} disabled={!profileHistory.past.length}><Undo2 /> Rückgängig</button><button onClick={() => dispatchProfile({ type: 'redo' })} disabled={!profileHistory.future.length}><Redo2 /> Wiederholen</button><button className="primary" disabled={working || !validation.valid} onClick={() => void execute('saveDraft')}>{working ? <LoaderCircle className="spin" /> : <Save />} Entwurf speichern</button></div> : <div className="lab-actions"><button disabled={loadingReports} onClick={() => { if (confirmReviewNavigation()) void refreshReports(); }}><RefreshCw /> Fehlscans aktualisieren</button></div>}</header>
     {message && <div className="admin-success"><Check />{message}</div>}{error && <div className="form-error" role="alert">{error}</div>}
     {profileError && <div className="form-error" role="alert"><p>{profileError}</p><button onClick={() => void refreshProfiles()}><RefreshCw /> Profile erneut laden</button></div>}
-    {reportError && <div className="form-error" role="alert"><p>{reportError}</p><button onClick={() => void refreshReports()}><RefreshCw /> Fehlscans erneut laden</button></div>}
+    {reportError && <div className="form-error" role="alert"><p>{reportError}</p><p>{reportsLoaded ? 'Die zuletzt geladenen Fehlscans bleiben sichtbar. Neue Änderungen konnten nicht abgerufen werden.' : 'Die Anzahl der Fehlscans ist noch unbekannt. Bitte versuche es erneut.'}</p><button disabled={loadingReports} onClick={() => void refreshReports()}><RefreshCw /> Fehlscans erneut laden</button></div>}
+    {(loadingReports || (!reportsLoaded && !reportError)) && <div className="lab-empty" role="status"><LoaderCircle className="spin" />{reportsLoaded ? 'Fehlscans werden aktualisiert. Die zuletzt geladenen Einträge bleiben sichtbar …' : 'Fehlscans werden geladen …'}</div>}
     {mode === 'calibration' && <section className="lab-metrics">
       <Metric icon={Database} label="Referenzkarten" value={references.stats ? String(references.stats.cardsProcessed ?? references.total) : 'Nicht verbunden'} />
       <Metric icon={Layers3} label="Profile" value={String(profiles.profiles.length)} />
-      <Metric icon={ListChecks} label="Scan Reports" value={String(reports.total)} />
+      <Metric icon={ListChecks} label="Scan Reports" value={reportsLoaded ? String(reports.total) : 'Noch nicht geladen'} />
       <Metric icon={Rocket} label="Production" value={profiles.manifest ? 'Manifest aktiv' : 'Noch keine'} />
     </section>}
     <nav className="lab-modebar" aria-label="Scanner-Lab Bereiche">
-      <div><button className={mode === 'reports' ? 'active' : ''} onClick={() => setMode('reports')}><ClipboardCheck /> Fehlscans <span>{reports.total}</span></button><button className={mode === 'calibration' ? 'active' : ''} onClick={() => { if (confirmReviewNavigation()) setMode('calibration'); }}><Layers3 /> Profil-Kalibrierung</button></div>
+      <div><button className={mode === 'reports' ? 'active' : ''} onClick={() => setMode('reports')}><ClipboardCheck /> Fehlscans {reportsLoaded && <span>{reports.total}</span>}</button>{isAdmin && <button className={mode === 'calibration' ? 'active' : ''} onClick={() => { if (confirmReviewNavigation()) setMode('calibration'); }}><Layers3 /> Expertenbereich: Scannerprofile</button>}</div>
       {mode === 'calibration' && <div className="profile-picker"><label>Profil<select value={profiles.profiles.some((item) => item.profileId === draft.profileId) ? draft.profileId : ''} onChange={(event) => openProfile(event.target.value)}><option value="">Ungespeicherter Entwurf</option>{profiles.profiles.map((item) => <option value={item.profileId} key={item.profileId}>{item.name ?? item.profileId} · v{item.latestVersion ?? 0}</option>)}</select></label><button onClick={newProfile}><Plus /> Neues Profil</button></div>}
     </nav>
     {mode === 'calibration' ? <div className="lab-workspace">
       <ReferenceBrowser data={references} query={query} setQuery={(value) => { setQuery(value); setPage(1); }} page={page} setPage={setPage} selected={selectedReference} onSelect={setSelectedReference} userToken={userToken} />
       <CalibrationWorkspace reference={selectedReference} profile={draft} selectedZoneId={selectedZoneId} onSelectZone={setSelectedZoneId} onChange={patchDraft} userToken={userToken} />
       <ProfileEditor profile={draft} selectedZone={selectedZone} onChange={patchDraft} onSelectZone={setSelectedZoneId} validation={validation.errors} />
-    </div> : <ScannerReportWorkspace reports={reports.reports} totalReports={reports.total} hasMore={!!reports.nextPageToken} nextPageToken={reports.nextPageToken ?? null} loadingMore={loadingMoreReports} selectedReportId={selectedReportId} profiles={profiles.versions} working={working} userToken={userToken} reviewDirty={reviewDirty} onReviewDirtyChange={setReviewDirty} onSelectReport={setSelectedReportId} onRefresh={refreshReports} onLoadMore={loadMoreReports} onSave={updateReport} onOpenCalibration={openCalibrationFromReport} />}
+    </div> : reportsLoaded && <ScannerReportWorkspace reports={reports.reports} totalReports={reports.total} hasMore={!!reports.nextPageToken} nextPageToken={reports.nextPageToken ?? null} loadingMore={loadingMoreReports} selectedReportId={selectedReportId} profiles={profiles.versions} working={working} userToken={userToken} reviewDirty={reviewDirty} canDelete={isAdmin} canCalibrate={isAdmin} onReauthenticate={reauthenticate} onReviewDirtyChange={setReviewDirty} onSelectReport={setSelectedReportId} onRefresh={refreshReports} onLoadMore={loadMoreReports} onSave={updateReport} onOpenCalibration={openCalibrationFromReport} />}
     {mode === 'calibration' && <section className="lab-bottom">
       <div className="lab-panel"><div className="lab-panel-title"><div><p>VERSIONEN</p><h2>Kontrollierter Release-Flow</h2></div><span>Save ≠ Publish</span></div>
         <div className="version-flow"><b>EDIT</b><i /> <b>DRAFT</b><i /> <b>TESTING</b><i /> <b>CANDIDATE</b><i /> <b>PRODUCTION</b></div>

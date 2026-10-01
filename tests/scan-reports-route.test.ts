@@ -1,22 +1,126 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, PATCH } from '@/app/api/admin/scan-reports/route';
-import { requireAdminToken } from '@/lib/server/firebase-token';
+import { requireScannerLabToken } from '@/lib/server/firebase-token';
 import { loadScannerIndex } from '@/lib/server/scanner-references';
 import { privateOperations } from '@/lib/server/private-cloud-operations';
+import { encodeFields } from '@/lib/server/firestore-rest';
 
-vi.mock('@/lib/server/firebase-token', () => ({ requireAdminToken: vi.fn() }));
+vi.mock('@/lib/server/firebase-token', () => ({ requireScannerLabToken: vi.fn() }));
 vi.mock('@/lib/server/scanner-references', () => ({ loadScannerIndex: vi.fn() }));
 vi.mock('@/lib/server/private-cloud-operations', () => ({ privateOperations: vi.fn() }));
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(requireAdminToken).mockResolvedValue({ sub: 'admin-user' } as never);
+  vi.mocked(requireScannerLabToken).mockResolvedValue({ sub: 'admin-user' } as never);
   vi.mocked(privateOperations).mockResolvedValue({ serverAuthorization: async () => 'Bearer server-only' } as never);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('scanner report admin route', () => {
+  it('atomically confirms the official identity as an Android hint, retaining original analysis key', async () => {
+    vi.mocked(loadScannerIndex).mockResolvedValue(scannerIndex(['normal', 'reverse']) as never);
+    const source = firestoreReport('scan-1', '2026-09-07T10:00:00Z', 'owner-1');
+    const key = { schemaVersion: 1, knowledgeVersion: 1, scannerVersion: 'scanner-v2.1', fingerprint: 'a'.repeat(64) };
+    Object.assign(source.fields, encodeFields({ knowledgeContext: key }));
+    let commit: { writes: Array<Record<string, any>> } | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestUrl(input).endsWith(':commit')) { commit = JSON.parse(requestBody(init?.body)); return jsonResponse({ writeResults: [{}, {}] }); }
+      return jsonResponse(source);
+    }));
+    const response = await PATCH(reviewRequest('reverse'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ report: { recognitionFeedback: 'READY', knowledgeContext: key } });
+    expect(commit?.writes[0].currentDocument).toEqual({ updateTime: source.updateTime });
+    expect(commit?.writes[0].update.fields.recognitionReference).toEqual(encodeFields({ reference: {
+      schemaVersion: 1, sourceSetId: 'sv3', sourceCardId: 'sv3-137', cardNumber: '137', variant: 'reverse',
+    } }).reference);
+    expect(commit?.writes).toHaveLength(2); // Report + audit only; no fake votes, profile release or extra public document.
+  });
+
+  it('labels a saved old report without original fingerprint as needing a new scan', async () => {
+    vi.mocked(loadScannerIndex).mockResolvedValue(scannerIndex(['normal']) as never);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => requestUrl(input).endsWith(':commit')
+      ? jsonResponse({ writeResults: [{}, {}] }) : jsonResponse(firestoreReport('scan-1', '2026-09-07T10:00:00Z'))));
+    const response = await PATCH(reviewRequest('normal'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ report: { recognitionFeedback: 'NEEDS_NEW_SCAN', knowledgeContext: null } });
+  });
+
+  it('does not recreate a concurrently deleted/edited report or claim success on a rejected atomic commit', async () => {
+    vi.mocked(loadScannerIndex).mockResolvedValue(scannerIndex(['normal']) as never);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => requestUrl(input).endsWith(':commit')
+      ? jsonResponse({ error: 'Precondition failed' }, 409) : jsonResponse(firestoreReport('scan-1', '2026-09-07T10:00:00Z'))));
+    const response = await PATCH(reviewRequest('normal'));
+    expect(response.status).toBe(409);
+    expect(await response.json()).not.toHaveProperty('report');
+  });
+
+  it('returns all reports newest first to the legacy client across multiple Firestore pages', async () => {
+    const documents = Array.from({ length: 61 }, (_, index) => firestoreReport(
+      `scan-${String(index).padStart(2, '0')}`,
+      new Date(Date.UTC(2026, 8, 24, 0, index)).toISOString(),
+    ));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(requestUrl(input));
+      expect(url.pathname).toMatch(/\/documents\/scannerReports$/);
+      expect(init?.headers).toMatchObject({ Authorization: 'Bearer server-only' });
+      expect(url.searchParams.get('pageSize')).toBe('300');
+      return url.searchParams.has('pageToken')
+        ? jsonResponse({ documents: documents.slice(30) })
+        : jsonResponse({ documents: documents.slice(0, 30), nextPageToken: 'legacy/+ cursor' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(new Request('https://domidex.web.app/api/admin/scan-reports', {
+      headers: { Authorization: 'Bearer admin-token' },
+    }));
+    const body = await response.json() as { reports: Array<{ documentId: string }>; total: number };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(body.total).toBe(61);
+    expect(body.reports.map((report) => report.documentId)).toEqual(documents.map((item) => item.name.split('/').pop()).reverse());
+    expect(body).not.toHaveProperty('nextPageToken');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new URL(requestUrl(fetchMock.mock.calls[1][0])).searchParams.get('pageToken')).toBe('legacy/+ cursor');
+  });
+
+  it.each(['?pageSize=', '?pageToken='])('keeps explicit pagination for %s even when its value is empty', async (query) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestUrl(input));
+      if (url.pathname.endsWith(':runAggregationQuery')) return jsonResponse([{ result: { aggregateFields: { total: { integerValue: '61' } } } }]);
+      expect(url.searchParams.get('pageSize')).toBe('48');
+      expect(url.searchParams.get('orderBy')).toBe('createdAt desc');
+      return jsonResponse({ documents: [firestoreReport('scan-1', '2026-09-24T10:00:00Z')], nextPageToken: 'next-page' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(new Request(`https://domidex.web.app/api/admin/scan-reports${query}`, {
+      headers: { Authorization: 'Bearer admin-token' },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ total: 61, nextPageToken: 'next-page' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['', '?pageSize=48'])('returns a visible service error instead of an empty list when Firestore fails for %s', async (query) => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'denied' }, 403)));
+
+    const response = await GET(new Request(`https://domidex.web.app/api/admin/scan-reports${query}`, {
+      headers: { Authorization: 'Bearer admin-token' },
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ error: expect.any(String), errorId: expect.any(String) });
+    expect(body).not.toHaveProperty('reports');
+    expect(body).not.toHaveProperty('total');
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
   it('forwards the cursor and returns a stable aggregate total with the next page token', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
@@ -59,6 +163,7 @@ describe('scanner report admin route', () => {
     const response = await PATCH(reviewRequest('reverse'));
 
     expect(response.status).toBe(200);
+    expect(loadScannerIndex).toHaveBeenCalledExactlyOnceWith('Bearer server-only', 'server');
     const commitCall = fetchMock.mock.calls.find(([input]) => requestUrl(input).endsWith(':commit'))!;
     const commit = JSON.parse(requestBody(commitCall[1]?.body)) as { writes: Array<{ update: { fields: Record<string, { stringValue?: string }> } }> };
     expect(commit.writes[0].update.fields.ownerUid.stringValue).toBe('owner-1');
@@ -80,6 +185,26 @@ describe('scanner report admin route', () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: 'Die gewählte Variante gehört nicht zur Referenzkarte.' });
     expect(fetchMock.mock.calls.some(([input]) => requestUrl(input).endsWith(':commit'))).toBe(false);
+  });
+
+  it('does not write a report review when its server-authenticated reference index is unavailable', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(loadScannerIndex).mockRejectedValue(new Error('STORAGE_403'));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer server-only');
+      expect(requestUrl(input)).toMatch(/\/scannerReports\/scan-1$/);
+      return jsonResponse(firestoreReport('scan-1', '2026-09-07T10:00:00Z', 'owner-1'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await PATCH(reviewRequest('reverse'));
+
+    expect(response.status).toBe(503);
+    expect(loadScannerIndex).toHaveBeenCalledExactlyOnceWith('Bearer server-only', 'server');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await response.json()).toMatchObject({ error: expect.any(String), errorId: expect.any(String) });
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
   });
 
   it('normalizes a missing legacy variant to null during a status-only review', async () => {
@@ -117,6 +242,7 @@ function reviewRequest(variant: string) {
 function firestoreReport(id: string, createdAt: string, ownerUid = 'owner') {
   return {
     name: `projects/test/databases/(default)/documents/scannerReports/${id}`,
+    updateTime: '2026-09-24T00:00:00.000000Z',
     fields: {
       scanId: { stringValue: id },
       createdAt: { stringValue: createdAt },

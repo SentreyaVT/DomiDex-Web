@@ -76,12 +76,16 @@ export async function countDocuments(collection: string, authorization: string) 
   return Number.isSafeInteger(total) && total >= 0 ? total : 0;
 }
 
-export async function getDocument(path: string, authorization: string) {
+export async function getDocumentWithVersion(path: string, authorization: string) {
   const response = await fetch(`${root}/${path}`, { headers: { Authorization: authorization }, signal: AbortSignal.timeout(15_000) });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`FIRESTORE_${response.status}`);
-  const body = await response.json() as { name: string; fields?: Record<string, Record<string, unknown>> };
-  return { documentId: body.name.split('/').pop()!, ...decodeFields(body.fields ?? {}) };
+  const body = await response.json() as { name: string; fields?: Record<string, Record<string, unknown>>; updateTime?: string };
+  return { document: { documentId: body.name.split('/').pop()!, ...decodeFields(body.fields ?? {}) }, updateTime: body.updateTime };
+}
+
+export async function getDocument(path: string, authorization: string) {
+  return (await getDocumentWithVersion(path, authorization))?.document ?? null;
 }
 
 export async function commitDocuments(writes: Array<Record<string, unknown>>, authorization: string) {

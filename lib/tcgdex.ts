@@ -76,7 +76,7 @@ export function loadSet(id: string): Promise<TcgSetDetail> {
       !card || typeof card.id !== 'string' || (card.variants !== undefined &&
         (!Array.isArray(card.variants) || card.variants.some((variant) => typeof variant !== 'string'))))) return set;
     const metadata = new Map((manifest.cards ?? []).map((card) => [card.id.toLowerCase(), card]));
-    const cards: TcgCardSummary[] = set.cards.map((card) => ({ ...card, printVariants: metadata.get(card.id.toLowerCase())?.variants, rarity: metadata.get(card.id.toLowerCase())?.rarity ?? card.rarity }));
+    const cards: TcgCardSummary[] = set.cards.map((card) => ({ ...card, printVariants: card.printVariants ?? metadata.get(card.id.toLowerCase())?.variants, rarity: metadata.get(card.id.toLowerCase())?.rarity ?? card.rarity }));
     const known = new Set(cards.map((card) => card.id.toLowerCase()));
     for (const card of manifest.cards ?? []) if (!known.has(card.id.toLowerCase())) cards.push({ ...card, printVariants: card.variants });
     return { ...set, cards };

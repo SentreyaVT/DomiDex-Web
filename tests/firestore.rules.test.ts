@@ -45,6 +45,25 @@ describe('DomiDex Web Firestore rules', () => {
     await assertFails(deleteDoc(reference));
   });
 
+  it('keeps manual price selections owner-only, exact to the collection entry and revisioned', async () => {
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
+    const other = environment.authenticatedContext('other', { appAccess: true }).firestore();
+    const entryReference = doc(owner, 'users/owner/collectionEntries/web-entry');
+    const selectionReference = doc(owner, 'users/owner/collectionPriceSelections/web-entry');
+    await setDoc(entryReference, entry('owner', 'web-entry'));
+    await assertSucceeds(setDoc(selectionReference, priceSelection('owner', 'web-entry')));
+    await assertSucceeds(getDoc(selectionReference));
+    await assertFails(getDoc(doc(other, 'users/owner/collectionPriceSelections/web-entry')));
+    await assertFails(updateDoc(selectionReference, { productId: 1, revision: 2, lastMutationId: crypto.randomUUID(), updatedAt: serverTimestamp(), updatedAtClient: Date.now() }));
+    await assertFails(updateDoc(selectionReference, { metric: 'reverse_holo_low', revision: 2, lastMutationId: crypto.randomUUID(), updatedAt: serverTimestamp(), updatedAtClient: Date.now() }));
+    await assertSucceeds(updateDoc(selectionReference, {
+      revision: 2, lastMutationId: crypto.randomUUID(), updatedAt: serverTimestamp(), updatedAtClient: Date.now(), cleared: true,
+      sourceSetId: null, sourceCardId: null, collectorNumber: null, language: null, finish: null, variant: null,
+      productId: null, metric: null, amountMinor: null, currency: null, sourceAt: null, selectedAt: null,
+    }));
+    await assertFails(deleteDoc(selectionReference));
+  });
+
   it('exposes only public site copy and requires the admin claim for writes', async () => {
     const publicDoc = doc(environment.unauthenticatedContext().firestore(), 'siteContent/public');
     await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'siteContent/public'), siteContent()));
@@ -141,3 +160,4 @@ describe('DomiDex Web Firestore rules', () => {
 function siteContent() { return { heroTitle:'Deine Sammlung.',heroSubtitle:'Sicher synchronisiert.',statusBanner:'Pre-Beta',currentVersion:'1.0-pre-beta',currentBuild:'17',releaseStatus:'Pre-Beta',discordUrl:'',discordText:'Community',kickstarterUrl:'',kickstarterCta:'Coming Soon',updates:[],roadmap:[] }; }
 function scannerVersion(status: string, version = 1) { return { profileId: 'profile', profileVersion: version, schemaVersion: 1, status, zones: [] }; }
 function scanReport(reportId: string) { return { schemaVersion:1,scanId:reportId,createdAt:'2026-09-03T00:00:00Z',captureType:'MANUAL_CAPTURE',captureImagePath:`scanner-report-images/${reportId}/capture.webp`,imageSha256:'a'.repeat(64),imageContentType:'image/webp',imageSizeBytes:42,attempts:[],ocrTokens:[],guessedName:null,guessedSet:null,guessedNumber:null,confidence:null,zoneConfidence:{},profileId:null,profileVersion:null,failureReason:'Nicht erkannt',reviewStatus:'NEW',referenceCardId:null,referenceCardKey:null,reviewNote:'',reviewedAt:null}; }
+function priceSelection(ownerUid: string, entrySyncId: string) { return { schemaVersion: 1, ownerUid, entrySyncId, revision: 1, lastMutationId: crypto.randomUUID(), updatedAt: serverTimestamp(), updatedAtClient: Date.now(), cleared: false, sourceSetId: 'sv03.5', sourceCardId: 'sv03.5-001', collectorNumber: '001', language: 'GERMAN', finish: 'Normal', variant: 'Standard', productId: 733596, metric: 'normal_avg_sell', amountMinor: 123, currency: 'EUR', sourceAt: 1_788_220_800_000, selectedAt: 1_788_220_900_000 }; }

@@ -40,7 +40,14 @@ export interface CardmarketPricing {
   updated?: string;
   unit?: string;
   idProduct?: number;
+  avg?: number | null;
+  low?: number | null;
   trend?: number | null;
+  avg1?: number | null;
+  avg7?: number | null;
+  avg30?: number | null;
+  'avg-holo'?: number | null;
+  'low-holo'?: number | null;
   'trend-holo'?: number | null;
 }
 
@@ -118,41 +125,53 @@ export interface SiteContent {
 
 export const defaultSiteContent: SiteContent = {
   heroTitle: 'Deine Karten. Deine Sammlung. Dein Binder.',
-  heroSubtitle: 'Pokémon-TCG-Karten erfassen, Druckvarianten im digitalen Binder verwalten und deine private Sammlung zwischen Android und Web synchron halten.',
-  statusBanner: 'DomiDex ist im internen Google-Play-Test verfügbar. Zugang und aktuelle Testversion erhältst du über den Testerprozess in unserer Discord-Community.',
-  currentVersion: '1.0-pre-beta',
+  heroSubtitle: 'Pokémon-Karten sammeln, private Binder gestalten und deine Lieblingskarten per Link zeigen. Android und Web verbinden deine Sammlung – aktuell in der geschlossenen Alpha.',
+  statusBanner: 'DomiDex ist in der geschlossenen Alpha. Android-Zugang über den internen Google-Play-Test und die persönliche Web-App werden über den privaten Testerprozess in unserer Discord-Community freigeschaltet.',
+  currentVersion: '',
   currentBuild: '',
-  releaseStatus: 'Pre-Beta',
-  discordUrl: process.env.NEXT_PUBLIC_DISCORD_URL ?? '',
-  discordText: 'Tausche dich mit anderen Sammlern aus und begleite die Entwicklung.',
+  releaseStatus: 'Geschlossene Alpha',
+  discordUrl: process.env.NEXT_PUBLIC_DISCORD_URL ?? 'https://discord.gg/fc9XgwtVTE',
+  discordText: 'Zeig deinen Binder, tausche dich mit anderen Sammlern aus und hilf mit ehrlichem Feedback. Wenn du mit Android testen möchtest, öffne im Discord ein privates Tester-Ticket.',
   kickstarterUrl: process.env.NEXT_PUBLIC_KICKSTARTER_URL ?? '',
-  kickstarterCta: 'Kickstarter – Coming Soon',
+  kickstarterCta: 'Kickstarter – noch kein Starttermin',
   updates: [{
-    id: 'pre-beta-17', title: 'DomiDex erreicht die Pre-Beta', date: '2026-09-01',
+    id: 'closed-alpha-sharing-20260923', title: 'Geschlossene Alpha: Deinen privaten Binder teilen', date: '2026-09-23',
+    version: 'Geschlossene Alpha', build: '', active: true,
+    summary: 'Private Binder mit eigenen Covern, freier Kartenanordnung und individuellen Holo-Effekten lassen sich jetzt per Link zum Ansehen teilen.',
+    details: 'Andere können den freigegebenen Binder im Browser oder mit einer unterstützten DomiDex-Android-Version ansehen, aber nicht bearbeiten. Nur ausdrücklich freigegebene Inhalte werden gezeigt; die übrige Sammlung bleibt privat. Freigaben kannst du wieder beenden. Die Web-App bietet große Kartenansichten und Holo-Vorschauen.',
+  }, {
+    id: 'catalog-prices-20260923', title: 'Jubiläumskarten, Preise und Synchronisierung', date: '2026-09-23',
+    version: 'Aktueller Informationsstand', build: '', active: true,
+    summary: 'Das 30-Jahre-Set und ergänzte Promokarten sind im Katalog. Die Preiszuordnung wird weiter vervollständigt; einzelne Sonderkarten und Promos können noch ohne Preis bleiben.',
+    details: 'Cardmarket-Preise erscheinen nur bei verlässlicher Karten- und Variantenzuordnung. Fehlende Werte werden nicht geschätzt. Sammlung und Binder werden bei bestehender Verbindung zwischen Android und Web mit demselben freigeschalteten Google-Konto synchronisiert. Marktpreise werden separat abgerufen und zwischengespeichert; sie sind keine garantierten Verkaufspreise und nicht immer sofort aktuell.',
+  }, {
+    id: 'pre-beta-17', title: 'Archiv: Start der privaten Testphase', date: '2026-09-01',
     version: '1.0-pre-beta', build: '17', active: true,
-    summary: 'Grading, Binder, Preise, Portfolio und Cloud-Synchronisation wurden für den ersten privaten Testlauf stabilisiert.',
-    details: 'Bestätigte und korrigierte Scans können datensparsame Erkennungshinweise beitragen. Der Scanner bleibt in aktiver Entwicklung.',
+    summary: 'Historischer Stand des ersten privaten Android-Testlaufs mit Scanner, Bindern, Preisübersicht und Synchronisierung. Dies ist nicht die aktuelle Buildangabe.',
+    details: 'Der heutige Test läuft als geschlossene Alpha. Den jeweils freigegebenen Android-Teststand und Hinweise zur Teilnahme erhältst du über den privaten Testerprozess im Discord.',
   }],
   roadmap: [
-    { id: 'pre-beta', title: 'Pre-Beta für Android', description: 'Installierbarer Teststand mit Scanner, Binder, Portfolio und Cloud-Sync.', status: 'Released', order: 1 },
-    { id: 'web', title: 'DomiDex Web', description: 'Für freigeschaltete Tester verfügbar: Desktop-Sammlung und Binder mit demselben Firebase-Konto.', status: 'Released', order: 2 },
-    { id: 'scanner', title: 'Scanner-Härtung', description: 'Weitere reale Karten, Lichtverhältnisse und Geräte werden getestet.', status: 'In Development', order: 3 },
-    { id: 'kickstarter', title: 'Kickstarter', description: 'Projektseite und Kampagnenstart werden vorbereitet; noch kein Termin zugesagt.', status: 'Planned', order: 4 },
+    { id: 'pre-beta', title: 'Geschlossene Alpha für Android', description: 'Für freigeschaltete Tester im internen Google-Play-Test verfügbar. Kein öffentlicher App-Release.', status: 'Released', order: 1 },
+    { id: 'web', title: 'DomiDex Web', description: 'Für freigeschaltete Tester verfügbar: Sammlung, Binder, Portfolio und große Kartenansichten mit demselben Google-Konto wie in Android.', status: 'Released', order: 2 },
+    { id: 'sharing', title: 'Private Binder gestalten und teilen', description: 'Eigene Cover, individuelle Holo-Effekte und Freigabelinks zum Ansehen. Die restliche Sammlung bleibt privat.', status: 'Released', order: 3 },
+    { id: 'scanner', title: 'Kartenerkennung weiter verbessern', description: 'Reale Karten, Lichtverhältnisse und Geräte bleiben im Test. Freiwillige ScanLab-Fotos werden nur nach deiner manuellen Freigabe hochgeladen.', status: 'In Development', order: 4 },
+    { id: 'prices', title: 'Katalog- und Preisabdeckung', description: 'Fehlende Zuordnungen im 30-Jahre-Set und bei Promokarten ergänzen. Unsichere Preise bleiben als nicht verfügbar gekennzeichnet.', status: 'In Development', order: 5 },
+    { id: 'kickstarter', title: 'Kickstarter', description: 'Noch keine gestartete Kampagne und kein bestätigter Starttermin. Neuigkeiten dazu folgen erst nach einer konkreten Ankündigung.', status: 'Planned', order: 6 },
   ],
 };
 
-function selectedCardmarketPricing(card: TcgCardDetail, variant: TcgVariant) {
+export function cardmarketPricingForVariant(card: TcgCardDetail, variant: TcgVariant) {
   const ownPricing = variant.pricing?.cardmarket;
   return ownPricing ?? (card.variants_detailed && card.variants_detailed.length > 1 ? null : card.pricing?.cardmarket);
 }
 
 export function exactCardmarketProductId(card: TcgCardDetail, variant: TcgVariant): number | null {
-  const id = selectedCardmarketPricing(card, variant)?.idProduct;
+  const id = cardmarketPricingForVariant(card, variant)?.idProduct;
   return Number.isSafeInteger(id) && id! > 0 && !isQuarantinedCardmarketIdentity(canonicalTcgCardId(card.id), id) ? id! : null;
 }
 
 export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): number | null {
-  const pricing = selectedCardmarketPricing(card, variant);
+  const pricing = cardmarketPricingForVariant(card, variant);
   if (!pricing || !Number.isSafeInteger(pricing.idProduct) || pricing.idProduct! <= 0 || (pricing.unit && pricing.unit !== 'EUR')) return null;
   if (exactCardmarketProductId(card, variant) === null) return null;
   // Cardmarket's Pokemon guide calls the Reverse Holo field "trend-holo".

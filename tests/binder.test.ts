@@ -9,7 +9,10 @@ import { BinderView } from '@/components/web-app';
 import { loadCard, loadSet } from '@/lib/tcgdex';
 
 vi.mock('@/components/auth-provider', () => ({ useAuth: vi.fn() }));
-vi.mock('@/lib/collection', () => ({ addExactCard: vi.fn(), changeQuantity: vi.fn(), subscribeCollection: vi.fn() }));
+vi.mock('@/lib/collection', () => ({
+  addExactCard: vi.fn(), changeQuantity: vi.fn(), subscribeCollection: vi.fn(),
+  collectionSyncIdForExactCard: vi.fn(() => 'fixture-sync-id'),
+}));
 vi.mock('@/lib/tcgdex', () => ({ loadSet: vi.fn(), loadCard: vi.fn(), searchCards: vi.fn(), imageUrl: (url: string) => url }));
 afterEach(cleanup);
 

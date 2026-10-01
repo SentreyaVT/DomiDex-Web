@@ -14,6 +14,24 @@ export async function readFirebaseStorageObject(objectName: string, authorizatio
   } catch { return null; }
 }
 
+/** Server OAuth may read only the scanner reference archive, never uploaded reports. */
+export async function readServerScannerReferenceObject(objectName: string, authorization: string) {
+  if (!safeObjectName(objectName) || !(objectName === 'scanner-reference/master-index.json'
+    || /^scanner-reference\/images\/[A-Za-z0-9._-]+\.webp$/.test(objectName))) return null;
+  const bucket = firebaseStorageBucket();
+  const token = firebaseToken(authorization);
+  if (!bucket || !token || /\s/.test(token)) throw new Error('STORAGE_NOT_CONFIGURED');
+  let response: Response;
+  try {
+    response = await fetch(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(objectName)}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` }, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15_000),
+    });
+  } catch { throw new Error('STORAGE_UNAVAILABLE'); }
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`STORAGE_${response.status}`);
+  return response;
+}
+
 export async function uploadFirebaseStorageObject(
   objectName: string,
   bytes: Uint8Array<ArrayBuffer>,

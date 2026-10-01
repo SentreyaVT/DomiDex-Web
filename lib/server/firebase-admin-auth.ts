@@ -21,6 +21,7 @@ export interface AdminUserSummary {
   admin: boolean;
   pretester: boolean;
   appAccess: boolean;
+  scannerLabAccess: boolean;
   createdAt: string | null;
   lastLoginAt: string | null;
 }
@@ -45,6 +46,13 @@ export function withAppAccessClaim(claims: Record<string, unknown>, enabled: boo
   return next;
 }
 
+export function withScannerLabAccessClaim(claims: Record<string, unknown>, enabled: boolean) {
+  const next = { ...claims };
+  if (enabled) next.scannerLabAccess = true;
+  else delete next.scannerLabAccess;
+  return next;
+}
+
 export function boundedPageSize(value: unknown) {
   const number = Number(value);
   return Number.isInteger(number) ? Math.min(1_000, Math.max(1, number)) : 100;
@@ -64,7 +72,7 @@ export async function listManagedUsers(pageSize: number, pageToken?: string) {
   if (pageToken) query.set('nextPageToken', pageToken);
   const body = await identityRequest<{ users?: IdentityUser[]; nextPageToken?: string }>(`accounts:batchGet?${query}`);
   return {
-    users: (body.users ?? []).map(summarize).filter((user) => user.pretester || user.appAccess),
+    users: (body.users ?? []).map(summarize).filter((user) => user.pretester || user.appAccess || user.scannerLabAccess),
     nextPageToken: body.nextPageToken ?? null,
   };
 }
@@ -77,7 +85,11 @@ export async function setPretesterClaim(uid: string, enabled: boolean, actorUid:
   return setBooleanClaim(uid, 'pretester', enabled, actorUid);
 }
 
-async function setBooleanClaim(uid: string, claim: 'pretester' | 'appAccess', enabled: boolean, actorUid: string) {
+export async function setScannerLabAccessClaim(uid: string, enabled: boolean, actorUid: string) {
+  return setBooleanClaim(uid, 'scannerLabAccess', enabled, actorUid);
+}
+
+async function setBooleanClaim(uid: string, claim: 'pretester' | 'appAccess' | 'scannerLabAccess', enabled: boolean, actorUid: string) {
   await (await privateOperations()).changeRole(uid, claim, enabled, actorUid);
   const verified = await identityRequest<{ users?: IdentityUser[] }>('accounts:lookup', {
     method: 'POST', body: JSON.stringify({ localId: [uid] }),
@@ -147,6 +159,7 @@ function summarize(user: IdentityUser): AdminUserSummary {
     uid: cleanId(user.localId), email: typeof user.email === 'string' ? user.email : '',
     displayName: typeof user.displayName === 'string' && user.displayName.trim() ? user.displayName.trim().slice(0, 200) : null,
     admin: claims.admin === true, pretester: claims.pretester === true, appAccess: claims.appAccess === true,
+    scannerLabAccess: claims.scannerLabAccess === true,
     createdAt: millisToIso(user.createdAt), lastLoginAt: millisToIso(user.lastLoginAt),
   };
 }

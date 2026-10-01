@@ -1,5 +1,5 @@
 /** Bound bytes while streaming, including chunked bodies without Content-Length. */
-export async function boundedJson(request: Request, maximumBytes = 8192): Promise<Record<string, unknown>> {
+export async function boundedJson(request: Pick<Request, 'headers' | 'body'>, maximumBytes = 8192): Promise<Record<string, unknown>> {
   const reject = (code: string, status: number): never => { throw Object.assign(new Error(code), { status }); };
   if (Number(request.headers.get('content-length') || 0) > maximumBytes) reject('REQUEST_TOO_LARGE', 413);
   if (!request.body) reject('INVALID_REQUEST', 400);

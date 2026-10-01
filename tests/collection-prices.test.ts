@@ -5,6 +5,7 @@ import { formatKnownValuation, resolveCollectionPrice, sumKnownPrices } from '@/
 import { useCollectionPrices } from '@/components/use-collection-prices';
 import { loadCard } from '@/lib/tcgdex';
 import type { CollectionEntry, TcgCardDetail } from '@/lib/domain';
+import { alternativePriceCandidates, type CollectionPriceSelection } from '@/lib/price-alternatives';
 
 vi.mock('@/lib/tcgdex', () => ({ loadCard: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
@@ -79,5 +80,44 @@ describe('honest bounded collection price states', () => {
     rerender({ owner: 'second', cards: entries });
     expect(result.current.prices.a).toBeUndefined();
     expect(result.current.pending).toBe(1);
+  });
+
+  it('offers only real alternative metrics for the exact finish and guide snapshot', () => {
+    const source = { ...card, variants_detailed: [{ type: 'Holo', size: 'Standard', pricing: { cardmarket: {
+      idProduct: 77, trend: null, avg: 4.44, low: 3.33, avg1: 4.1, avg7: 4.2, avg30: 4.3,
+      'avg-holo': 99, 'low-holo': 88, unit: 'EUR', updated: '2026-09-25T08:00:00Z',
+    } } }] } as TcgCardDetail;
+    expect(alternativePriceCandidates(source, source.variants_detailed![0])).toEqual([
+      expect.objectContaining({ metric: 'normal_avg_sell', amountMinor: 444, productId: 77 }),
+      expect.objectContaining({ metric: 'normal_low', amountMinor: 333, productId: 77 }),
+      expect.objectContaining({ metric: 'normal_avg_1d', amountMinor: 410, productId: 77 }),
+      expect.objectContaining({ metric: 'normal_avg_7d', amountMinor: 420, productId: 77 }),
+      expect.objectContaining({ metric: 'normal_avg_30d', amountMinor: 430, productId: 77 }),
+    ]);
+    const reverse = { ...source.variants_detailed![0], type: 'Reverse Holo' };
+    expect(alternativePriceCandidates({ ...source, variants_detailed: [reverse] }, reverse).map((item) => item.metric)).toEqual(['reverse_holo_avg_sell', 'reverse_holo_low']);
+  });
+
+  it('never offers a manually selectable value for a quarantined source/product pair', () => {
+    const quarantined = { ...card, id: 'sv03-062', set: { ...card.set, id: 'sv03' }, variants_detailed: [{
+      type: 'Holo', size: 'Standard', pricing: { cardmarket: { idProduct: 781858, trend: null, avg: .23, unit: 'EUR', updated: '2026-09-25T08:00:00Z' } },
+    }] } as TcgCardDetail;
+    expect(alternativePriceCandidates(quarantined, quarantined.variants_detailed![0])).toEqual([]);
+  });
+
+  it('uses an exact manually confirmed alternative only while the real trend is missing', async () => {
+    const exactEntry = { ...entry, ownerUid: 'owner', deleted: false, language: 'GERMAN', externalProductSource: 'CARDMARKET_PUBLIC_DOWNLOAD' } as CollectionEntry;
+    const selection: CollectionPriceSelection = {
+      schemaVersion: 1, ownerUid: 'owner', entrySyncId: exactEntry.syncId, revision: 1, lastMutationId: 'mutation-1',
+      updatedAtClient: 1_788_220_800_000, cleared: false, sourceSetId: exactEntry.sourceSetId,
+      sourceCardId: exactEntry.sourceCardId, collectorNumber: exactEntry.collectorNumber, language: exactEntry.language,
+      finish: exactEntry.finish, variant: exactEntry.variant, productId: 77, metric: 'normal_avg_sell',
+      amountMinor: 444, currency: 'EUR', sourceAt: 1_788_220_800_000, selectedAt: 1_788_220_900_000,
+    };
+    const missingTrend = { ...card, variants_detailed: [{ ...card.variants_detailed![0], pricing: { cardmarket: { idProduct: 77, trend: null, avg: 4.44, unit: 'EUR', updated: '2026-09-25T08:00:00Z' } } }] } as TcgCardDetail;
+    expect(await resolveCollectionPrice(exactEntry, async () => missingTrend, selection)).toMatchObject({ price: 4.44, source: 'manual', failed: false });
+    expect(await resolveCollectionPrice(exactEntry, async () => card, selection)).toMatchObject({ price: 12.34, source: 'trend', failed: false });
+    expect(await resolveCollectionPrice(exactEntry, async () => missingTrend, { ...selection, finish: 'Reverse Holo' })).toMatchObject({ price: null, source: null });
+    expect(await resolveCollectionPrice(exactEntry, async () => missingTrend, { ...selection, productId: 88 })).toMatchObject({ price: null, source: null });
   });
 });

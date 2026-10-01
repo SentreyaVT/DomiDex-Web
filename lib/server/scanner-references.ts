@@ -1,5 +1,7 @@
 import type { ScannerReference } from '@/lib/scanner-profile';
-import { firebaseStorageBucket, readFirebaseStorageObject } from './firebase-storage-rest';
+import { firebaseStorageBucket, readFirebaseStorageObject, readServerScannerReferenceObject } from './firebase-storage-rest';
+
+export type ScannerReferenceAccessMode = 'firebase' | 'server';
 
 interface MasterIndex {
   schemaVersion: number;
@@ -9,9 +11,9 @@ interface MasterIndex {
 }
 
 let cached: { path: string; modified: number; value: MasterIndex } | null = null;
-let remoteCached: { bucket: string; expiresAt: number; value: MasterIndex } | null = null;
+let remoteCached: { bucket: string; mode: ScannerReferenceAccessMode; expiresAt: number; value: MasterIndex } | null = null;
 
-export async function loadScannerIndex(authorization?: string | null): Promise<MasterIndex | null> {
+export async function loadScannerIndex(authorization?: string | null, accessMode: ScannerReferenceAccessMode = 'firebase'): Promise<MasterIndex | null> {
   const indexPath = process.env.DOMIDEX_SCANNER_MASTER_INDEX_PATH?.trim();
   if (indexPath) {
     try {
@@ -23,7 +25,7 @@ export async function loadScannerIndex(authorization?: string | null): Promise<M
       return value;
     } catch { /* Hosted workers use the Firebase archive below. */ }
   }
-  return authorization ? loadRemoteScannerIndex(authorization) : null;
+  return authorization ? loadRemoteScannerIndex(authorization, accessMode) : null;
 }
 
 export async function loadReferenceImage(file: string) {
@@ -37,14 +39,14 @@ export async function loadReferenceImage(file: string) {
   } catch { return null; }
 }
 
-export async function loadRemoteReferenceImage(file: string, authorization: string) {
+export async function loadRemoteReferenceImage(file: string, authorization: string, accessMode: ScannerReferenceAccessMode = 'firebase') {
   if (!/^[A-Za-z0-9._-]+\.webp$/.test(file)) return null;
-  return readFirebaseStorageObject(`scanner-reference/images/${file}`, authorization);
+  return (accessMode === 'server' ? readServerScannerReferenceObject : readFirebaseStorageObject)(`scanner-reference/images/${file}`, authorization);
 }
 
-export async function loadUpstreamReferenceImage(file: string, authorization: string) {
+export async function loadUpstreamReferenceImage(file: string, authorization: string, accessMode: ScannerReferenceAccessMode = 'firebase') {
   if (!/^[A-Za-z0-9._-]+\.webp$/.test(file)) return null;
-  const index = await loadScannerIndex(authorization);
+  const index = await loadScannerIndex(authorization, accessMode);
   const card = index?.cards.find((item) => item.imageFile === file);
   const source = tcgdexReferenceUrl(card?.sourceImageUrl);
   if (!source) return null;
@@ -72,17 +74,23 @@ export async function loadLocalScannerBridge(pathname: string) {
   } catch { return null; }
 }
 
-async function loadRemoteScannerIndex(authorization: string): Promise<MasterIndex | null> {
+async function loadRemoteScannerIndex(authorization: string, accessMode: ScannerReferenceAccessMode): Promise<MasterIndex | null> {
   const bucket = storageBucket();
-  if (!bucket) return null;
-  if (remoteCached?.bucket === bucket && remoteCached.expiresAt > Date.now()) return remoteCached.value;
-  const response = await readFirebaseStorageObject('scanner-reference/master-index.json', authorization);
+  if (!bucket) {
+    if (accessMode === 'server') throw new Error('STORAGE_NOT_CONFIGURED');
+    return null;
+  }
+  if (remoteCached?.bucket === bucket && remoteCached.mode === accessMode && remoteCached.expiresAt > Date.now()) return remoteCached.value;
+  const response = await (accessMode === 'server' ? readServerScannerReferenceObject : readFirebaseStorageObject)('scanner-reference/master-index.json', authorization);
   if (!response?.ok) return null;
   try {
     const value = parseMasterIndex(await response.text());
-    remoteCached = { bucket, expiresAt: Date.now() + 10 * 60_000, value };
+    remoteCached = { bucket, mode: accessMode, expiresAt: Date.now() + 10 * 60_000, value };
     return value;
-  } catch { return null; }
+  } catch {
+    if (accessMode === 'server') throw new Error('SCANNER_REFERENCE_INDEX_INVALID');
+    return null;
+  }
 }
 
 function parseMasterIndex(source: string) {

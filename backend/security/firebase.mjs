@@ -22,6 +22,9 @@ export function failure(error) {
   return json({ ok: false, error: known.has(error?.message) ? error.message : 'SERVER_OPERATION_FAILED' }, error?.status || 503);
 }
 export async function actorFor(request, context, role) {
+  // An omitted role is the existing authenticated self-service account-deletion
+  // boundary. Every supplied capability must be explicitly recognized.
+  if (role !== undefined && !['admin', 'tester', 'app', 'scannerLab'].includes(role)) fail('ACCESS_DENIED', 403);
   const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) fail('AUTH_REQUIRED', 401);
   let decoded, user;
@@ -41,9 +44,11 @@ export async function actorFor(request, context, role) {
   const admin = claims.admin === true && decoded.admin === true && allowed('admin');
   const appAccess = admin || (claims.appAccess === true && decoded.appAccess === true && allowed('appAccess'));
   const tester = admin || (claims.pretester === true && decoded.pretester === true && allowed('pretester'));
-  if ((role === 'admin' && !admin) || (role === 'tester' && !tester) || (role === 'app' && !appAccess)) fail('ACCESS_DENIED', 403);
+  const scannerLabAccess = admin || (claims.scannerLabAccess === true && decoded.scannerLabAccess === true && allowed('scannerLabAccess'));
+  if ((role === 'admin' && !admin) || (role === 'tester' && !tester) || (role === 'app' && !appAccess)
+    || (role === 'scannerLab' && !scannerLabAccess)) fail('ACCESS_DENIED', 403);
   if ((await context.db.doc(`accountDeletionLocks/${decoded.uid}`).get()).exists) fail('ACCOUNT_DELETING', 403);
-  return { uid: decoded.uid, admin, appAccess, pretester: tester,
+  return { uid: decoded.uid, admin, appAccess, pretester: tester, scannerLabAccess,
     // Kept separate from admin-derived tester access for in-transaction revocation checks.
     pretesterClaim: claims.pretester === true && decoded.pretester === true,
     authTime: Number(decoded.auth_time || 0) * 1000 };

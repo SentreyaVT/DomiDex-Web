@@ -1,6 +1,6 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
 import { privateOperations } from '@/lib/server/private-cloud-operations';
-import { boundedPageSize, findAuthUserByEmail, listManagedUsers, setAppAccessClaim, setPretesterClaim } from '@/lib/server/firebase-admin-auth';
+import { boundedPageSize, findAuthUserByEmail, listManagedUsers, setAppAccessClaim, setPretesterClaim, setScannerLabAccessClaim } from '@/lib/server/firebase-admin-auth';
 
 export async function GET(request: Request) {
   if (new URL(request.url).searchParams.get('action') === 'delete-account') return (await privateOperations()).deletionStatus(request);
@@ -26,12 +26,15 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const actor = await requireAdminToken(request.headers.get('authorization'));
-    const body = await request.json() as { uid?: unknown; pretester?: unknown; appAccess?: unknown };
+    const body = await request.json() as { uid?: unknown; pretester?: unknown; appAccess?: unknown; scannerLabAccess?: unknown };
     const uid = cleanUid(body.uid);
     const pretesterChange = typeof body.pretester === 'boolean';
     const appAccessChange = typeof body.appAccess === 'boolean';
-    if (!uid || pretesterChange === appAccessChange) throw new Error('INVALID_CHANGE');
-    const updated = pretesterChange ? await setPretesterClaim(uid, body.pretester as boolean, String(actor.sub)) : await setAppAccessClaim(uid, body.appAccess as boolean, String(actor.sub));
+    const scannerLabChange = typeof body.scannerLabAccess === 'boolean';
+    if (!uid || [pretesterChange, appAccessChange, scannerLabChange].filter(Boolean).length !== 1) throw new Error('INVALID_CHANGE');
+    const updated = pretesterChange ? await setPretesterClaim(uid, body.pretester as boolean, String(actor.sub))
+      : appAccessChange ? await setAppAccessClaim(uid, body.appAccess as boolean, String(actor.sub))
+      : await setScannerLabAccessClaim(uid, body.scannerLabAccess as boolean, String(actor.sub));
     return json({ configured: true, user: updated, tokenRefreshRequired: true });
   } catch (error) { return errorResponse(error); }
 }

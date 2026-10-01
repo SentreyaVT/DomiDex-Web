@@ -117,6 +117,30 @@ async function catalogCards(ids, context) {
   }));
   return catalog;
 }
+function sharedPlacements(documents, ownerUid) {
+  const records = documents.map((doc) => ({ id: doc.id, data: doc.data() })).filter(({ data }) => data.deleted !== true);
+  const reserved = new Set();
+  for (const { data } of records) {
+    if (data.ownerUid !== ownerUid || !safeId(data.entrySyncId) || !Number.isSafeInteger(data.slotPosition) || data.slotPosition < 0 || data.slotPosition > 900000) fail('SERVER_OPERATION_FAILED', 503);
+    reserved.add(data.slotPosition);
+  }
+  // A concurrent sync may temporarily put distinct placements in one slot.
+  // Keep every card and reserve all requested slots before assigning overflow,
+  // using stable document IDs rather than Firestore's incidental query order.
+  // This is only the shared view: never mutate the owner's stored layout.
+  records.sort((a, b) => a.data.slotPosition - b.data.slotPosition || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const used = new Set();
+  let free = 0;
+  return records.map(({ data }) => {
+    if (!used.has(data.slotPosition)) {
+      used.add(data.slotPosition);
+      return data;
+    }
+    while (reserved.has(free)) free++;
+    reserved.add(free);
+    return { ...data, slotPosition: free++ };
+  });
+}
 export async function readBinderShare(request, route, context = services()) {
   try {
     enabled(context);
@@ -130,12 +154,7 @@ export async function readBinderShare(request, route, context = services()) {
     if (!Number.isSafeInteger(page) || page < 0 || page > 100000) fail('INVALID_REQUEST', 400);
     const snapshots = await context.db.collection(`users/${share.ownerUid}/privateBinderPlacements`).where('binderId', '==', share.binderId).limit(5001).get();
     if (snapshots.size > 5000) fail('SERVER_OPERATION_FAILED', 503);
-    const placements = snapshots.docs.map((doc) => doc.data()).filter((data) => data.deleted !== true);
-    const positions = new Set();
-    for (const item of placements) {
-      if (item.ownerUid !== share.ownerUid || !safeId(item.entrySyncId) || !Number.isSafeInteger(item.slotPosition) || item.slotPosition < 0 || item.slotPosition > 900000 || positions.has(item.slotPosition)) fail('SERVER_OPERATION_FAILED', 503);
-      positions.add(item.slotPosition);
-    }
+    const placements = sharedPlacements(snapshots.docs, share.ownerUid);
     const pageCount = Math.max(1, Number.isSafeInteger(binder.minimumPageCount) ? binder.minimumPageCount : 1, ...placements.map((item) => Math.floor(item.slotPosition / 9) + 1));
     if (page >= pageCount) fail('NOT_FOUND', 404);
     const needed = share.showTotal ? placements : placements.filter((item) => Math.floor(item.slotPosition / 9) === page);

@@ -17,7 +17,7 @@ export async function serverAuthorization(context = services()) {
 }
 
 export async function changeRole(uid, role, enabled, actorUid, context = services()) {
-  if (!/^[A-Za-z0-9._-]{1,128}$/.test(uid) || !['appAccess', 'pretester'].includes(role)
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(uid) || !['appAccess', 'pretester', 'scannerLabAccess'].includes(role)
     || typeof enabled !== 'boolean' || !actorUid) fail('INVALID_CHANGE', 400);
   const lease = randomUUID();
   const ref = context.db.doc(`accountAccess/${uid}`);

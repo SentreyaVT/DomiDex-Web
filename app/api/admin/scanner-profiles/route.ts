@@ -1,4 +1,4 @@
-import { requireAdminToken } from '@/lib/server/firebase-token';
+import { requireAdminToken, requireScannerLabToken } from '@/lib/server/firebase-token';
 import { privateOperations } from '@/lib/server/private-cloud-operations';
 import { serverFailure } from '@/lib/server/server-failure';
 import { commitDocuments, getDocument, listDocuments, setWrite } from '@/lib/server/firestore-rest';
@@ -8,7 +8,7 @@ type Action = 'saveDraft' | 'markTesting' | 'createCandidate' | 'publish' | 'rol
 
 export async function GET(request: Request) {
   try {
-    await requireAdminToken(requiredAuthorization(request));
+    await requireScannerLabToken(requiredAuthorization(request));
     const authorization = await (await privateOperations()).serverAuthorization();
     const [profiles, rawVersions, benchmarks, manifest] = await Promise.all([
       listDocuments('scannerProfiles', authorization), listDocuments('scannerProfileVersions', authorization),
@@ -135,6 +135,7 @@ function errorResponse(error: unknown) {
   const headers = { 'Cache-Control': 'private, no-store' };
   if (message === 'AUTH_REQUIRED') return Response.json({ error: 'Anmeldung erforderlich.' }, { status: 401, headers });
   if (message === 'ADMIN_REQUIRED') return Response.json({ error: 'Administratorrechte erforderlich.' }, { status: 403, headers });
+  if (message === 'SCANNER_LAB_REQUIRED') return Response.json({ error: 'Scanner-Lab-Freigabe erforderlich.' }, { status: 403, headers });
   if (message.startsWith('PROFILE_INVALID:')) return Response.json({ error: message.slice(16).split('|') }, { status: 400, headers });
   const known: Record<string, string> = { INVALID_ACTION: 'Unbekannte Aktion.', SOURCE_NOT_FOUND: 'Ausgangsversion wurde nicht gefunden.', INVALID_TRANSITION: 'Dieser Statuswechsel ist nicht zulässig.', CONFIRM_REQUIRED: 'Explizite Bestätigung fehlt.' };
   if (known[message]) return Response.json({ error: known[message] }, { status: 400, headers });

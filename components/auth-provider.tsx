@@ -3,6 +3,7 @@
 import {
   getRedirectResult,
   onIdTokenChanged,
+  reauthenticateWithPopup,
   signInWithPopup,
   signInWithRedirect,
   signOut,
@@ -16,12 +17,14 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  hasScannerLabAccess: boolean;
   isPretester: boolean;
   hasAppAccess: boolean;
   accessError: 'unavailable' | 'timeout' | null;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
   refreshClaims: () => Promise<void>;
+  reauthenticate: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -38,11 +41,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const observedUid = useRef<string | null>(null);
   const roleAllowed = (role: string) => access !== null && access.disabled !== true && (!(role in access) || access[role] === true);
   const isAdmin = claims.admin === true && roleAllowed('admin');
+  const hasScannerLabAccess = isAdmin || (claims.scannerLabAccess === true && roleAllowed('scannerLabAccess'));
   const hasAppAccess = isAdmin || (claims.appAccess === true && roleAllowed('appAccess'));
   const isPretester = isAdmin || (claims.pretester === true && roleAllowed('pretester'));
 
   const readClaims = useCallback(async (next: User | null, force = false) => {
+    // Ignore delayed callbacks/refreshes belonging to a previous account.
+    if ((firebaseAuth.currentUser?.uid ?? null) !== (next?.uid ?? null)) return;
     const currentGeneration = ++generation.current;
+    const isCurrent = () => currentGeneration === generation.current
+      && (firebaseAuth.currentUser?.uid ?? null) === (next?.uid ?? null);
     if (observedUid.current !== (next?.uid ?? null)) {
       observedUid.current = next?.uid ?? null;
       setClaims({}); setAccess(null); setAccessError(null); setAccessLoading(!!next);
@@ -50,11 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(next);
     try {
       const nextClaims = next ? (await next.getIdTokenResult(force)).claims : {};
-      if (currentGeneration === generation.current) setClaims(nextClaims);
+      if (isCurrent()) setClaims(nextClaims);
     } catch {
-      if (currentGeneration === generation.current) { setClaims({}); setAccessError('unavailable'); }
+      if (isCurrent()) { setClaims({}); setAccessError('unavailable'); }
     } finally {
-      if (currentGeneration === generation.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, []);
 
@@ -86,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     loading: loading || accessLoading,
     isAdmin,
+    hasScannerLabAccess,
     isPretester,
     hasAppAccess,
     accessError,
@@ -102,13 +111,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     logout: () => signOut(firebaseAuth),
+    reauthenticate: async () => {
+      const current = firebaseAuth.currentUser;
+      if (!current) throw new Error('Bitte zuerst mit deinem Google-Konto anmelden.');
+      // A token refresh alone does not renew auth_time. Reconfirm the SAME user
+      // without signing out, switching accounts or automatically retrying deletion.
+      await reauthenticateWithPopup(current, googleProvider);
+      if (firebaseAuth.currentUser?.uid !== current.uid) throw new Error('Das angemeldete Konto hat sich geändert. Bitte erneut prüfen.');
+      await current.getIdToken(true);
+      if (firebaseAuth.currentUser?.uid !== current.uid) throw new Error('Das angemeldete Konto hat sich geändert. Bitte erneut prüfen.');
+      await readClaims(current, true);
+      if (firebaseAuth.currentUser?.uid !== current.uid) throw new Error('Das angemeldete Konto hat sich geändert. Bitte erneut prüfen.');
+    },
     refreshClaims: async () => {
       setAccess(null); setAccessError(null); setAccessLoading(!!firebaseAuth.currentUser);
       await readClaims(firebaseAuth.currentUser, true);
       // Firestore error callbacks terminate the subscription; refreshing a token alone cannot retry it.
       setAccessAttempt((attempt) => attempt + 1);
     },
-  }), [hasAppAccess, isAdmin, isPretester, loading, accessLoading, accessError, readClaims, user]);
+  }), [hasAppAccess, hasScannerLabAccess, isAdmin, isPretester, loading, accessLoading, accessError, readClaims, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

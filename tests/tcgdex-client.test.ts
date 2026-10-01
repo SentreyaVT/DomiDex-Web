@@ -114,6 +114,14 @@ describe('bounded catalog client', () => {
 });
 
 describe('optional set metadata', () => {
+  it.each([{ manifestCards: [] }, { manifestCards: [{ id: 'mep-101', variants: ['normal'] }] }])('retains verified supplemental printing slots with missing or stale optional metadata (%j)', async ({ manifestCards }) => {
+    const prints = ['holo', 'Holo · Standard · Stempel: Pokémon-Center'];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/sets/')
+      ? Response.json({ id: 'mep', name: 'MEP', cards: [{ id: 'mep-101', localId: '101', name: 'Nidorina', printVariants: prints }] })
+      : Response.json({ cards: manifestCards })));
+    const { loadSet } = await import('@/lib/tcgdex');
+    await expect(loadSet('mep')).resolves.toMatchObject({ cards: [{ id: 'mep-101', printVariants: prints }] });
+  });
   it.each(['missing', 'network', 'invalid-json', 'invalid-shape'] as const)('keeps a valid set when optional manifest is %s', async (failure) => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.startsWith('/api/sets/')) return Response.json(set);

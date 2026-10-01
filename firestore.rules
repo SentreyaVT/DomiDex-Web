@@ -229,6 +229,68 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    function validCollectionPriceSelection(uid, entrySyncId) {
+      let data = request.resource.data;
+      let entryPath = /databases/$(database)/documents/users/$(uid)/collectionEntries/$(entrySyncId);
+      return ownApp(uid)
+        && entrySyncId.matches('[A-Za-z0-9._-]{1,128}')
+        && exists(entryPath)
+        && data.keys().hasOnly([
+          'schemaVersion', 'ownerUid', 'entrySyncId', 'revision', 'lastMutationId',
+          'updatedAt', 'updatedAtClient', 'cleared', 'sourceSetId', 'sourceCardId',
+          'collectorNumber', 'language', 'finish', 'variant', 'productId', 'metric',
+          'amountMinor', 'currency', 'sourceAt', 'selectedAt'
+        ])
+        && data.keys().hasAll([
+          'schemaVersion', 'ownerUid', 'entrySyncId', 'revision', 'lastMutationId',
+          'updatedAt', 'updatedAtClient', 'cleared', 'sourceSetId', 'sourceCardId',
+          'collectorNumber', 'language', 'finish', 'variant', 'productId', 'metric',
+          'amountMinor', 'currency', 'sourceAt', 'selectedAt'
+        ])
+        && data.schemaVersion == 1
+        && data.ownerUid == uid
+        && data.entrySyncId == entrySyncId
+        && data.revision is int && data.revision > 0 && data.revision <= 9007199254740991
+        && data.lastMutationId is string && data.lastMutationId.matches('[A-Za-z0-9._-]{1,128}')
+        && data.updatedAt == request.time
+        && data.updatedAtClient is int && data.updatedAtClient > 0 && data.updatedAtClient <= 9007199254740991
+        && data.cleared is bool
+        && ((data.cleared
+          && data.sourceSetId == null && data.sourceCardId == null && data.collectorNumber == null
+          && data.language == null && data.finish == null && data.variant == null
+          && data.productId == null && data.metric == null && data.amountMinor == null
+          && data.currency == null && data.sourceAt == null && data.selectedAt == null)
+        || (!data.cleared
+          && get(entryPath).data.deleted == false
+          && get(entryPath).data.get('externalProductSource', null) == 'CARDMARKET_PUBLIC_DOWNLOAD'
+          && data.sourceSetId is string && data.sourceSetId.size() > 0 && data.sourceSetId.size() <= 120
+          && data.sourceCardId is string && data.sourceCardId.size() > 0 && data.sourceCardId.size() <= 120
+          && data.collectorNumber is string && data.collectorNumber.size() > 0 && data.collectorNumber.size() <= 80
+          && data.language is string && data.language.matches('[A-Z_]{2,30}')
+          && data.finish is string && data.finish.size() > 0 && data.finish.size() <= 80
+          && data.variant is string && data.variant.size() > 0 && data.variant.size() <= 80
+          && data.productId is int && data.productId > 0 && data.productId <= 9007199254740991
+          && data.metric in [
+            'normal_avg_sell', 'normal_low', 'normal_avg_1d', 'normal_avg_7d', 'normal_avg_30d',
+            'reverse_holo_avg_sell', 'reverse_holo_low'
+          ]
+          && ((data.finish.matches('.*[Rr][Ee][Vv][Ee][Rr][Ss][Ee].*')
+              && data.metric in ['reverse_holo_avg_sell', 'reverse_holo_low'])
+            || (!data.finish.matches('.*[Rr][Ee][Vv][Ee][Rr][Ss][Ee].*')
+              && data.metric in ['normal_avg_sell', 'normal_low', 'normal_avg_1d', 'normal_avg_7d', 'normal_avg_30d']))
+          && data.amountMinor is int && data.amountMinor > 0 && data.amountMinor <= 9007199254740991
+          && data.currency == 'EUR'
+          && data.sourceAt is int && data.sourceAt > 0 && data.sourceAt <= 9007199254740991
+          && data.selectedAt is int && data.selectedAt > 0 && data.selectedAt <= 9007199254740991
+          && data.sourceSetId == get(entryPath).data.get('sourceSetId', null)
+          && data.sourceCardId == get(entryPath).data.get('sourceCardId', null)
+          && data.collectorNumber == get(entryPath).data.get('collectorNumber', null)
+          && data.language == get(entryPath).data.get('language', null)
+          && data.finish == get(entryPath).data.get('finish', null)
+          && data.variant == get(entryPath).data.get('variant', null)
+          && data.productId == get(entryPath).data.get('externalProductId', null)));
+    }
+
     match /users/{uid}/collectionEntries/{entryId} {
       allow read: if ownApp(uid);
       allow create: if validCollectionEntry(uid, entryId)
@@ -281,6 +343,17 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/users/$(uid)/collectionEntries/$(entrySyncId))
         && get(/databases/$(database)/documents/users/$(uid)/collectionEntries/$(entrySyncId)).data.deleted == false;
       allow update: if validCollectionLayout(uid, entrySyncId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.entrySyncId == resource.data.entrySyncId
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if false;
+    }
+
+    match /users/{uid}/collectionPriceSelections/{entrySyncId} {
+      allow read: if ownApp(uid);
+      allow create: if validCollectionPriceSelection(uid, entrySyncId)
+        && request.resource.data.revision == 1;
+      allow update: if validCollectionPriceSelection(uid, entrySyncId)
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.entrySyncId == resource.data.entrySyncId
         && request.resource.data.revision == resource.data.revision + 1;

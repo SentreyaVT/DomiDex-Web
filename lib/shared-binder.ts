@@ -14,7 +14,7 @@ export interface SharedBinder {
 }
 
 const coverIds = new Set('classic_rainbow aurora galaxy crystal nebula golden_shine void prism bubble flame ocean forest stardust electric chroma_shift pixel liquid_metal sunburst dragon_scale cosmic_dust'.split(' '));
-const effectIds = new Set('none classic_holo rainbow linear diagonal galaxy nebula aurora crystal prism diamond stardust bubble oil_slick liquid_metal hyper_wave fire ice pixel void holo_spark element_grass element_fire element_water element_electric element_psychic element_fighting element_darkness element_metal element_dragon element_colorless element_fairy'.split(' '));
+const effectIds = new Set('none classic_holo rainbow linear diagonal galaxy nebula aurora crystal prism diamond stardust bubble oil_slick liquid_metal hyper_wave fire ice pixel void holo_spark element_grass element_fire element_water element_electric element_psychic element_fighting element_darkness element_metal element_dragon element_colorless element_fairy anniversary_30'.split(' '));
 export function sharedVisualId(value: unknown, cover = false) {
   const id = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return (cover ? coverIds : effectIds).has(id) ? id : cover ? 'nebula' : 'none';

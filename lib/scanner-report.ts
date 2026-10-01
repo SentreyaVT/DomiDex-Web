@@ -1,3 +1,5 @@
+import { normalizeKnowledgeContext, scannerFeedbackState, type ScannerKnowledgeContext, type ScannerFeedbackState } from './scanner-feedback';
+
 export const scanReportStatuses = [
   'NEW',
   'IN_REVIEW',
@@ -44,6 +46,8 @@ export interface ScannerReport {
   referenceVariant: string | null;
   reviewNote: string;
   reviewedAt: string | null;
+  knowledgeContext?: ScannerKnowledgeContext | null;
+  recognitionFeedback?: ScannerFeedbackState;
 }
 
 export function normalizeScannerReport(value: Record<string, unknown>): ScannerReport | null {
@@ -81,6 +85,8 @@ export function normalizeScannerReport(value: Record<string, unknown>): ScannerR
     referenceVariant: nullableText(value.referenceVariant, 120),
     reviewNote: cleanText(value.reviewNote, 2_000),
     reviewedAt: nullableText(value.reviewedAt, 80),
+    knowledgeContext: normalizeKnowledgeContext(value.knowledgeContext),
+    recognitionFeedback: scannerFeedbackState(value),
   };
 }
 

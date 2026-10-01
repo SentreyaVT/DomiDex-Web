@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { canTransition, createScannerDraft, resolveScannerProfile, scannerProductionActionBlockReason, scannerPublicationBlockReason, validateScannerProfile } from '@/lib/scanner-profile';
 import { GET, POST } from '@/app/api/admin/scanner-profiles/route';
-import { requireAdminToken } from '@/lib/server/firebase-token';
+import { requireAdminToken, requireScannerLabToken } from '@/lib/server/firebase-token';
 import { commitDocuments, getDocument, listDocuments } from '@/lib/server/firestore-rest';
 import { privateOperations } from '@/lib/server/private-cloud-operations';
 
-vi.mock('@/lib/server/firebase-token', () => ({ requireAdminToken: vi.fn() }));
+vi.mock('@/lib/server/firebase-token', () => ({ requireAdminToken: vi.fn(), requireScannerLabToken: vi.fn() }));
 vi.mock('@/lib/server/private-cloud-operations', () => ({ privateOperations: vi.fn() }));
 vi.mock('@/lib/server/firestore-rest', () => ({
   commitDocuments: vi.fn(), getDocument: vi.fn(), listDocuments: vi.fn(),
@@ -46,6 +46,7 @@ describe('scanner publication without a benchmark runner', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(requireAdminToken).mockResolvedValue({ sub: 'test-admin' } as Awaited<ReturnType<typeof requireAdminToken>>);
+    vi.mocked(requireScannerLabToken).mockResolvedValue({ sub: 'test-admin' } as Awaited<ReturnType<typeof requireScannerLabToken>>);
     vi.mocked(listDocuments).mockResolvedValue([]);
     vi.mocked(getDocument).mockResolvedValue(null);
     vi.mocked(commitDocuments).mockResolvedValue(undefined);

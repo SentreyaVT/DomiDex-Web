@@ -1,0 +1,15 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.dominik.cardvault",
+      "sha256_cert_fingerprints": [
+        "4C:12:32:55:43:94:1D:B3:F6:25:A9:61:E2:74:F4:F8:E5:7F:6E:F0:FC:60:B0:9F:91:5F:EC:93:28:31:D4:51",
+        "B2:5C:CB:21:8E:77:3A:0A:C3:DD:69:01:7D:AE:AC:E7:67:FF:F8:FB:F7:94:20:5C:6D:A0:39:45:07:C0:2D:51",
+        "2E:85:01:88:F9:F5:B2:8A:0E:91:2F:40:53:BB:45:47:89:9A:84:AC:D7:33:92:5E:D3:AB:4B:46:B8:6F:F8:55",
+        "61:E8:31:4B:14:7E:44:65:3B:8E:0D:16:9F:E6:CA:F2:27:60:C3:6E:E4:77:95:CD:84:71:B4:34:16:6B:A8:54"
+      ]
+    }
+  }
+]

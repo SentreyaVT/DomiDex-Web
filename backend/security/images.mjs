@@ -90,7 +90,7 @@ export async function uploadReport(request, context = services()) {
 
 export async function readReportImage(request, route, context = services()) {
   try {
-    await actorFor(request, context, 'admin');
+    await actorFor(request, context, 'scannerLab');
     const reportId = (await route.params).reportId;
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(reportId)) fail('INVALID_REQUEST', 400);
     const document = await context.db.doc(`scannerReports/${reportId}`).get();

@@ -19,7 +19,7 @@ import { useSiteContent } from '@/lib/site-content';
 const highlights = [
   { icon: ScanLine, title: 'Scanner', text: 'Karten mobil erfassen' },
   { icon: BadgeEuro, title: 'Marktpreise', text: 'Nur eindeutig zugeordnet' },
-  { icon: BookOpen, title: 'Binder', text: 'Druckvarianten getrennt sammeln' },
+  { icon: BookOpen, title: 'Private Binder', text: 'Gestalten und per Link teilen' },
   { icon: Cloud, title: 'Synchron', text: 'Android und Web verbunden' },
 ];
 
@@ -51,7 +51,7 @@ export default function Home() {
         </nav>
         <div className="header-actions">
           <a className="text-link" href={content.discordUrl || '#community'}>Discord</a>
-          {kickstarterReady ? <a className={cn(buttonVariants({ size: 'lg' }), 'primary-button')} href={content.kickstarterUrl}>{content.kickstarterCta} <Sparkles aria-hidden="true" /></a> : <span className="coming-soon">Kickstarter · Coming Soon</span>}
+          {kickstarterReady ? <a className={cn(buttonVariants({ size: 'lg' }), 'primary-button')} href={content.kickstarterUrl}>{content.kickstarterCta} <Sparkles aria-hidden="true" /></a> : <span className="coming-soon">Kickstarter · noch kein Starttermin</span>}
         </div>
         <details className="mobile-menu"><summary><Menu /> Menü</summary><div><a href="#funktionen">Funktionen</a><a href="/app">Web App</a><a href="/updates">Updates</a><a href="/roadmap">Roadmap</a><a href="/faq">FAQ</a><a href={content.discordUrl || '#community'}>Discord</a></div></details>
       </header>
@@ -69,7 +69,7 @@ export default function Home() {
               Community beitreten
             </a>
           </div>
-          <p className="principle"><ShieldCheck aria-hidden="true" /> Pre-Beta · privat betrieben · keine Werbung oder Abonnements.</p>
+          <p className="principle"><ShieldCheck aria-hidden="true" /> Geschlossene Alpha · privat betrieben · keine Werbung oder Abonnements in DomiDex.</p>
         </div>
 
         <div id="web-app" className="product-window" aria-label="Vorschau der DomiDex Desktop-Sammlung">
@@ -127,27 +127,27 @@ export default function Home() {
       </section>
 
       <section className="feature-section">
-        <div className="section-heading"><p className="section-kicker">EIN SYSTEM</p><h2>Android scannt.<br />Web schafft Überblick.</h2><p>Firebase hält deine eigene Sammlung zwischen beiden Oberflächen synchron. Manuelle Web-Einträge bleiben Collection-Daten und erzeugen niemals ScanKnowledge.</p></div>
+        <div className="section-heading"><p className="section-kicker">EIN SYSTEM</p><h2>Android scannt.<br />Web schafft Überblick.</h2><p>Nutze auf Android und im Web dasselbe freigeschaltete Google-Konto. Sammlung und Binder werden bei bestehender Verbindung automatisch synchronisiert; offline können Änderungen später ankommen.</p></div>
         <div className="feature-cards">
           <article><ScanLine /><span>ANDROID</span><h3>Karten erfassen</h3><p>Karten mit dem Scanner oder manuell über Set und Nummer erfassen. Der Scanner wird mit realen Karten weiter verbessert.</p></article>
-          <article><BookOpen /><span>WEB</span><h3>Binder erleben</h3><p>Große Seiten, klare Varianten, Mengensteuerung und ein ruhiger Desktop-Arbeitsbereich.</p></article>
-          <article><Cloud /><span>FIREBASE</span><h3>Eine Sammlung</h3><p>Dein Google-Konto verbindet Android und Web – ohne öffentliches Nutzerprofil.</p></article>
-          <article><BadgeEuro /><span>MARKT</span><h3>Echte Trendpreise</h3><p>Nur eindeutige Cardmarket-Zuordnungen. Fehlt ein verlässlicher Wert, sagt DomiDex das offen.</p></article>
+          <article><BookOpen /><span>ANDROID + WEB</span><h3>Private Binder teilen</h3><p>Gestalte deinen Binder mit Covern und Holo-Effekten. Teile ihn bewusst per Link zum Ansehen – in der Android-App oder im Browser. Große Kartenansichten zeigen die Details.</p></article>
+          <article><Cloud /><span>DEINE SAMMLUNG</span><h3>Privat, bis du teilst</h3><p>Dein Google-Konto verbindet Android und Web. Nur ausdrücklich freigegebene Binder sind über ihren Link sichtbar. Kaufdaten und private Notizen bleiben geschützt.</p></article>
+          <article><BadgeEuro /><span>MARKT</span><h3>Nachvollziehbare Preise</h3><p>Cardmarket-Trendpreise nur bei eindeutiger Zuordnung. Beim 30-Jahre-Set und bei Promos fehlen teilweise noch Werte; daran wird weiter gearbeitet.</p></article>
         </div>
       </section>
 
       <section id="updates" className="updates-section">
         <div className="section-heading"><p className="section-kicker">AKTUELLER STAND</p><h2>{content.releaseStatus}</h2><p>{content.statusBanner}</p><a href="/updates">Alle Updates <ArrowRight /></a></div>
-        <div className="update-cards">{content.updates.filter((update) => update.active).slice(0,3).map((update) => <article key={update.id}><span>{update.version} · Build {update.build}</span><time>{update.date}</time><h3>{update.title}</h3><p>{update.summary}</p></article>)}</div>
+        <div className="update-cards">{content.updates.filter((update) => update.active).slice(0,3).map((update) => <article key={update.id}><span>{update.version}{update.build ? ` · Build ${update.build}` : ''}</span><time>{update.date}</time><h3>{update.title}</h3><p>{update.summary}</p></article>)}</div>
       </section>
 
       <section id="roadmap" className="roadmap-preview"><div className="section-heading"><p className="section-kicker">ROADMAP</p><h2>Transparent statt vage.</h2><p>Experimentell bedeutet Idee – nicht Versprechen. Veröffentlichte Funktionen sind klar getrennt.</p></div><div>{content.roadmap.slice().sort((a,b)=>a.order-b.order).slice(0,4).map((item)=><article key={item.id}><span className={`roadmap-status ${item.status.toLowerCase().replaceAll(' ','-')}`}>{item.status}</span><h3>{item.title}</h3><p>{item.description}</p></article>)}</div></section>
 
-      <section id="kickstarter" className="kickstarter-section"><Rocket /><div><p className="section-kicker">UNTERSTÜTZE DIE VISION</p><h2>{kickstarterReady ? content.kickstarterCta : 'Kickstarter – Coming Soon'}</h2><p>Keine erfundenen Zahlen und kein Countdown: Sobald die Kampagne offiziell ist, führt dieser Bereich direkt dorthin.</p></div>{kickstarterReady ? <a className="primary-button" href={content.kickstarterUrl}>Kickstarter öffnen <ArrowRight /></a> : <span>In Vorbereitung</span>}</section>
+      <section id="kickstarter" className="kickstarter-section"><Rocket /><div><p className="section-kicker">UNTERSTÜTZE DIE VISION</p><h2>{kickstarterReady ? content.kickstarterCta : 'Kickstarter – noch kein Starttermin'}</h2><p>Aktuell hilft vor allem ehrliches Feedback aus der geschlossenen Alpha. Neuigkeiten zu einer möglichen Kickstarter-Kampagne findest du hier, sobald sie offiziell angekündigt sind.</p></div>{kickstarterReady ? <a className="primary-button" href={content.kickstarterUrl}>Kickstarter öffnen <ArrowRight /></a> : <span>Noch nicht gestartet</span>}</section>
 
-      <section id="community" className="community-grid"><article><MessageCircle /><div><h2>Discord Community</h2><p>{content.discordText}</p></div>{content.discordUrl ? <a href={content.discordUrl}>Discord öffnen <ArrowRight /></a> : <span>Link folgt</span>}</article><article><ShieldCheck /><div><h2>Private Pre-Beta</h2><p>Tester, Feedback und Entwicklungsupdates werden kontrolliert über die DomiDex Community koordiniert.</p></div><span>Interner Google-Play-Test · Zugang über Discord</span></article></section>
+      <section id="community" className="community-grid"><article><MessageCircle /><div><h2>Discord Community</h2><p>{content.discordText}</p></div>{content.discordUrl ? <a href={content.discordUrl}>Discord öffnen <ArrowRight /></a> : <span>Link folgt</span>}</article><article><ShieldCheck /><div><h2>Geschlossene Alpha</h2><p>Bewirb dich im privaten Tester-Ticket. Deine Google-E-Mail wird dort für die Testerfreigabe benötigt – niemals in öffentlichen Beiträgen. Der Serverbeitritt allein schaltet die App nicht frei.</p></div><span>Interner Google-Play-Test · Zugang über Discord</span></article></section>
 
-      <footer><div className="brand"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span></span></div><p>Privates Non-Profit-Projekt für Sammler · aktuelle Pre-Beta.</p><nav><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/kontakt">Kontakt</a></nav><small>© 2026 DomiDex. Pokémon und zugehörige Marken gehören ihren jeweiligen Rechteinhabern.</small></footer>
+      <footer><div className="brand"><img src="/domidex-logo.jpg" alt="" /><span>Domi<span>Dex</span></span></div><p>Privates Non-Profit-Projekt für Sammler · geschlossene Alpha.</p><nav><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/kontakt">Kontakt</a></nav><small>© 2026 DomiDex. Pokémon und zugehörige Marken gehören ihren jeweiligen Rechteinhabern.</small></footer>
     </main>
   );
 }
