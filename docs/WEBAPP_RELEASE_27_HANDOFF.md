@@ -8,13 +8,15 @@ Web-Implementierung im Android-Repository pflegen.
 
 - Eingefrorene Web-Baseline: `6caa46a`; Android-Baseline des übergeordneten Runs:
   `53b4e40d`. Die Baseline enthält bereits vor diesem Run vorhandene Änderungen.
-- **In diesem Prüfabschnitt umgesetzt:** ausschließlich typkorrekte Test-Fixtures,
+- **Im initialen Baseline-Prüfabschnitt umgesetzt:** ausschließlich typkorrekte Test-Fixtures,
   eine Laufzeit-Typprüfung für den Select-Test und korrekte synchrone Registrierung
   der neun `node:test`-Regeltests. Keine Assertion abgeschwächt, keine Suppression.
 - **Gate 2 danach lokal implementiert, noch nicht veröffentlicht:** verteilter
   UID-Schreib-Limiter, serverseitige Revalidierung der Rollenvergabe, zugehöriger
   exakter Kontolösch-Cleanup und Packaging-Importfix. Zusätzliche
   Preis-/Sharing-Optimierungen sind weiterhin nicht umgesetzt.
+- **Gate 3 danach lokal implementiert, noch nicht aktiviert:** optionale
+  App-Check-Beobachtung, Default-off; keine neue Zugangssperre oder Enforcement.
 - Kein Deployment, kein produktiver Firebase-Zugriff, keine Rollenänderung, kein
   Google-Play-Aufruf und kein Android-Build durch diesen Web-Prüfabschnitt.
   Aus vorhandenem Quellcode folgt keine Behauptung über den derzeitigen Live-Stand.
@@ -184,7 +186,7 @@ Der aktuelle `scripts/package-private-operations.mjs` paketiert nun auch
 Moduls. Ein sauberer Temp-Package-Test importiert alle privaten Routen ohne alte
 dist-Dateien, private Env oder Cloud-Verbindung. Der historische
 `scripts/prepare-sharing-release.mjs` bleibt **unverändert und nicht freigegeben**:
-sein enger Kopierpfad enthält das neue Rate-Modul nicht und nutzt eine archivierte
+sein enger Kopierpfad enthält die neuen Rate-/App-Check-Module nicht und nutzt eine archivierte
 Löschimplementierung/Containerbasis von September. Keine package.json-/Source-
 Aufrufkette auf diesen Alt-Packer gefunden; manuelle Nutzung ist nicht ausgeschlossen.
 Vor Nutzung ist eine eigene Migrations-/Paketierungsentscheidung erforderlich.
@@ -242,6 +244,98 @@ Nachweise im oben genannten ignorierten Baseline-Ordner:
 `typecheck-gate2-combined.log`, `lint-gate2-combined.log`,
 `gate2-emulators.log`, `build-gate2-result.json` und `build-gate2.log`.
 Keine dieser synthetischen Build-Ausgaben ist zur Veröffentlichung bestimmt.
+
+## Gate 3: optionale App-Check-Beobachtung — lokaler Quellstand
+
+`backend/security/app-check.mjs` beobachtet ausschließlich bereits autorisierte
+Anfragen; `actorFor` prüft weiterhin zuerst Token-Widerruf, aktuellen Nutzer,
+Claims, Rechte und Kontolöschsperre. App Check ist **kein** Login, keine Rolle und
+keine Alternative zu Firebase Rules. Es gibt in diesem Gate keinen Enforcement-
+Modus und keinerlei Console-/Projektaktivierung.
+
+- `DOMIDEX_APP_CHECK_MODE=off|monitor`, Default **off**. Off initialisiert keinen
+  App-Check-Verifier und erzeugt keine App-Check-Metrik. Ein fehlender Token im
+  Monitor erfordert ebenfalls keine SDK-Initialisierung/Netzprüfung.
+- Monitor benötigt `DOMIDEX_APP_CHECK_ALLOWED_APP_IDS`: komma-getrennte, exakt
+  verglichene Firebase-App-IDs (Android/iOS/Web); höchstens 32, kein Wildcard,
+  Paketname oder UID. Leere/fehlerhafte Konfiguration liefert nur `config_error`,
+  ändert keine ansonsten erlaubte Antwort. `enforce` ist absichtlich ungültig.
+- Optionaler Header `X-Firebase-AppCheck`, maximal **4096 Zeichen**, getrennt vom
+  Bearer-Token. Syntaktisch fehlerhafte/überlange Header werden nicht verifiziert.
+  Die vorhandene Admin-SDK-Version prüft Signatur, Issuer, Audience und Ablauf;
+  danach erfolgt der exakte App-ID-Abgleich. Kein `consume`-/Replay-RPC.
+- `services()` liefert den echten, lazy initialisierten SDK-Verifier derselben
+  Firebase-App; nicht nur einen Test-Hook. Der Packer nimmt das neue Modul mit.
+- Request-lokale `WeakMap` vermeidet eine zweite Prüfung beim erneuten Upload-
+  Authcheck; keine UID-/Token-übergreifende Memoisierung. `authorize` behält ältere
+  String-Aufrufer und akzeptiert zusätzlich den Originalrequest; abweichende
+  Authorization-Header werden abgewiesen. Die Framework-Wrapper und sechs
+  Admin-/Lab-Routen reichen den unveränderten Request einschließlich Header weiter.
+
+Feste beobachtete Routen: manueller Report-Upload, reviewed-knowledge-POST,
+eigene Binder-Freigaben GET/POST/DELETE, Account-Delete-POST, Tester GET/POST/PATCH,
+Report GET/PATCH/DELETE und private Report-Bilder, Scanner-Profile GET/POST,
+Scanner-Referenzen/Bilder GET, Site-Content-PUT. Öffentliche Shared-Binder-,
+TCGdex-/Cardmarket-/Katalog-Reads bleiben ausdrücklich außerhalb. Interne
+synthetische `/`-Requests werden nicht fälschlich als fehlende Client-Tokens gezählt.
+
+Es wird höchstens einmal pro Request bis zu **250 ms zusätzlich gewartet**.
+Dies ist ein Antwort-Wartebudget, **kein** Netzwerkabbruch: der aktuelle Firebase-
+Admin-Verifier akzeptiert kein AbortSignal; ein angefangener Keyfetch kann im
+Hintergrund weiterlaufen. Die JS-Ereignisschleife kann unter Last die Timerzustellung
+zusätzlich verzögern. Späte Ergebnisse/Ablehnungen erzeugen keine zweite Metrik
+und keinen unbehandelten Promise-Fehler. Der Metrik-Sink wird nicht abgewartet.
+Dieser mögliche Monitor-Overhead muss vor manueller Aktivierung gemessen werden;
+bei Default-off entsteht keine Attestierungswartezeit im Scanner-/Sharing-Pfad.
+
+Metriken enthalten ausschließlich `event: APP_CHECK_MONITOR`, festen `route` und
+`reason` (`valid`, `missing`, `invalid`, `wrong_app`, `timeout`, `unavailable`,
+`config_error`). Kein Token, App-ID, UID, vollständiger Pfad/Query, Body, E-Mail,
+IP oder unbearbeiteter SDK-Fehler. Die SDK-Fehlerklasse `invalid-argument` ist
+breit; einzelne intern so klassifizierte Key-/Verifikationsfehler können deshalb
+als `invalid` statt `unavailable` erscheinen. Keine Rohfehlermeldung zur heuristischen
+Unterscheidung auswerten oder protokollieren.
+
+Client-Aktivierung, Debug-/Play-Integrity-Provider und reale Geräteprüfung werden
+separat im Android-Vertrag `CardVault/docs/RELEASE_27_APP_CHECK.md` geführt. Die
+Web-App erhält in diesem Gate keinen neuen Client-Attestierungsprovider; fehlende
+Web-/Altclient-Tokens sind im Monitor zu erwarten. Lokale Fake-Verifier beweisen
+kein echtes Play-Attestierungsverdict. Noch kein produktiver Schutz behauptet.
+
+### Gate-3-Verifikation und gemessene Grenze
+
+Vor der Produktimplementierung: sechs gezielt rote Regressionen und zwei bereits
+grüne Auth-/Off-Erwartungen, dokumentiert in `app-check-red.log`. Danach:
+
+| Nachweis am 01.10.2026 | Ergebnis |
+| --- | --- |
+| App-Check-Vertrag, Runtime, Forwarding, Services | **52/52**, separat unabhängig ebenfalls 52/52 |
+| Gesamtauswahl einschließlich Gate 2 und App Check | 56 Dateien, **742/742**; 19,13 s |
+| Zusätzliche Vitest-/Node-Tests | **76/76 + 7/7**; 1,21 s / 0,12 s |
+| Typecheck / Lint / `git diff --check` | Exit 0 |
+| Frischer Package-Import | bestanden; App-Check-Modul enthalten |
+| Isolierter Vinext-Build | 296 Dateien; Exit 0; 79,261 s |
+| OpenAPI-Teilcontract | 28 lokale Referenzen aufgelöst; optionaler Header dokumentiert |
+
+Damit **825 unterschiedliche Nicht-Emulator-Tests** auf dem Gate-3-Stand. Die 52
+App-Check-Tests und der Paketimport sind bereits in 742 enthalten, nicht addieren.
+Die oben genannten 30 Emulator-Tests stammen aus Gate 2 und wurden für Gate 3 nicht
+nochmals ausgeführt. Signatur-/Geräteattestierung gegen Firebase/Play wurde nicht
+aufgerufen. Frühere Mock-Aufrufererwartungen wurden auf den zusätzlichen
+Originalrequest erweitert, ohne bestehende Auth-/Berechtigungsassertions zu entfernen.
+
+Reine lokale Zusatzkosten des Monitors mit synthetischem Verifier, **ohne Auth und
+ohne Netzwerk**: je 25 Anfragen mit Off/Missing/sofort gültigem Fake ergaben p95
+0,023 / 0,067 / 0,079 ms. Off und Missing riefen den Verifier exakt nullmal auf.
+Fünf hängende Fake-Prüfungen zeigten trotz 250-ms-Timerbudget unter Windows
+**p50 263,69 ms, Maximum 264,15 ms**. Keine harte 250-ms-Wallclock-Zusage daraus
+ableiten. Diese Messung ersetzt weder Firebase-Keyfetch-Latenz noch echte Geräte-
+oder Produktions-p95-Messungen; die Build-Dauer ist ebenfalls nur lokale Laufzeit.
+
+Nachweise: `unit-gate3-final-results.json`, `extra-gate3.log`, `node-gate3.log`,
+`typecheck-gate3.log`, `lint-gate3.log`, `app-check-contract-green.log`,
+`app-check-latency.json`, `build-gate3-result.json`, `build-gate3.log` im ignorierten
+Baseline-Ordner. Keine produktive Aktivierung, kein Deploy und keine Signierung.
 
 ## Sharing, Domains und Preiswahl: bestehender Vertrag
 

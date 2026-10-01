@@ -59,7 +59,7 @@ describe('Scanner Lab reference routes use the verified server read boundary', (
     const response = await get('index', session, '?q=Testkarte');
     expect(response.status).toBe(200); expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(await response.json()).toMatchObject({ connected: true, total: 1, cards: [{ id: 'test-001' }] });
-    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(session, 'scannerLab');
+    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(session, 'scannerLab', undefined, expect.any(Request));
     expect(privateAuth.serverAuthorization).toHaveBeenCalledTimes(1); expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -68,7 +68,7 @@ describe('Scanner Lab reference routes use the verified server read boundary', (
     const response = await get('image');
     expect(response.status).toBe(200); expect(response.headers.get('Content-Type')).toBe('image/webp'); expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1,2,3]));
-    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(session, 'scannerLab'); expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(session, 'scannerLab', undefined, expect.any(Request)); expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   for (const route of ['index', 'image'] as const) {
@@ -81,7 +81,7 @@ describe('Scanner Lab reference routes use the verified server read boundary', (
     it.each(['ACCESS_DENIED', 'ACCOUNT_DELETING'])(`${route}: %s returns 403 before IAM or storage`, async (reason) => {
       privateAuth.authorize.mockRejectedValueOnce(new Error(reason)); const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
       const response = await get(route);
-      expect(response.status).toBe(403); expect(response.headers.get('Cache-Control')).toBe('private, no-store'); expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(session, 'scannerLab'); expect(privateAuth.serverAuthorization).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+      expect(response.status).toBe(403); expect(response.headers.get('Cache-Control')).toBe('private, no-store'); expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(session, 'scannerLab', undefined, expect.any(Request)); expect(privateAuth.serverAuthorization).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it(`${route}: expired or revoked session returns 401 before server credential`, async () => {

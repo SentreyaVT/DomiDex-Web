@@ -6,7 +6,7 @@ import { serverFailure } from '@/lib/server/server-failure';
 export async function GET(request: Request, context: { params: Promise<{ file: string }> }) {
   try {
     const authorization = request.headers.get('authorization');
-    await requireScannerLabToken(authorization);
+    await requireScannerLabToken(authorization, request);
     const { file } = await context.params;
     const bridge = await loadLocalScannerBridge(`scanner-reference-image/${encodeURIComponent(file)}`);
     if (bridge?.ok) return new Response(bridge.body, { headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' } });

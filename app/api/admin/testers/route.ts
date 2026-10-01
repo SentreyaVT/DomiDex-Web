@@ -10,7 +10,7 @@ const maximumBodyBytes = 4 * 1024;
 export async function GET(request: Request) {
   if (new URL(request.url).searchParams.get('action') === 'delete-account') return (await privateOperations()).deletionStatus(request);
   try {
-    await requireAdminToken(request.headers.get('authorization'));
+    await requireAdminToken(request.headers.get('authorization'), request);
     const url = new URL(request.url);
     const result = await listManagedUsers(boundedPageSize(url.searchParams.get('pageSize')), cleanToken(url.searchParams.get('pageToken')));
     return json({ configured: true, ...result });
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (new URL(request.url).searchParams.get('action') === 'delete-account') return (await privateOperations()).deletionRequest(request);
   try {
-    await requireAdminToken(request.headers.get('authorization'));
+    await requireAdminToken(request.headers.get('authorization'), request);
     const body = await boundedJson(request, maximumBodyBytes) as { email?: unknown };
     const email = cleanEmail(body.email);
     if (!email) throw new Error('INVALID_EMAIL');
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const authorization = request.headers.get('authorization');
-    await requireAdminToken(authorization);
+    await requireAdminToken(authorization, request);
     const body = await boundedJson(request, maximumBodyBytes) as { uid?: unknown; pretester?: unknown; appAccess?: unknown; scannerLabAccess?: unknown };
     const uid = cleanUid(body.uid);
     const pretesterChange = typeof body.pretester === 'boolean';

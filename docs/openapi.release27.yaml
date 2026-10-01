@@ -7,6 +7,8 @@ info:
     This is a scoped subset, not a complete API catalogue or proof of deployment.
     Rate limiting defaults to monitor; HTTP 429 is enforced only after the server
     operator explicitly configures DOMIDEX_WRITE_RATE_LIMIT_MODE=enforce.
+    Optional App Check observation defaults to off and never changes authorization
+    or otherwise legitimate responses in this stage.
 servers:
   - url: https://domidex.web.app
 security:
@@ -16,6 +18,8 @@ paths:
     post:
       operationId: uploadManualScannerReport
       summary: Upload one explicitly selected manual ScanLab report
+      parameters:
+        - { $ref: '#/components/parameters/AppCheckHeader' }
       description: >-
         Requires current pretester or admin access, revocation-checked Firebase
         authentication and no account-deletion lock. Upload remains voluntary;
@@ -60,6 +64,8 @@ paths:
     post:
       operationId: createBinderShare
       summary: Create an explicit read-only private-binder link
+      parameters:
+        - { $ref: '#/components/parameters/AppCheckHeader' }
       description: >-
         Requires current app/admin access and ownership of the non-deleted binder;
         activation gate must be enabled. Quota is 20 creations per calling UID
@@ -103,6 +109,8 @@ paths:
     delete:
       operationId: revokeBinderShare
       summary: Revoke an owned link independently of the create quota
+      parameters:
+        - { $ref: '#/components/parameters/AppCheckHeader' }
       description: >-
         Requires current owner app/admin access. Does not consume or depend on the
         share-creation budget, including when exhausted or misconfigured.
@@ -127,6 +135,8 @@ paths:
     patch:
       operationId: changeTesterCapability
       summary: Grant or revoke exactly one existing capability
+      parameters:
+        - { $ref: '#/components/parameters/AppCheckHeader' }
       description: >-
         Current admin Firebase authorization is verified in both framework and
         backend; body UID is the target, never the actor. Grants (true) share a
@@ -160,6 +170,18 @@ paths:
         '502': { description: Existing generic Auth administration failure }
         '503': { $ref: '#/components/responses/Unavailable' }
 components:
+  parameters:
+    AppCheckHeader:
+      name: X-Firebase-AppCheck
+      in: header
+      required: false
+      description: >-
+        Optional independently verified Firebase App Check JWT, never a substitute
+        for Authorization. Only off/monitor exist; default off. Monitor waits at
+        most a 250ms timer budget after successful Auth and records fixed labels
+        only. Missing/invalid/wrong-app/timeout does not reject the request.
+        Verifier network work is not cancelled by the response wait budget.
+      schema: { type: string, maxLength: 4096 }
   securitySchemes:
     firebaseBearer:
       type: http

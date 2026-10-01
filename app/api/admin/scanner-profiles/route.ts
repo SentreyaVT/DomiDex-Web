@@ -13,7 +13,7 @@ type Action = 'saveDraft' | 'markTesting' | 'createCandidate' | 'publish' | 'rol
 
 export async function GET(request: Request) {
   try {
-    await requireScannerLabToken(requiredAuthorization(request));
+    await requireScannerLabToken(requiredAuthorization(request), request);
     const authorization = await (await privateOperations()).serverAuthorization();
     const [profiles, rawVersions, benchmarks, manifest] = await Promise.all([
       listDocuments('scannerProfiles', authorization), listDocuments('scannerProfileVersions', authorization),
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const token = await requireAdminToken(requiredAuthorization(request));
+    const token = await requireAdminToken(requiredAuthorization(request), request);
     const body = await boundedJson(request, maximumBodyBytes) as { action?: Action; profile?: unknown; sourceDocumentId?: string; confirm?: string; changelog?: string };
     if (!body.action) throw new Error('INVALID_ACTION');
     const publicationBlock = scannerProductionActionBlockReason(body.action);

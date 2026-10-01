@@ -17,25 +17,29 @@ export async function verifyFirebaseToken(authorization: string | null): Promise
   return payload as VerifiedFirebaseToken;
 }
 
-export async function requireAdminToken(authorization: string | null) {
-  return currentAuthorization(authorization, 'admin', 'ADMIN_REQUIRED');
+export async function requireAdminToken(authorization: string | null, request?: Request) {
+  return currentAuthorization(authorization, 'admin', 'ADMIN_REQUIRED', request);
 }
 
-export async function requireScannerLabToken(authorization: string | null) {
-  return currentAuthorization(authorization, 'scannerLab', 'SCANNER_LAB_REQUIRED');
+export async function requireScannerLabToken(authorization: string | null, request?: Request) {
+  return currentAuthorization(authorization, 'scannerLab', 'SCANNER_LAB_REQUIRED', request);
 }
 
-export async function requirePretesterToken(authorization: string | null) {
-  return currentAuthorization(authorization, 'tester', 'PRETESTER_REQUIRED');
+export async function requirePretesterToken(authorization: string | null, request?: Request) {
+  return currentAuthorization(authorization, 'tester', 'PRETESTER_REQUIRED', request);
 }
 
-export async function requireAppAccessToken(authorization: string | null) {
-  return currentAuthorization(authorization, 'app', 'APP_ACCESS_REQUIRED');
+export async function requireAppAccessToken(authorization: string | null, request?: Request) {
+  return currentAuthorization(authorization, 'app', 'APP_ACCESS_REQUIRED', request);
 }
 
-async function currentAuthorization(authorization: string | null, role: 'admin' | 'tester' | 'app' | 'scannerLab', denied: string): Promise<VerifiedFirebaseToken> {
+async function currentAuthorization(authorization: string | null, role: 'admin' | 'tester' | 'app' | 'scannerLab', denied: string, request?: Request): Promise<VerifiedFirebaseToken> {
   if (!authorization) throw new Error('AUTH_REQUIRED');
-  try { return await (await privateOperations()).authorize(authorization, role); }
+  try {
+    const backend = await privateOperations();
+    return request ? await backend.authorize(authorization, role, undefined, request)
+      : await backend.authorize(authorization, role);
+  }
   catch (error) {
     if (error instanceof Error && ['ACCESS_DENIED', 'ACCOUNT_DELETING'].includes(error.message)) throw new Error(denied);
     throw error;

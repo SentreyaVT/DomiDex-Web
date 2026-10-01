@@ -2,7 +2,9 @@ import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { getAppCheck } from 'firebase-admin/app-check';
 import { createWriteRateLimiter, rateLimitResponse } from './rate-limit.mjs';
+import { observeAppCheck } from './app-check.mjs';
 
 export function services() {
   const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
@@ -16,6 +18,7 @@ export function services() {
     // Lazy validation only for limited writes: misconfiguration must not disable
     // revocation, deletion, normal reads or authentication itself.
     consumeWriteQuota: (policy, uid) => createWriteRateLimiter(db)(policy, uid),
+    appCheck: { verifyToken: token => getAppCheck(app).verifyToken(token) },
   };
 }
 
@@ -56,6 +59,9 @@ export async function actorFor(request, context, role) {
   if ((role === 'admin' && !admin) || (role === 'tester' && !tester) || (role === 'app' && !appAccess)
     || (role === 'scannerLab' && !scannerLabAccess)) fail('ACCESS_DENIED', 403);
   if ((await context.db.doc(`accountDeletionLocks/${decoded.uid}`).get()).exists) fail('ACCOUNT_DELETING', 403);
+  // Authentication is complete before optional request-local observation. This
+  // monitor never changes authorization and does not consume/replay-check tokens.
+  await observeAppCheck(request, context);
   return { uid: decoded.uid, admin, appAccess, pretester: tester, scannerLabAccess,
     // Kept separate from admin-derived tester access for in-transaction revocation checks.
     pretesterClaim: claims.pretester === true && decoded.pretester === true,

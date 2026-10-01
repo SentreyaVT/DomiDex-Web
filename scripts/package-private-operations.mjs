@@ -7,7 +7,7 @@ const root = process.cwd();
 const sourceDirectory = path.join(root, 'backend', 'security');
 const outputDirectory = path.join(root, 'dist', 'standalone', 'backend', 'security');
 const knowledgeOutputDirectory = path.join(root, 'dist', 'standalone', 'backend', 'scan-knowledge');
-const files = ['package.json', 'firebase.mjs', 'images.mjs', 'deletion.mjs', 'routes.mjs', 'access.mjs', 'sharing.mjs', 'reviewed-knowledge.mjs', 'rate-limit.mjs'];
+const files = ['package.json', 'firebase.mjs', 'images.mjs', 'deletion.mjs', 'routes.mjs', 'access.mjs', 'sharing.mjs', 'reviewed-knowledge.mjs', 'rate-limit.mjs', 'app-check.mjs'];
 
 await mkdir(outputDirectory, { recursive: true });
 for (const file of files) {

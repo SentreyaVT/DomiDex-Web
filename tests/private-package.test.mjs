@@ -35,6 +35,7 @@ it('imports all private backend operations from a clean package without relying 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('CLEAN_PACKAGE_IMPORT_OK');
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/rate-limit.mjs'))).toBe(true);
+    expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/app-check.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/cardmarket-identity.mjs'))).toBe(true);
   } finally {
     fs.rmSync(resolved, { recursive: true, force: true });

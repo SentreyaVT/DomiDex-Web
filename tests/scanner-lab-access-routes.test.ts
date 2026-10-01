@@ -56,7 +56,7 @@ describe('Scanner Lab route role boundaries', () => {
     const response = await getReports(request('/api/admin/scan-reports'));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ reports: [{ documentId: 'scan-test' }], total: 1 });
-    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'scannerLab');
+    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'scannerLab', undefined, expect.any(Request));
     expect(boundary.authorize.mock.invocationCallOrder[0]).toBeLessThan(boundary.serverAuthorization.mock.invocationCallOrder[0]);
     expect(boundary.serverAuthorization.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
   });
@@ -79,7 +79,7 @@ describe('Scanner Lab route role boundaries', () => {
       reportId: 'scan-test', reviewStatus: 'IN_REVIEW', reviewNote: 'Review by delegated user',
     }));
     expect(response.status).toBe(200);
-    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'scannerLab');
+    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'scannerLab', undefined, expect.any(Request));
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -94,7 +94,7 @@ describe('Scanner Lab route role boundaries', () => {
     const response = await getProfiles(request('/api/admin/scanner-profiles'));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ profiles: [], versions: [], benchmarks: [] });
-    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'scannerLab');
+    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'scannerLab', undefined, expect.any(Request));
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
@@ -104,7 +104,7 @@ describe('Scanner Lab route role boundaries', () => {
     const response = await postProfile(request('/api/admin/scanner-profiles', labBearer, 'POST', { action: 'saveDraft' }));
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'Administratorrechte erforderlich.' });
-    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'admin');
+    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(labBearer, 'admin', undefined, expect.any(Request));
     expect(boundary.serverAuthorization).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -118,7 +118,7 @@ describe('Scanner Lab route role boundaries', () => {
       vi.stubGlobal('fetch', fetchMock);
       const response = await route.read(request(route.path, authorization));
       expect(response.status).toBe(authorization ? 403 : 401);
-      if (authorization) expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(authorization, 'scannerLab');
+      if (authorization) expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(authorization, 'scannerLab', undefined, expect.any(Request));
       else expect(boundary.authorize).not.toHaveBeenCalled();
       for (const read of Object.values(referenceReads)) expect(read).not.toHaveBeenCalled();
       expect(boundary.serverAuthorization).not.toHaveBeenCalled();

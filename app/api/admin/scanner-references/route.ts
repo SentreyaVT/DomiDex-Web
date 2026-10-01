@@ -6,7 +6,7 @@ import { serverFailure } from '@/lib/server/server-failure';
 export async function GET(request: Request) {
   try {
     const authorization = request.headers.get('authorization');
-    await requireScannerLabToken(authorization);
+    await requireScannerLabToken(authorization, request);
     const requestUrl = new URL(request.url);
     const bridge = await loadLocalScannerBridge(`scanner-references${requestUrl.search}`);
     if (bridge?.ok) return new Response(bridge.body, { status: bridge.status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });

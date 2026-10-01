@@ -47,7 +47,7 @@ describe('scanner admin reads use authorized server credentials', () => {
       reports: [{ documentId: 'scan-test', scanId: 'scan-test', reviewStatus: 'NEW' }],
       total: 1,
     });
-    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab');
+    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab', undefined, expect.any(Request));
     expect(privateAuth.serverAuthorization).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(privateAuth.authorize.mock.invocationCallOrder[0]).toBeLessThan(privateAuth.serverAuthorization.mock.invocationCallOrder[0]);
@@ -66,7 +66,7 @@ describe('scanner admin reads use authorized server credentials', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ reports: [{ documentId: 'scan-test' }], total: 1 });
-    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab');
+    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab', undefined, expect.any(Request));
     expect(privateAuth.serverAuthorization).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(privateAuth.authorize.mock.invocationCallOrder[0]).toBeLessThan(privateAuth.serverAuthorization.mock.invocationCallOrder[0]);
@@ -89,7 +89,7 @@ describe('scanner admin reads use authorized server credentials', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(await response.json()).toMatchObject({ profiles: [], versions: [], benchmarks: [], manifest: { documentId: 'production' } });
-    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab');
+    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab', undefined, expect.any(Request));
     expect(privateAuth.serverAuthorization).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.map(([input]) => new URL(requestUrl(input)).pathname.split('/documents/')[1]).sort()).toEqual([
       'scannerBenchmarks', 'scannerProfileVersions', 'scannerProfiles', 'scannerReleaseManifest/production',
@@ -119,7 +119,7 @@ describe('scanner admin reads use authorized server credentials', () => {
       const response = await route.get(request(route.path, 'Bearer ordinary-session-test'));
 
       expect(response.status).toBe(403);
-      expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith('Bearer ordinary-session-test', 'scannerLab');
+      expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith('Bearer ordinary-session-test', 'scannerLab', undefined, expect.any(Request));
       expect(privateAuth.serverAuthorization).not.toHaveBeenCalled();
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -163,7 +163,7 @@ describe('scanner admin reads use authorized server credentials', () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab');
+    expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab', undefined, expect.any(Request));
     expect(privateAuth.serverAuthorization).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

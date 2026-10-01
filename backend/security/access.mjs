@@ -3,10 +3,12 @@ import { actorFor, fail, services } from './firebase.mjs';
 import { consumeWriteQuota } from './rate-limit.mjs';
 
 // Invoked only by authenticated server routes, never exposed as a general API.
-export async function authorize(authorization, role, context = services()) {
-  const actor = await actorFor(new Request('https://domidex.web.app/', {
+export async function authorize(authorization, role, context = services(), originalRequest) {
+  if (originalRequest && originalRequest.headers.get('authorization') !== authorization) fail('AUTH_REQUIRED', 401);
+  const request = originalRequest ?? new Request('https://domidex.web.app/', {
     headers: authorization ? { authorization } : {},
-  }), context, role);
+  });
+  const actor = await actorFor(request, context, role);
   return { ...actor, sub: actor.uid };
 }
 

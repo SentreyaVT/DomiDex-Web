@@ -13,7 +13,7 @@ const maximumReviewBodyBytes = 32 * 1024;
 
 export async function GET(request: Request) {
   try {
-    await requireScannerLabToken(requiredAuthorization(request));
+    await requireScannerLabToken(requiredAuthorization(request), request);
     const authorization = await (await privateOperations()).serverAuthorization();
     const url = new URL(request.url);
     // The deployed legacy client cannot follow cursors and requests the full list.
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const actor = await requireScannerLabToken(requiredAuthorization(request));
+    const actor = await requireScannerLabToken(requiredAuthorization(request), request);
     const body = await boundedJson(request, maximumReviewBodyBytes) as {
       reportId?: unknown;
       reviewStatus?: unknown;

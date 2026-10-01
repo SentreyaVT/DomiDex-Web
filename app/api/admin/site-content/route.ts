@@ -12,7 +12,7 @@ const documentUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/d
 export async function PUT(request: Request) {
   try {
     const authorization = request.headers.get('authorization');
-    await requireAdminToken(authorization);
+    await requireAdminToken(authorization, request);
     const content = validateContent(await boundedJson(request, maximumBodyBytes));
     const response = await fetch(documentUrl, {
       method: 'PATCH',

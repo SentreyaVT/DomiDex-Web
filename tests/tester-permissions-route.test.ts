@@ -67,7 +67,7 @@ describe('admin-only Scanner Lab role delegation', () => {
       configured: true, tokenRefreshRequired: true,
       user: { uid: 'reviewer-uid', scannerLabAccess: enabled, admin: false, appAccess: true, pretester: true },
     });
-    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'admin');
+    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'admin', undefined, expect.any(Request));
     expect(boundary.changeRole).toHaveBeenCalledExactlyOnceWith('reviewer-uid', 'scannerLabAccess', enabled, adminBearer);
     expect(boundary.authorize.mock.invocationCallOrder[0]).toBeLessThan(boundary.changeRole.mock.invocationCallOrder[0]);
     expect(boundary.changeRole.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
@@ -81,7 +81,7 @@ describe('admin-only Scanner Lab role delegation', () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'Administratorrechte erforderlich.' });
-    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(authorization, 'admin');
+    expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(authorization, 'admin', undefined, expect.any(Request));
     expect(boundary.changeRole).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
