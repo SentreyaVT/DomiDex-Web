@@ -240,3 +240,119 @@ Der neue Aktions-/Kontowechselschutz wurde anschließend separat nachgewiesen:
 Diese Prüfung verwendete ausschließlich lokale Mocks, keine reale Löschung/Abmeldung.
 Der AuthProvider und das Backend wurden nicht geändert. Die neue Testsuite ist im
 versionierten lokalen Regressionsrunner enthalten. Kein Deployment.
+
+Ein zweiter unabhängiger Review fand zusätzlich den **noch nicht gestarteten**
+Vorgang: nach alter Checkboxbestätigung und beobachtetem A→B→A konnte vor Reacts
+State-Commit ein alter Button-Handler eine neue Aktion beginnen. `consentGeneration`
+wird jetzt bei Ownerwechsel, Abwahl und Unmount synchron widerrufen und beim Start
+geprüft. Eine gleiche UID mit neuer SDK-Userobjektinstanz bleibt zulässig.
+Genau dieser Fall war zunächst rot; der finale identische 19er-Teststand gegen eine
+isolierte Kopie von `876012b` ergibt **15 FAIL / 4 PASS**, gegen den Fix **19/19 PASS**.
+Produktdateien wurden für diesen Gegenvergleich nicht zurückgewechselt.
+Fokusregression: **50/50**; Root-Gesamtregression **1.050/1.050 in 66 Dateien, 33,73 s**.
+Belege: `gate10-account-deletion-consent-red.log`,
+`gate10-account-deletion-final19-original-red.log`, `gate10-account-deletion-session-final.log`
+im obigen Baseline-Verzeichnis; Root `outputs/release-local/2026-10-01T03-46-31-932Z-16420.{json,log}`.
+Typecheck, enger Lint und finaler unabhängiger Diff-Review ohne weiteren Befund.
+
+## Tatsächliche lokale Firebase-Regression
+
+Die unveränderten `tests/private-operations.test.mjs` wurden zusätzlich mit echten
+lokalen Auth-/Firestore-/Storage-Emulatoren gegen die Backendmodule ausgeführt:
+**27/27 PASS** (sieben Sharing-, zwölf Bild-/Auth- und acht Kontolöschfälle), 41,76 s
+Vitest / 76,94 s gesamter Runner. Ownertrennung, Wiederaufnahme, Teilfehler, finale
+Cleanupfehler und überholte Evidence sind enthalten. Keine echten Nutzer oder Cloud-Daten.
+
+Demo-Projekt `demo-domidex-privacy`, leere CLI-/CloudSDK-/APPDATA-Profile, entfernte
+Credential-/Proxyvariablen, `envDir:false` und Node-Loopbackguard. Alle sechs reservierten
+Emulatorports waren nach dem Lauf wieder frei. Java ist nicht durch diesen Nodeguard
+instrumentiert; dies ist keine Behauptung einer Betriebssystem-Netzsperre.
+Provider-Retention, Soft-Delete-Versionen und Zeitfortschritt sind gezielte Fixtures,
+kein Nachweis eines wirklichen Cloud-Purge oder eines UI-/Worker-End-to-End-Laufs.
+
+Belege: `outputs/release27-engineering-20261001/security-gate10-deletion/evidence.json`
+und Unterverzeichnis `run-20261001-054852-250c84e7` mit Log/JSON. Dieser erste lokale
+Runner liegt in ignorierten Arbeitsartefakten; ein eigenständig versionierbarer
+Runner wird separat geprüft. Die testenden Backendmodule/Rules wurden nicht verändert.
+
+## Enger Android-Folgefix: kontogebundenes Feedback und lokaler Backupbeleg
+
+Der oben festgehaltene Export-Ausgangsbefund ist im lokalen Release-27-Quellstand
+behoben. Neue Feedback-Metadaten besitzen eine explizite `ownerUid`; fehlender Owner
+bedeutet weiterhin unbekannten Altbestand, niemals automatisch Guest oder das gerade
+angemeldete Konto. Alte Metadaten/Bilder werden nicht migriert, gelöscht oder
+umgeschrieben. Kontoexport und lokale Auflistung filtern den exakt erfassten Owner.
+Im portablen Feedback-Manifest wird die lokale Owner-UID nicht mit ausgegeben.
+
+Die UI erfasst `LocalDataSession` **vor** dem Datei-Auswahldialog bzw. beim Öffnen
+des lokalen Feedbackeditors. Room-Backup, Feedback, Importbestätigung und Kopieren
+zur gewählten Ziel-URI verwenden anschließend denselben Owner-/Generationsbeleg.
+Es erfolgt keine nachträgliche neue Firebase-Authentifizierung, um einen alten
+Vorgang in ein inzwischen anderes Konto umzuleiten. Der lokale Guard verlangt
+keine Cloud-Freigabe: Guest und offline genutzte Konten ohne App-Zugangsrecht bleiben
+für ihre eigenen lokalen Daten nutzbar. Eine getrennte lokale Ownergeneration und
+aktueller lokaler Owner verhindern die geprüften beobachteten A→B→A-Wechsel. Gleiche
+UID bei Tokenrefresh oder `requestSync` invalidiert diese lokale Lease nicht; der
+bisherige strengere Cloud-Konfliktguard bleibt unverändert.
+
+Import benötigt weiterhin die explizite Bestätigung. Feedback wird an diesen
+Zielbeleg gebunden, beliebige Ownerwerte im Archiv werden nicht übernommen.
+Neue Saves überschreiben keine bereits vorhandene ID; fremde bzw. unzugeordnete
+Import-ID-Kollisionen werden vor Änderungen abgelehnt. Derselbe bereits importierte
+eigene Eintrag bleibt idempotent. Ein kleiner Prozesslock verhindert kollidierende
+lokale Feedback-Dateischreibvorgänge. Dateipfade und vorhandenes Importjournal bleiben
+unverändert; keine neue Room-Tabelle, Cloud-/Consentmigration oder Uploadfunktion.
+
+Der bestehende Importjournal-/Room-Verbund rollt bei ungültiger Sitzung vor Commit
+nur neu angelegte Dateien/Daten zurück. Bei bereits bestätigtem Commit wird ein
+nachfolgender Kontowechsel nicht als rückrollbarer Importfehler behandelt. Zusätzlich
+sichern Guards im alten Backupformat die echte suspendierende Markerabfrage und den
+letzten Markerwrite unmittelbar vor Transaktionsende ab.
+
+Lokale RED→GREEN-Nachweise im Android-Repository:
+
+- Fünf neue tatsächliche Storetests zunächst **5 FAIL / 0 PASS**: fremder Export,
+  Altbestandexport, fehlende Zielbindung sowie fremde/Legacy-Save-ID-Kollisionen.
+- Danach erweiterte Gruppe **44 PASS / 2 FAIL**: die zwei unabhängigen Reviewfälle
+  verwenden echte Room-Query-Callbacks an den letzten Legacy-DAO-Grenzen. Nach den
+  unmittelbar folgenden Guards **46/46 Instrumentierungstests, 21,099 s** auf
+  `emulator-5554`; davon 20 neue Owner-/Journalfälle und 26 vorhandene Backup-/Privacyfälle.
+- **6/6 neue JVM-Tests** für lokalen Guard, Guest/offline, ABA und überprüften
+  Streamtransfer. Debug-/Test-APK und Release-Kotlin kompilieren; finaler Build 12 s.
+- Ein erster Build des erweiterten Tests scheiterte an fehlenden Pflichtfeldern
+  meiner Testfixture, nicht am Produktcode; Fixture korrigiert, erneuter Build grün.
+  Keine Testaussage wurde dafür abgeschwächt. Unabhängiger read-only Endreview ohne
+  verbleibenden konkreten Befund im engen Fix.
+
+Root entdeckte anschließend eine weitere Kopplung im ersten Fix: Die Cloud-
+Entitlementgeneration stieg auch bei gleicher UID. Ein Legacy-Import konnte sich
+durch seinen eigenen `addManualCard → onSyncNeeded → requestSync` ohne Cloudzugang
+selbst abbrechen. Die zuvor gemessenen 46/46 und 6/6 gelten daher ausdrücklich vor
+dieser Reviewkorrektur. Das extrahierte Ereignisverhalten wurde zunächst unverändert
+mit **1 FAIL / 7 PASS JVM** und **1 FAIL / 0 PASS echtem Legacy-Room-Import** reproduziert.
+Die nun getrennte lokale Generation steigt ausschließlich bei beobachtetem UID-Wechsel
+oder `close`; Cloud-Entitlement-/Konfliktgenerationen bleiben unverändert.
+
+Final: **8/8 JVM**, **47/47 Emulatorfälle in 20,267 s**, Debug-/Test-APK und
+Release-Kotlin grün (12 s), unabhängiger enger UID-Generation-Endreview ohne Blocker.
+Zusatzbelege: `gate10-feedback-local-generation-red-{build,emulator}.log` und
+`gate10-feedback-local-generation-final-{build,emulator}.log` im selben Android-
+Artefaktverzeichnis. Keine große Gesamtregression für diese Zahlen behauptet.
+
+Tests: `ScanFeedbackOwnerInstrumentedTest` (12), `LocalBackupOwnerInstrumentedTest`
+(9), `LocalDataSessionTest` (8); bestehende `ScanFeedbackStoreTest` wurde ausschließlich
+an die nun explizite Session-API angepasst. Belege unter
+`artifacts/release27-engineering-20261001/`:
+`gate10-feedback-owner-red-{build,emulator}.log`,
+`gate10-feedback-legacy-red-{build,emulator}.log`,
+`gate10-feedback-owner-final-{build,emulator}.log`; JVM-XML im üblichen lokalen
+`app/build/test-results/testDebugUnitTest/`.
+
+Grenzen: kein echter Storage-Provider-/System-Dateipicker-E2E oder Cloud-Löschtest.
+Ein Kontowechsel während des letzten externen Schreibens bricht weitere Chunks ab;
+eine bereits teilweise geschriebene Datei kann am gewählten Speicherort verbleiben.
+Kein Betriebssystem-weites atomisches Rückholen bereits ausgegebener Bytes behauptet.
+Die Scannerqueue **vor** dem expliziten Öffnen des Feedbackeditors wurde nicht neu
+modelliert. Keine Aussage über vollständige Scanner-Owner-E2E. Die allgemeine
+Retention lokaler Daten und unbekannter Altdateien bleibt eine separate Entscheidung.
+Kein Xiaomi-Zugriff, Release-AAB, Release-Signing oder Deployment.
