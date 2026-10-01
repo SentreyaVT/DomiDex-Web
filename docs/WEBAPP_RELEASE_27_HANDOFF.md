@@ -638,3 +638,61 @@ Exemplaranzahl: dieser bestehende Vertrag wurde im Test erhalten, nicht verände
 - Gate 9: Functions-Codebase-Überschneidung/`isCurrentEvidence`-Drift zwischen
   Android und Web auflösen, kanonischen Backend-/Deploy-Eigentümer dokumentieren
   und Regressionstest gegen versehentliches Überschreiben vorsehen.
+
+## Gate 9: lokaler Functions-Deploy-Vertrag (2026-10-01)
+
+Canonical Functions source: `DomiDex-Web/backend/scan-knowledge`
+
+Dieser Abschnitt löst den oben noch als offen geführten **lokalen** Eigentümer-
+und Überschreibschutz auf. Die bestehende Web-`firebase.json` mit Codebase `default`
+ist maßgeblich; Triggerexport, Region und Runtimecode werden hier nicht verändert.
+`isCurrentEvidence` liest aktuelle Evidence-Version und Kontolöschsperre innerhalb
+derselben Transaktion vor der Aggregation. Eine alte Android-Kopie ohne diese
+Prüfung darf das Backend nicht ersetzen. Android erhält daher ausschließlich einen
+unbedingt abbrechenden Functions-Predeploy-Guard; historische Exports bleiben
+vorhanden, Firestore-/Storage-only bleiben davon unberührt. Kein automatischer
+Redirect zum Web-Deployment und keine Env-/Flag-Ausnahme.
+
+`tests/scan-knowledge-trigger.test.mjs` importiert den tatsächlichen exportierten
+Handler. Nur SDK-Grenzen sind gemockt; `current-evidence.js` und
+`knowledge-aggregate.js` laufen echt. Geprüft werden aktuelle Evidence, ersetzte
+Version, fehlendes Dokument, aktive Löschsperre, bereits verarbeiteter Beitrag,
+Guard-Lesefehler sowie fehlende/ungültige Events. Abgelehnte aktuelle Zustände lesen
+keine Aggregate und schreiben keine öffentlichen oder privaten Stimmen. Der Test
+prüft ebenfalls Exportoptionen und lokalen Eigentümervertrag. Er benötigt die
+regulären Web-Testdependencies und die Dependencies von `backend/scan-knowledge`,
+aber weder globale Firebase-CLI noch Credentials, Emulator oder Android-Checkout.
+
+Zusätzlich wurde der lokale Windows-Lifecycle-Runner der vorhandenen Firebase-CLI
+15.28.2 isoliert untersucht: `$PROJECT_DIR` kommt aus `projectRoot`, `cross-env`
+führt den Guard auch bei anderem Arbeitsverzeichnis aus. Functions-, Codebase- und
+Funktionsfilter müssen abbrechen; Firestore-/Storage-only wählen keinen Guard.
+Das ist ein separat ignorierter rechnerabhängiger Harness, keine neue Testdependency
+oder ausgeführte CLI-Anmeldung/Deployment. Konfigurationsschutz ersetzt keine IAM-
+Grenze gegen absichtlich andere Werkzeuge/Konfigurationen.
+
+Offen bleiben Live-Verifikation und eine gesondert autorisierte Veröffentlichung.
+Der SDK-gemockte Trigger-Test beweist die Guardverdrahtung, nicht echte konkurrierende
+Firestore-Transaktionsretries oder den derzeit in Produktion laufenden Code.
+
+Lokale Verifikation: **11/11 Export-/Vertragstests bestanden**, 284 ms Vitest-
+Gesamtdauer, `envDir:false` und gesperrte echte Netzwerkpfade. Im ersten Lauf war
+nur der noch fehlende Dokuvertrag rot (1 FAIL/10 PASS); kein erfundener vorheriger
+Triggerdefekt. Zusätzlich bestehen die drei unveränderten Node-Aggregationstests.
+Gezieltes Oxlint und beide Git-Diffprüfungen sind grün. Belege unter
+`outputs/release27-engineering-20261001/baseline/`: `gate9-trigger-first.log`,
+`gate9-trigger-green.json`, `gate9-trigger-green.log`, `gate9-trigger-lint.log`
+und `gate9-aggregation-green.log`. Die Testdatei ist jetzt in der bestehenden
+expliziten `npm test`-Auswahl enthalten; sie erweitert keine Runtime-Abhängigkeit.
+Der abschließende Typecheck ist ebenfalls grün (`gate9-typecheck-final.log`). Ein
+vorheriger Lauf sah nur die noch unfertige parallele Preiswahlmatrix-Testdatei;
+diese Zwischenfehler wurden von deren Bearbeiter korrigiert, nicht unterdrückt.
+
+Es existiert aktuell keine CI-Pipeline in diesem Repository. Für einen sauberen
+Checkout müssen vor den Tests sowohl die Root- als auch die bereits deklarierten,
+gelockten `backend/scan-knowledge`-Dependencies installiert sein (`npm ci` und
+`npm --prefix backend/scan-knowledge ci`). Ein Root-Install allein installiert
+`firebase-functions` nicht. Der Test überspringt sich bei fehlender Installation
+nicht; er scheitert sichtbar. Hier wurde nichts nachinstalliert, keine CI erfunden
+und kein installierender Pretest-Hook eingeführt. Automatische CI-Abdeckung bleibt
+offen, bis eine Pipeline mit diesen Voraussetzungen separat eingerichtet wird.
