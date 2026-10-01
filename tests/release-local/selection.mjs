@@ -8,6 +8,8 @@ const extraFiles = [
   'tests/account-deletion-ui.test.tsx',
   'tests/account-deletion-session.test.tsx',
   'tests/legal.test.tsx',
+  'tests/shared-binder-price-parity.test.mjs',
+  'tests/shared-binder-catalog-parity.test.mjs',
 ];
 
 export function unitFiles(scripts) {

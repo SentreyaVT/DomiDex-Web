@@ -14,6 +14,9 @@ for (const file of files) {
   let source = await readFile(path.join(sourceDirectory, file), 'utf8');
   if (file === 'images.mjs') source = source.replace("'../../lib/scanner-report.ts'", "'./scanner-report.mjs'");
   if (file === 'sharing.mjs') source = source.replace("'../../lib/shared-binder.ts'", "'./shared-binder.mjs'");
+  source = source.replace("'../../lib/collection-price-selection-codec.ts'", "'./collection-price-selection-codec.mjs'");
+  source = source.replace("'../../lib/catalog-supplement.ts'", "'./catalog-supplement.mjs'");
+  source = source.replace("'../../lib/server/cardmarket-anniversary-prices.ts'", "'./cardmarket-anniversary-prices.mjs'");
   source = source.replace("'../../lib/bounded-json.ts'", "'./bounded-json.mjs'");
   source = source.replace("'../../lib/scanner-feedback.ts'", "'./scanner-feedback.mjs'");
   await writeFile(path.join(outputDirectory, file), source, 'utf8');
@@ -23,10 +26,17 @@ const scannerReport = ts.transpileModule(await readFile(path.join(root, 'lib', '
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
 }).outputText.replace("from './scanner-feedback'", "from './scanner-feedback.mjs'");
 await writeFile(path.join(outputDirectory, 'scanner-report.mjs'), scannerReport, 'utf8');
-for (const file of ['domain', 'cardmarket-identity', 'shared-binder', 'bounded-json', 'scanner-feedback']) {
+for (const file of ['domain', 'cardmarket-identity', 'shared-binder', 'bounded-json', 'scanner-feedback', 'price-alternatives', 'collection-price-selection-codec', 'catalog-supplement']) {
   const source = ts.transpileModule(await readFile(path.join(root, 'lib', `${file}.ts`), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-  }).outputText.replace(/from '\.\/(domain|cardmarket-identity)'/g, "from './$1.mjs'");
+  }).outputText.replace(/from '\.\/(domain|cardmarket-identity|price-alternatives)'/g, "from './$1.mjs'");
+  await writeFile(path.join(outputDirectory, `${file}.mjs`), source, 'utf8');
+}
+for (const file of ['cardmarket-anniversary-prices', 'cardmarket-anniversary-products']) {
+  const source = ts.transpileModule(await readFile(path.join(root, 'lib', 'server', `${file}.ts`), 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  }).outputText.replace("from '@/lib/bounded-json'", "from './bounded-json.mjs'")
+    .replace("from './cardmarket-anniversary-products'", "from './cardmarket-anniversary-products.mjs'");
   await writeFile(path.join(outputDirectory, `${file}.mjs`), source, 'utf8');
 }
 await mkdir(knowledgeOutputDirectory, { recursive: true });

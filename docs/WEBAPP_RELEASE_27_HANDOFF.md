@@ -13,8 +13,9 @@ Web-Implementierung im Android-Repository pflegen.
   der neun `node:test`-Regeltests. Keine Assertion abgeschwächt, keine Suppression.
 - **Gate 2 danach lokal implementiert, noch nicht veröffentlicht:** verteilter
   UID-Schreib-Limiter, serverseitige Revalidierung der Rollenvergabe, zugehöriger
-  exakter Kontolösch-Cleanup und Packaging-Importfix. Zusätzliche
-  Umfangreiche Preis-/Sharing-Architekturänderungen sind weiterhin nicht umgesetzt.
+  exakter Kontolösch-Cleanup und Packaging-Importfix. Spätere gezielte Preis-/Sharing-
+  Korrekturen sind unten getrennt dokumentiert; dies ist kein vollständiger
+  Skalierungs- oder zentraler Preisversorgungsumbau.
 - **Gate 3 danach lokal implementiert, noch nicht aktiviert:** optionale
   App-Check-Beobachtung, Default-off; keine neue Zugangssperre oder Enforcement.
 - **Gate 4: isolierter Listener-Lifecycle-Fix lokal implementiert:** Preiswahl-
@@ -22,6 +23,9 @@ Web-Implementierung im Android-Repository pflegen.
   Wiederverbindungsbutton. Die vorhandenen Owner-Listener verarbeiten jetzt
   inkrementelle SDK-Dokumentänderungen; die Remote-Queries bleiben unverändert.
   Noch keine paginierte allgemeine Initial-/Delta-Sync-Architektur.
+- **Gate 6: Preisparität lokal implementiert, nicht deployed:** bestätigte
+  Alternativpreise sowie bestehende geprüfte Katalog-/Guide-Ergänzungen auch in
+  freigegebenen Bindern; getrennte Preis-Opt-ins und öffentliche DTO-Grenzen bleiben.
 - Kein Deployment, kein produktiver Firebase-Zugriff, keine Rollenänderung, kein
   Google-Play-Aufruf und kein Android-Build durch diesen Web-Prüfabschnitt.
   Aus vorhandenem Quellcode folgt keine Behauptung über den derzeitigen Live-Stand.
@@ -476,10 +480,11 @@ Typecheck/Lint/Diffprüfung. Andere Zuordnungen wurden nicht geändert.
 - Sharing liest neun Plätze pro Seite, höchstens 5.000 Platzierungen, Katalog mit
   sechs parallelen Abrufen und gemeinsamer 12-s-Grenze. Mit freigegebenem Gesamtwert
   werden alle belegten Plätze aufgelöst. Große Binder benötigen einen Lasttest.
-- **Bestätigte Architekturabweichung:** dieser Sharing-Katalogpfad lädt TCGdex
-  direkt; er übernimmt weder den Anniversary-Priceguide-Zusatz des Web-Resolvers
-  noch `collectionPriceSelections`. Eine identische alternative Bewertung in einer
-  freigegebenen Ansicht ist daher noch nicht zugesichert.
+- Die zunächst bestätigte Abweichung beim Sharing-Katalogpfad ist lokal gezielt
+  korrigiert: vorhandene Supplement-/Guide-Anreicherung und exakt gebundene
+  `collectionPriceSelections` werden nach den unten beschriebenen Preis-Opt-ins
+  berücksichtigt. Das ist kein Nachweis über den aktuell ausgelieferten Dienst;
+  pauschale Preisvollständigkeit aller Karten bleibt ausdrücklich unbewiesen.
 - Web-Preiswahl: `users/{uid}/collectionPriceSelections/{entrySyncId}`, Schema 1.
   Metadaten: `ownerUid`, `entrySyncId`, `revision`, `lastMutationId`, serverseitiges
   `updatedAt`, `updatedAtClient`, `cleared`. Preisidentität: `sourceSetId`,
@@ -572,16 +577,18 @@ falsche Binder-ID) lieferten zuerst 200 statt 404. Danach 23/23 fokussierte Test
 Root-Verifikation: 87/87 Tests in neun Sharing-/Lösch-/Packaging-Dateien sowie 4/4
 separate Node-Kompatibilitätstests bestanden. Diese Auswahl überschneidet sich mit
 den 962 Webtests und wird nicht dazuaddiert. Belege: `gate6-root-final-guard-results.json`
-und `gate6-root-deletion-compat.log`. DTO, Freigabeoptionen, Cache, Schema, Preise
-und Sidecars bleiben unverändert. Keine Live-Firebase- oder signierte-v26-E2E-Prüfung.
+und `gate6-root-deletion-compat.log`. In diesem abgegrenzten Guardfix blieben DTO,
+Freigabeoptionen, Cache, Schema, Preise und Sidecars unverändert; die spätere lokale
+Preisparitätskorrektur ist separat dokumentiert. Keine Live-Firebase- oder signierte-v26-E2E-Prüfung.
 
 Die größere Skalierungsarbeit bleibt offen: Die jetzige globale Slotkollisions-
 auflösung reserviert alle belegten Plätze und verschiebt Überläufe kontrolliert.
 Eine naive Slotbereichs-Abfrage würde Karten/Seitenzahl verlieren. Materialisierte
 Seiten und Gesamtwerte benötigen einen eigenen kompatiblen Invalidierungsvertrag.
-Rechte-/Binder-/Share-Daten bleiben ungecacht, Antworten `no-store`. Ein späterer
-Katalog-Cache darf ausschließlich validierte öffentliche Daten verwenden; fremde
-Bildhosts und private alternative Preiswahlen werden nicht still veröffentlicht.
+Rechte-/Binder-/Share-Daten bleiben ungecacht, Antworten `no-store`. Der unten
+beschriebene öffentliche Katalog-Cache enthält keine privaten Preiswahlen.
+Fremde Bildhosts bleiben ausgeschlossen; bestätigte Alternativen werden nur unter
+den unveränderten expliziten Preis-/Gesamtwert-Opt-ins ausgegeben.
 
 ### Gate 6: reproduzierbare 5.000-Platzierungen-Simulation
 
@@ -625,8 +632,9 @@ Exemplaranzahl: dieser bestehende Vertrag wurde im Test erhalten, nicht verände
 - Android/Web-Migration und bidirektionale Preiswahl: bestehende Nutzer, parallele
   Änderungen, Offline/Online, Revisionskonflikte, Accountwechsel, Tombstones,
   Wiederkehr eines Trendpreises, Rollenentzug und Löschsperre testen.
-- Sharing-/Alternativpreis-Entscheidung explizit treffen; Sichtbarkeitsoptionen und
-  Datenschutz-Allowlist erhalten, alte Links/Widerruf/Android-Web-Fallback testen.
+- Die unten lokal implementierte Sharing-/Alternativpreisentscheidung separat
+  vollständig abnehmen: alte Links, Widerruf, reales Android-Web-Fallback und
+  Veröffentlichung sind durch die fokussierten lokalen Tests nicht bewiesen.
 - Rate-Limit: Parallelität über Instanzen, Transaktionsretry, Ablauf, 429/UI,
   Infrastrukturfehler und nicht blockierter Widerruf prüfen; IP-Grenze nachweisen.
 - Große Sammlung/Binder mit warmem und kaltem Cache end-to-end messen. Der oben
@@ -808,3 +816,159 @@ Nachweise im ignorierten `outputs/release27-engineering-20261001/baseline/`:
 Unabhängiger Root-Gegenlauf der erweiterten Regression: **1.013/1.013 Tests in
 63 Dateien bestanden**, 22,05 s. Nachweis: `gate6-root-viewer-regressions.{json,log}`
 im selben ignorierten Verzeichnis, ohne Umgebungsdateien oder externes Netzwerk.
+
+## Gate 6: Preisparität freigegebener Binder — lokal, nicht deployed (2026-10-01)
+
+Zwei eng begrenzte Abweichungen wurden test-first korrigiert: Der Share-Handler
+berücksichtigte weder die gespeicherte bestätigte Alternativpreiswahl noch die
+vorhandenen geprüften Supplement-/Jubiläums-Guide-Ergänzungen des Kartenresolvers.
+Geändert sind der Share-Pfad, reine Decoder-/DTO-Helfer, die öffentliche Cache-
+Moduswahl, der Web-Preistext und deren Standalone-Packaging. Keine neuen Rules,
+Dokumentschemata, Produktzuordnungen, Dependencies oder Cloud-Einstellungen.
+
+### Private Preiswahl: genaue Read- und Freigabegrenze
+
+- `showPrices` und `showTotal` bleiben unabhängig und standardmäßig aus. Nur wenn
+  mindestens eines ausdrücklich `true` ist, kommen Preiswahl-Reads infrage.
+- Gelesen werden ausschließlich bereits benötigte Collection-Einträge mit exakter
+  Dokument-/Sync-ID, aktiver Ownerbindung, geprüfter Karten-/Set-/Nummer-/Varianten-
+  und Produktidentität, Quelle `CARDMARKET_PUBLIC_DOWNLOAD` und **fehlendem gültigem
+  Trendpreis**. Kein Read bei vorhandenem Trend, unklarer Druckvariante oder bei
+  ausschließlich bildlicher Freigabe. Ohne Gesamtwert werden nur die Einträge der
+  angeforderten Seite benötigt; mit Gesamtwert weiterhin alle sichtbaren Plätze.
+- Nur die eindeutigen benötigten Pfade
+  `users/{owner}/collectionPriceSelections/{entrySyncId}` werden mit `getAll`
+  gelesen, jeweils **höchstens 100 Referenzen pro Batch**, keine Owner-weite Query.
+  Bis zu 5.000 unterschiedliche geeignete Einträge bedeuten höchstens 50 solcher
+  Batches zusätzlich, nicht konstante Kosten für einen beliebig großen Binder.
+- Der vorhandene Decoder wurde ohne Vertragsänderung in
+  `lib/collection-price-selection-codec.ts` extrahiert und clientseitig re-exportiert;
+  der Server importiert kein Firebase-Clientmodul. Decoder und bestehendes
+  `manualSelectionPrice` prüfen Schema, Owner, Eintrag, genaue Identität, Metrik,
+  Währung und Werte. Fehlende, gelöschte, widersprüchliche oder ungültige Wahlen
+  erfinden keinen Preis. Ein gültiger Trend hat weiterhin Vorrang.
+- Sidecars bleiben in einer **Request-lokalen** Map, niemals im öffentlichen Cache.
+  Bei nur `showTotal` wird die intern benötigte Einzelpreisprojektion vor Ausgabe
+  entfernt. Summen zählen sichtbare Platzierungen, nicht die private Exemplaranzahl.
+  Abschließende Prüfungen von Widerruf, Auth-/Zugangsstatus, Löschsperre und Binder
+  nach der Katalog-/Sidecararbeit bleiben erhalten; Antwort weiterhin `no-store`.
+
+### Öffentlicher Katalog und Zeitbudgets
+
+Die bestehende Supplement-/Guide-Anreicherung läuft **vor** der Cache-Projektion,
+damit unter anderem Sonderdruck-/Subtype- und Produktkonflikte noch geprüft werden.
+Die vorhandene exakte EN-Bildfallback-Prüfung und `assets.tcgdex.net`-Allowlist
+bleiben unverändert. Supplemente mit anderem Bildhost können daher eine korrekt
+zugeordnete Karte/Preis liefern, aber weiterhin `image: null`; kein neuer Bildhost.
+
+`public-catalog-cache.mjs` unterscheidet ausschließlich die festen öffentlichen
+Modi `raw` (Default, keine Guide-Anreicherung) und `prices`, samt fester Resolver-
+Version. Keine UID, Freigabetokens oder Sidecars in den Keys. Beide Modi teilen
+**dieselben** Grenzen: 8.192 Einträge, 32 MiB serialisierte Nutzdaten, 128 KiB je
+cachebarem Eintrag, 60 Sekunden ursprüngliche TTL und höchstens 64 registrierte
+In-flight-Jobs. Letzteres begrenzt die Deduplizierungsverwaltung, **nicht** global
+alle parallelen Providerarbeiten; der bestehende ungecachte Overflow bleibt.
+
+Ein erster Wechsel `raw` → `prices` oder umgekehrt benötigt bewusst einen eigenen
+Providerabruf, damit ein unaufgelöster Raw-Treffer keinen Preisdatensatz ersetzt.
+Danach wird nur innerhalb desselben Modus wiederverwendet. Ein synthetischer
+Raw/Prices/warmer-Prices-Lauf ergab Provideraufrufe **1/1/0**, private logische Reads
+weiterhin **9/9/9**. Das ist keine Behauptung eingesparter Firestore-Reads oder
+gemessener Cloud-Latenz. Request-/Jobabbruch verhindert spätes Cache-Wärmen.
+
+Der Share-Katalog behält sechs Worker und sein gemeinsames **12-Sekunden-Consumer-
+Budget**. Der wiederverwendete, pro Prozess geteilte Guide hat weiterhin sein
+eigenes **6-Sekunden-Budget**. Beginnt er spät, darf die Share-Antwort vorher abbrechen;
+der geteilte Guide kann bis zu seiner eigenen Grenze weiterlaufen, weil andere
+Aufrufer ihn verwenden könnten. Keine Zusage, dass ein Consumerabbruch sofort
+sämtliche zugrunde liegende Netzwerk-/SDK-Arbeit beendet. Lokale Tests verwenden
+nur Provider-Doubles, keine neuen Preisdownloads.
+
+### DTO-Kompatibilität und Preisgrenzen
+
+Quelle `Cardmarket`, Währung `EUR` und ursprüngliches Quelldatum bleiben erhalten.
+Bei akzeptierter manueller Alternative enthält der Einzelpreis optional
+`basis: "selection"`; Web zeigt „Gewählte Cardmarket-Kennzahl“, nicht „Trend“.
+Der bestehende Android-Parser ignoriert dieses additive Feld und zeigt weiterhin
+die generische Cardmarket-Quelle. Dieser Schritt ändert keine Android-UI.
+
+Der bestehende Android-Wirevertrag erlaubt endliche Beträge von 0 bis einschließlich
+**1.000.000.000 EUR**. Ein größerer Einzelbetrag wird im öffentlichen DTO `null`,
+ohne irreführendes `basis`, ohne Clamp und ohne Änderung des gespeicherten oder
+regulären Sammlungspreises. Dadurch sinkt nur die echte Zahl verfügbarer Preise.
+Übersteigt ausschließlich die vollständige Summe den Bereich, fehlt das optionale
+`total`-Feld ganz. Keine erfundenen Counts: Android verlangt gleichzeitig
+`complete == (pricedCards == visibleCards) == (amount != null)`. Unvollständige
+Summen behalten ihre tatsächlichen Counts und `null/false`; leere Binder behalten
+den bisherigen vollständigen Null-Euro-Gesamtwert. Web zeigt fehlende Beträge
+nicht als 0 an. Die Summenrechnung bleibt bei 5.000 × 100.000.000.000 Cent innerhalb
+des sicheren Integerbereichs.
+
+### Enger lokaler Nachweis und verbleibende Grenzen
+
+- A: zunächst **10 FAIL / 23 PASS**; sechs Preisfälle und vier Fälle, deren neuer
+  Sidecar-Read-Hook vorher nicht erreicht wurde. Letztere nicht als früheren
+  eigenständigen Berechtigungs-Exploit ausgeben.
+- B: **10 FAIL / 21 PASS** für Loader-/Modusparität vor der Korrektur.
+- Android-Domain: **3 FAIL / 38 PASS** für zwei übergroße Einzelpreise und eine
+  übergroße Gesamtsumme vor der DTO-Grenze.
+- Abschließend **103/103 in sechs Testdateien**, 8,14 s, isoliert mit
+  `envDir:false`, Netzwerk-Preload und einem Worker: Preisparität 41,
+  Katalogparität 11, Cache 20, Handler 15, Viewer 15 und sauberer Paketimport 1.
+  Der echte Handler-Cache-Test prüft zwei Owner mit unterschiedlichen Wahlen,
+  nur einem Providerfetch und frischem Clear. Tests nutzen keine produktiven Daten.
+- Unabhängiger Source-Review ohne konkreten Blocker; Diffprüfung bestanden.
+  Dies ist **keine neue vollständige Regression, kein Browser-/Android-E2E und
+  keine Live-Verifikation**. Ein zusätzlicher lokaler Lintversuch wurde vom
+  Test-Preload beim `tsgolint`-Kindprozess blockiert und zählt nicht als Lint-PASS;
+  kombinierte Typecheck-/Lint-/Gesamtläufe werden getrennt dokumentiert.
+
+Ignorierte lokale Nachweise unter `outputs/release27-engineering-20261001/baseline/`:
+`gate6-price-parity-a-red.log`, `gate6-price-parity-b-red.log`,
+`gate6-price-parity-domain-red.log`, `gate6-price-parity-ab-focused.log`.
+Die neuen Tests liegen versionierbar in `tests/shared-binder-price-parity.test.mjs`
+und `tests/shared-binder-catalog-parity.test.mjs`; bestehende Cache-/Viewer-/Package-
+Tests wurden gezielt ergänzt. Die 103 nicht zu früheren überlappenden Zahlen addieren.
+
+### Unabhängige Abschlussläufe dieses lokalen Teilblocks
+
+Root-Gesamtauswahl: **1.104/1.104 in 68 Dateien**, 24,72 s; beide neuen Paritäts-
+Dateien sind dauerhaft in `tests/release-local/selection.mjs` enthalten. Nachweis:
+`outputs/release-local/2026-10-01T04-22-32-835Z-21860.{json,log}`. Separater Cache-
+Runner **69/69**, einschließlich der 20 Cachefälle, unter
+`outputs/public-catalog-cache/2026-10-01T04-29-26-723Z-10596.log`.
+
+Echte lokale Auth-/Firestore-/Storage-Dienste: **27/27**, zusätzlich **13/13**
+Harness-Safety. Nachweis:
+`outputs/private-operations-local/2026-10-01T04-28-36-922Z-a113a180/manifest.json`.
+Nur Demo-Projekt und synthetische Konten, vorhandene geprüfte JARs, keine Downloads;
+die ausdrücklich erfassten Inputs unverändert und alle sechs Ports danach frei.
+Dies bleibt ein lokaler Backendtest, kein produktiver Android/Web-Roundtrip.
+
+Normaler Typecheck und Lint bestanden, nachdem neun Befunde ausschließlich im
+Testharness korrigiert wurden. Die Assertions und Netzsperren wurden nicht
+abgeschwächt. Ergänzend Kostenmodell **6/6**, Sharing-Simulation **9/9** und
+sauberer Paketimport **1/1**; `baseline/gate6-harness-*-final.log`.
+Concurrency **12/12** mit neun gleichen bzw. 18 getrennten kalten Modusabrufen und
+jeweils null zusätzlichen warmen Abrufen. Der alte gemischte Test erwartete noch
+neun über beide Modi; dessen **10 PASS / 1 FAIL** bleibt dokumentiert. Die
+bewusste Vertragsänderung und erweiterten Privacy-/Owner-Checks stehen in
+`tests/sharing-concurrency/README.md`. Aktuell:
+`outputs/sharing-concurrency/2026-10-01T04-31-30-334Z-2832.{log,metrics.json}`;
+danach nochmals Lint und Typecheck bestanden. Keine Messzeit als Speedup verwenden.
+
+Isolierter Build: **PASS**, 14,944 s, 299 kopierte Quelldateien, synthetische
+Konfiguration und bestehender Node-Netzschutz. Root-`dist` plus neun explizite
+Build-/Deployment-Konfigurationsdateien bleiben per kompaktem Vorher/Nachher-
+SHA-256 gleich: 3.267 Dateien / 70.962.371 Bytes,
+`fbc3b489d56287d0dd84b2a4bedcbf0b17113621f5d3e74872fcc76e95fdf95f`.
+`node_modules` und private Env-Dateien gehören nicht zu diesem Hashnachweis.
+Nachweise: `baseline/build-gate6-final{.log,-result.json,-integrity.json}`.
+Keine neue Deployment-Freigabe; Produktcode in diesem Teilblock nur lokal.
+
+**Offen:** das O(N)-Placement-Lesen pro Seite, Auflösen aller benötigten Einträge
+bei Gesamtwert, zentrale Preisversorgung/volle Anbieterabdeckung und belastbare
+Cloud-Kosten-/Lastmessung. Anonyme öffentliche Read-Limits sind weiterhin nicht
+implementiert; eine vertrauenswürdige Ingress-/Client-IP-Grenze ist nicht bewiesen.
+Der öffentliche Cache ersetzt weder Rate-Limiting noch Owner-/Widerrufsprüfungen.
+Keine Veröffentlichung, neue Deployment-Freigabe oder Zusage über den Live-Stand.

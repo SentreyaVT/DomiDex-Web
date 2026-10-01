@@ -217,26 +217,59 @@ describe('actual readBinderShare local concurrent-request simulation', () => {
     expect(result.singleDocumentGets).toBe(50);
   });
 
-  it('two owner groups share only public card fetches and retain separate private price options', async () => {
+  it('two owner groups partition raw/prices work and retain separate private options cold and warm', async () => {
     const handler = await freshHandler(), providerStats = provider();
     const a = fixture({ count: 20, owner: 'synthetic-owner-a', showPrices: true });
     const b = fixture({ count: 20, owner: 'synthetic-owner-b', showPrices: false });
-    // One simultaneous ten-request group: sequential per-group reporting is deliberately
-    // avoided here; both groups race on the same process-local public catalog jobs.
-    const results = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
-      const data = index % 2 ? b : a;
-      const response = await handler(new Request(`https://synthetic.invalid/api/shared-binders/${token}?page=0`),
-        { params: Promise.resolve({ token }) }, data.context);
-      return { index, status: response.status, body: await response.json() };
-    }));
-    for (const { index, status, body } of results) {
-      expect(status).toBe(200); expect(body.cards).toHaveLength(9);
-      for (const card of body.cards) if (index % 2) expect(card).not.toHaveProperty('price');
-      else expect(card.price.amount).toBe(2.5);
-      expect(JSON.stringify(body)).not.toMatch(/synthetic-owner|PRIVATE_NOTE|ownerUid/);
+    // Both owners race in each ten-request batch. Public raw/prices modes deliberately
+    // have distinct keys: unresolved raw data must never substitute for resolved prices.
+    for (const [cycle, expectedNewFetches] of [18, 0].entries()) {
+      const beforeFetch = providerStats.calls;
+      const results = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
+        const data = index % 2 ? b : a;
+        const response = await handler(new Request(`https://synthetic.invalid/api/shared-binders/${token}?page=0`),
+          { params: Promise.resolve({ token }) }, data.context);
+        return { index, status: response.status, body: await response.json() };
+      }));
+      for (const { index, status, body } of results) {
+        expect(status).toBe(200); expect(body.cards).toHaveLength(9);
+        for (const card of body.cards) if (index % 2) expect(card).not.toHaveProperty('price');
+        else expect(card.price.amount).toBe(2.5);
+        expect(body).not.toHaveProperty('total');
+        expect(JSON.stringify(body)).not.toMatch(/synthetic-owner|PRIVATE_NOTE|ownerUid/);
+      }
+      expect(providerStats.calls - beforeFetch).toBe(expectedNewFetches);
+      expect(providerStats).toMatchObject({ calls: 18, inFlight: 0, unexpected: 0, aborted: 0 });
+      // A warm public hit never removes either owner's private reads/auth checks.
+      for (const data of [a, b]) expect(data.stats).toMatchObject({ authGetUserCalls: 10 * (cycle + 1),
+        singleDocumentGets: 40 * (cycle + 1), placementQueries: 5 * (cycle + 1),
+        queryDocuments: 100 * (cycle + 1), getAllDocuments: 45 * (cycle + 1) });
     }
-    expect(providerStats).toMatchObject({ calls: 9, inFlight: 0, unexpected: 0, aborted: 0 });
-    for (const data of [a, b]) expect(data.stats).toMatchObject({ authGetUserCalls: 10, singleDocumentGets: 40,
-      placementQueries: 5, queryDocuments: 100, getAllDocuments: 45 });
+  });
+
+  it('two owners with the same public resolver mode still coalesce nine cold and zero warm fetches', async () => {
+    const handler = await freshHandler(), providerStats = provider();
+    const a = fixture({ count: 20, owner: 'synthetic-owner-a', showPrices: true });
+    const b = fixture({ count: 20, owner: 'synthetic-owner-b', showPrices: true });
+    for (const [cycle, expectedNewFetches] of [9, 0].entries()) {
+      const beforeFetch = providerStats.calls;
+      const results = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
+        const data = index % 2 ? b : a;
+        const response = await handler(new Request(`https://synthetic.invalid/api/shared-binders/${token}?page=0`),
+          { params: Promise.resolve({ token }) }, data.context);
+        return { status: response.status, body: await response.json() };
+      }));
+      for (const { status, body } of results) {
+        expect(status).toBe(200); expect(body.cards).toHaveLength(9);
+        for (const card of body.cards) expect(card.price).toMatchObject({ amount: 2.5, currency: 'EUR', source: 'Cardmarket' });
+        expect(body).not.toHaveProperty('total');
+        expect(JSON.stringify(body)).not.toMatch(/synthetic-owner|PRIVATE_NOTE|ownerUid/);
+      }
+      expect(providerStats.calls - beforeFetch).toBe(expectedNewFetches);
+      expect(providerStats).toMatchObject({ calls: 9, inFlight: 0, unexpected: 0, aborted: 0 });
+      for (const data of [a, b]) expect(data.stats).toMatchObject({ authGetUserCalls: 10 * (cycle + 1),
+        singleDocumentGets: 40 * (cycle + 1), placementQueries: 5 * (cycle + 1),
+        queryDocuments: 100 * (cycle + 1), getAllDocuments: 45 * (cycle + 1) });
+    }
   });
 });

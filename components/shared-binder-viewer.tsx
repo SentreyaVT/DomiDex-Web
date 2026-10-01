@@ -78,7 +78,7 @@ export function SharedBinderViewer({ token }: { token: string }) {
         }} onPointerUp={() => setTilt({ x: 0, y: 0 })} onPointerCancel={() => setTilt({ x: 0, y: 0 })} onPointerLeave={() => setTilt({ x: 0, y: 0 })}>
           {selected.image && <div className={styles.cardSurface} style={{ transform: `perspective(900px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }}><img src={selected.image} alt={selected.name} referrerPolicy="no-referrer" /><SharedBinderMaterial effect={selected.holoEffectId} intensity={selected.holoIntensity} tilt={tilt} /></div>}
         </div><p>{selected.setName} · {selected.collectorNumber} · {selected.finish}</p>
-        {selected.price && <p>Cardmarket: {selected.price.amount === null ? 'Preis nicht verfügbar' : euro(selected.price.amount)}</p>}
+        {selected.price && <p>{selected.price.basis === 'selection' ? 'Gewählte Cardmarket-Kennzahl' : 'Cardmarket'}: {selected.price.amount === null ? 'Preis nicht verfügbar' : euro(selected.price.amount)}</p>}
       </>}
     </dialog>
   </main>;

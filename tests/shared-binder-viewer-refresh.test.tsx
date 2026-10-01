@@ -63,6 +63,27 @@ afterEach(() => {
 });
 
 describe('shared binder successful refresh and open large-card view', () => {
+  it('labels a confirmed alternative as selected Cardmarket metric, never as trend', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(response(binder('Alternative', [{ ...originalCard,
+      price: { ...originalCard.price!, basis: 'selection' },
+    }])));
+    render(<SharedBinderViewer token={token} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Testkarte.*groß ansehen/ }));
+    expect(within(screen.getByRole('dialog')).getByText(/Gewählte Cardmarket-Kennzahl:.*12,34/)).toBeTruthy();
+    expect(within(screen.getByRole('dialog')).queryByText(/Trend/)).toBeNull();
+  });
+
+  it('does not turn an unavailable amount or omitted total into zero', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(response(binder('Preis außerhalb des Freigabeformats', [{ ...originalCard,
+      price: { ...originalCard.price!, amount: null },
+    }])));
+    render(<SharedBinderViewer token={token} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Testkarte.*groß ansehen/ }));
+    expect(screen.queryByText(/Binderwert:/)).toBeNull();
+    expect(within(screen.getByRole('dialog')).queryByText(/0,00/)).toBeNull();
+    expect(within(screen.getByRole('dialog')).getByText(/nicht verfügbar/i)).toBeTruthy();
+  });
+
   it('removes a revoked price from the already open dialog when the latest DTO omits price', async () => {
     await openViewer();
     const { price: _price, ...withoutPrice } = originalCard;

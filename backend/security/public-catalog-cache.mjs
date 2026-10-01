@@ -79,7 +79,7 @@ export function createPublicCatalogCache({ load, now = () => performance.now(), 
   }
   const copy = (bytes) => bytes ? JSON.parse(bytes.toString('utf8')) : null;
 
-  function createJob(key, id, tracked) {
+  function createJob(key, id, tracked, mode) {
     const controller = new AbortController();
     const job = { controller, waiters: new Set(), settled: false };
     job.finish = (projected, successful = false) => {
@@ -95,7 +95,7 @@ export function createPublicCatalogCache({ load, now = () => performance.now(), 
     if (tracked) inFlight.set(key, job);
     const timer = setTimeout(() => job.cancel(), jobTimeoutMs);
     timer.unref?.();
-    Promise.resolve().then(() => job.settled ? null : load(id, controller.signal))
+    Promise.resolve().then(() => job.settled ? null : mode === 'raw' ? load(id, controller.signal) : load(id, controller.signal, mode))
       .then((value) => {
         // Late provider completion after timeout/last-consumer cancellation cannot warm a new generation.
         if (!job.settled) job.finish(projectPublicCard(id, value), true);
@@ -121,10 +121,10 @@ export function createPublicCatalogCache({ load, now = () => performance.now(), 
     });
   }
 
-  async function get(id, signal) {
-    if (typeof id !== 'string' || !publicId.test(id) || signal?.aborted) return null;
-    // Fixed language/resolver version, never an owner, binder, share token, user variant or URL.
-    const key = `tcgdex:de:v1:${id}`;
+  async function get(id, signal, mode = 'raw') {
+    if (!['raw', 'prices'].includes(mode) || typeof id !== 'string' || !publicId.test(id) || signal?.aborted) return null;
+    // Two public resolver modes share one budget; no owner, binder, token or private selection.
+    const key = `tcgdex:de:v2:${mode}:${id}`;
     const cached = entries.get(key), at = now();
     if (cached) {
       if (Number.isFinite(at) && at >= cached.storedAt && at < cached.expiresAt) {
@@ -136,7 +136,7 @@ export function createPublicCatalogCache({ load, now = () => performance.now(), 
     let job = inFlight.get(key);
     // No unbounded pending map/queue and no new missing-card result merely because it is full.
     // Overflow uses uncached work, still subject to its consumer and own provider deadlines.
-    if (!job) job = createJob(key, id, inFlight.size < maxInFlight);
+    if (!job) job = createJob(key, id, inFlight.size < maxInFlight, mode);
     return join(job, signal);
   }
   return { get, stats: () => ({ entries: entries.size, bytes: totalBytes, inFlight: inFlight.size }) };

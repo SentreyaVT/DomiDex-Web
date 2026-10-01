@@ -10,6 +10,39 @@ const tick = async () => { for (let n = 0; n < 8; n++) await Promise.resolve(); 
 afterEach(() => { vi.useRealTimers(); });
 
 describe('bounded public catalog cache (no Firebase or network)', () => {
+  it.each([['raw', 'prices'], ['prices', 'raw']])('separates fixed resolver modes %s then %s within one cache', async (first, second) => {
+    const load = vi.fn(async (id, _signal, mode = 'raw') => card(id, { name: mode }));
+    const cache = createPublicCatalogCache({ load });
+    expect((await cache.get('sv1-001', undefined, first)).name).toBe(first);
+    expect((await cache.get('sv1-001', undefined, second)).name).toBe(second);
+    expect((await cache.get('sv1-001', undefined, first)).name).toBe(first);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+  it('rejects unrecognized resolver mode before provider work', async () => {
+    const load = vi.fn(), cache = createPublicCatalogCache({ load });
+    for (const mode of ['owner-a', '../private', {}, null, 1]) expect(await cache.get('sv1-001', undefined, mode)).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+  });
+  it('keeps mode-specific inflight jobs independent and applies last-consumer abort per mode', async () => {
+    const pending = { raw: deferred(), prices: deferred() }, signals = {};
+    const load = vi.fn((id, signal, mode = 'raw') => { signals[mode] = signal; return pending[mode].promise; });
+    const cache = createPublicCatalogCache({ load }), controller = new AbortController();
+    const raw = cache.get('sv1-001', controller.signal), prices = cache.get('sv1-001', undefined, 'prices');
+    await tick(); expect(cache.stats().inFlight).toBe(2); controller.abort(); expect(await raw).toBeNull();
+    expect(signals.raw.aborted).toBe(true); expect(signals.prices.aborted).toBe(false);
+    pending.prices.resolve(card('sv1-001', { name: 'prices' })); expect((await prices).name).toBe('prices');
+    pending.raw.resolve(card('sv1-001', { name: 'late' })); await tick(); expect(cache.stats().entries).toBe(1);
+  });
+  it('shares entry and serialized-byte budgets across both modes', async () => {
+    const load = vi.fn(async (id, _signal, mode = 'raw') => card(id, { name: mode.repeat(100) }));
+    const cache = createPublicCatalogCache({ load, maxEntries: 1, maxBytes: 2000, maxEntryBytes: 2000 });
+    await cache.get('sv1-001'); await cache.get('sv1-001', undefined, 'prices');
+    expect(cache.stats().entries).toBe(1); expect(cache.stats().bytes).toBeLessThanOrEqual(2000);
+    await cache.get('sv1-001'); expect(load).toHaveBeenCalledTimes(3);
+    const bytes = createPublicCatalogCache({ load, maxEntries: 100, maxBytes: 1000, maxEntryBytes: 1000 });
+    await bytes.get('sv1-001'); await bytes.get('sv1-001', undefined, 'prices');
+    expect(bytes.stats().entries).toBe(1); expect(bytes.stats().bytes).toBeLessThanOrEqual(1000);
+  });
   it('shares a positive cold load with warm callers without changing provider timestamps', async () => {
     const load = vi.fn(async (id) => card(id)), cache = createPublicCatalogCache({ load });
     const first = await cache.get('sv1-001'); const second = await cache.get('sv1-001');

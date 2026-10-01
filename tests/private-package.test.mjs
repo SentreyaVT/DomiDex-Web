@@ -37,6 +37,10 @@ it('imports all private backend operations from a clean package without relying 
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/rate-limit.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/app-check.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/cardmarket-identity.mjs'))).toBe(true);
+    for (const moduleName of ['price-alternatives', 'collection-price-selection-codec', 'catalog-supplement',
+      'cardmarket-anniversary-prices', 'cardmarket-anniversary-products']) {
+      expect(fs.existsSync(path.join(isolated, `dist/standalone/backend/security/${moduleName}.mjs`))).toBe(true);
+    }
   } finally {
     fs.rmSync(resolved, { recursive: true, force: true });
   }

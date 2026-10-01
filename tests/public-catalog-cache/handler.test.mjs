@@ -41,7 +41,7 @@ function provider(implementation = () => Response.json(card)) {
 }
 
 describe('actual sharing handler public-cache integration (fake provider only)', () => {
-  it('cold/warm calls reduce only provider fetches, not private checks, and keep price opt-ins independent', async () => {
+  it('cold raw / cold prices / warm prices reduce only same-mode fetches and keep opt-ins independent', async () => {
     const fetch = provider(), data = fixture();
     const cold = await data.read(); expect(cold.status).toBe(200); expect((await cold.json()).cards[0]).not.toHaveProperty('price');
     expect(data.counts()).toEqual({ logicalReads: 9, authReads: 2 });
@@ -50,17 +50,21 @@ describe('actual sharing handler public-cache integration (fake provider only)',
     expect(body.cards[0].price.amount).toBe(2.5); expect(body.total.amount).toBe(2.5);
     expect(warm.headers.get('cache-control')).toContain('no-store');
     expect(data.counts()).toEqual({ logicalReads: 18, authReads: 4 });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    console.info('PUBLIC_CATALOG_CACHE_SIMULATION cold/warm: provider=1/0; private logical reads=9/9; no Firestore read reduction');
+    expect(fetch).toHaveBeenCalledTimes(2); // Price enrichment cannot reuse an unresolved raw entry.
+    expect(await (await data.read()).json()).toEqual(body);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(data.counts()).toEqual({ logicalReads: 27, authReads: 6 });
+    console.info('PUBLIC_CATALOG_CACHE_SIMULATION raw/prices/warm-prices: provider=1/1/0; private logical reads=9/9/9; no Firestore read reduction');
   });
 
-  it('shares public catalog work across owners without caching their private DTO or options', async () => {
+  it('separates raw and price modes across owners without caching private DTOs or options', async () => {
     const fetch = provider(), a = fixture(), b = fixture('owner-b');
     a.options({ showPrices: true });
     expect((await (await a.read()).json()).cards[0]).toHaveProperty('price');
     const body = await (await b.read()).json(); expect(body.cards[0]).not.toHaveProperty('price');
-    expect(JSON.stringify(body)).not.toMatch(/owner-a|PRIVATE_NOTE/); expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(body)).not.toMatch(/owner-a|PRIVATE_NOTE/); expect(fetch).toHaveBeenCalledTimes(2);
     expect(b.counts().authReads).toBe(2);
+    expect(await (await b.read()).json()).toEqual(body); expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it.each(['revoked', 'owner-denied', 'binder-deleted', 'binder-foreign'])('a warm cache cannot bypass %s', async (mode) => {

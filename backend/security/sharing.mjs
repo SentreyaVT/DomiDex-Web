@@ -1,9 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { actorFor, fail, failure, services } from './firebase.mjs';
-import { publicCardId, sharedCardDto, sharedVisualId } from '../../lib/shared-binder.ts';
+import { publicCardId, sharedCardDto, sharedVisualId, sharedPriceSelectionNeeded, SHARED_PRICE_MAX_EUR } from '../../lib/shared-binder.ts';
+import { decodeCollectionPriceSelection } from '../../lib/collection-price-selection-codec.ts';
 import { boundedJson } from '../../lib/bounded-json.ts';
 import { consumeWriteQuota } from './rate-limit.mjs';
 import { createPublicCatalogCache } from './public-catalog-cache.mjs';
+import { supplementalCard } from '../../lib/catalog-supplement.ts';
+import { enrichAnniversaryPrices } from '../../lib/server/cardmarket-anniversary-prices.ts';
 
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const safeId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -93,11 +96,16 @@ export async function revokeBinderShare(request, context = services()) {
   } catch (error) { return failure(error); }
 }
 
-async function catalogCard(id, signal) {
+async function catalogCard(id, signal, mode = 'raw') {
+  const supplement = supplementalCard(id);
+  let card;
   try {
     const response = await fetch(`https://api.tcgdex.net/v2/de/cards/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' }, signal });
-    if (!response.ok) return null;
-    const card = await response.json();
+    card = response.ok ? await response.json() : supplement;
+  } catch { card = supplement; }
+  if (!card || signal.aborted) return null;
+  try {
+    if (!card.image && supplement?.image) card.image = supplement.image;
     if (!card.image) {
       try {
         const english = await fetch(`https://api.tcgdex.net/v2/en/cards/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' }, signal });
@@ -107,16 +115,21 @@ async function catalogCard(id, signal) {
         }
       } catch { /* Image-only exact-ID fallback; never borrow names, variants or prices. */ }
     }
-    return card;
+    // Enrich before the allowlist projection: its exact-printing checks also inspect
+    // subtype/root identity fields which are deliberately not exposed by the cache.
+    if (signal.aborted) return null;
+    const resolved = mode === 'prices' ? await enrichAnniversaryPrices(card, id) : card;
+    return signal.aborted ? null : resolved;
   } catch { return null; }
 }
 const publicCatalog = createPublicCatalogCache({ load: catalogCard });
-async function catalogCards(ids, context) {
+async function catalogCards(ids, context, withPrices) {
   const catalog = new Map(); const queue = [...new Set(ids)]; const signal = AbortSignal.timeout(12_000);
   await Promise.all(Array.from({ length: Math.min(6, queue.length) }, async () => {
     while (queue.length && !signal.aborted) {
       const id = queue.shift();
-      catalog.set(id, await (context.cardFor ?? publicCatalog.get)(id, signal));
+      catalog.set(id, await (context.cardFor ? context.cardFor(id, signal)
+        : publicCatalog.get(id, signal, withPrices ? 'prices' : 'raw')));
     }
   }));
   return catalog;
@@ -172,13 +185,28 @@ export async function readBinderShare(request, route, context = services()) {
         if (data && data.ownerUid === share.ownerUid && data.deleted !== true && data.quantity > 0) entries.set(doc.id, data);
       }
     }
-    const catalog = await catalogCards([...entries.values()].map(publicCardId).filter(Boolean), context);
+    const catalog = await catalogCards([...entries.values()].map(publicCardId).filter(Boolean), context, share.showPrices === true || share.showTotal === true);
+    const selections = new Map();
+    if (share.showPrices === true || share.showTotal === true) {
+      // Never scan the owner's sidecar collection or cache private values with public metadata.
+      // Existing trend prices and image-only sharing need no additional database reads.
+      const selectionIds = [...entries].filter(([id, entry]) => entry.syncId === id
+        && sharedPriceSelectionNeeded(entry, catalog.get(publicCardId(entry)) ?? null)).map(([id]) => id);
+      for (let offset = 0; offset < selectionIds.length; offset += 100) {
+        const refs = selectionIds.slice(offset, offset + 100).map((id) => context.db.doc(`users/${share.ownerUid}/collectionPriceSelections/${id}`));
+        for (const doc of await context.db.getAll(...refs)) {
+          const data = doc.data();
+          const selection = data ? decodeCollectionPriceSelection(data, doc.id, share.ownerUid) : null;
+          if (selection) selections.set(doc.id, selection);
+        }
+      }
+    }
     const cards = []; const unavailableSlots = []; let pricedCards = 0; let visibleCards = 0; let cents = 0;
     for (const item of needed) {
       const entry = entries.get(item.entrySyncId);
       if (!entry) continue;
       visibleCards++;
-      const card = sharedCardDto(entry, item, catalog.get(publicCardId(entry)) ?? null, share.showPrices === true || share.showTotal === true);
+      const card = sharedCardDto(entry, item, catalog.get(publicCardId(entry)) ?? null, share.showPrices === true || share.showTotal === true, selections.get(item.entrySyncId));
       if (!card) { if (Math.floor(item.slotPosition / 9) === page) unavailableSlots.push(item.slotPosition); continue; }
       if (card.price?.amount != null) { cents += Math.round(card.price.amount * 100); pricedCards++; }
       if (Math.floor(item.slotPosition / 9) === page) {
@@ -193,7 +221,10 @@ export async function readBinderShare(request, route, context = services()) {
       title: typeof binder.name === 'string' ? binder.name.slice(0, 100) : 'Geteilter Binder', coverStyle: sharedVisualId(binder.coverStyle, true),
       page, pageCount, cards: cards.sort((a, b) => a.slot - b.slot), unavailableSlots,
       ...(share.showDisplayName === true ? { displayName: share.displayName } : {}),
-      ...(share.showTotal === true ? { total: { amount: pricedCards === visibleCards ? cents / 100 : null, currency: 'EUR', complete: pricedCards === visibleCards, pricedCards, visibleCards } } : {}),
+      // Android also requires complete == (pricedCards == visibleCards) == (amount != null).
+      // An unrepresentable complete sum omits the optional total, never invents counts or clamps.
+      ...(share.showTotal === true && (pricedCards !== visibleCards || cents <= SHARED_PRICE_MAX_EUR * 100)
+        ? { total: { amount: pricedCards === visibleCards ? cents / 100 : null, currency: 'EUR', complete: pricedCards === visibleCards, pricedCards, visibleCards } } : {}),
     };
     return respond(dto);
   } catch (error) { return failure(error); }

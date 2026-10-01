@@ -5,19 +5,15 @@ import type { User } from 'firebase/auth';
 import { isQuarantinedCardmarketIdentity } from './cardmarket-identity';
 import { canonicalTcgCardId } from './domain';
 import { ownerDocumentState } from './owner-document-state';
+import { decodeCollectionPriceSelection, collectionPriceSelectionNullableFields as nullableFields } from './collection-price-selection-codec';
+export { decodeCollectionPriceSelection } from './collection-price-selection-codec';
 import {
   collectionPriceMetricMatchesFinish,
   collectionPriceMetrics,
-  isCollectionPriceMetric,
   type AlternativePriceCandidate,
-  type CollectionPriceMetric,
   type CollectionPriceSelection,
 } from './price-alternatives';
 
-const nullableFields = [
-  'sourceSetId', 'sourceCardId', 'collectorNumber', 'language', 'finish', 'variant',
-  'productId', 'metric', 'amountMinor', 'currency', 'sourceAt', 'selectedAt',
-] as const;
 const entrySyncIdPattern = /^[A-Za-z0-9._-]{1,128}$/;
 
 export async function subscribeCollectionPriceSelections(
@@ -98,35 +94,6 @@ export async function clearCollectionPriceSelection(user: User, entrySyncId: str
       ...cleared,
     });
   });
-}
-
-export function decodeCollectionPriceSelection(data: DocumentData, id: string, ownerUid: string): CollectionPriceSelection | null {
-  if (!entrySyncIdPattern.test(id) || data.schemaVersion !== 1 || data.ownerUid !== ownerUid || data.entrySyncId !== id
-    || !Number.isSafeInteger(data.revision) || data.revision < 1
-    || typeof data.lastMutationId !== 'string' || !data.lastMutationId.match(/^[A-Za-z0-9._-]{1,128}$/)
-    || !Number.isSafeInteger(data.updatedAtClient) || data.updatedAtClient <= 0 || typeof data.cleared !== 'boolean') return null;
-  if (data.cleared) {
-    if (nullableFields.some((field) => data[field] !== null)) return null;
-    return { schemaVersion: 1, ownerUid, entrySyncId: id, revision: data.revision, lastMutationId: data.lastMutationId,
-      updatedAtClient: data.updatedAtClient, cleared: true, sourceSetId: null, sourceCardId: null,
-      collectorNumber: null, language: null, finish: null, variant: null, productId: null, metric: null,
-      amountMinor: null, currency: null, sourceAt: null, selectedAt: null };
-  }
-  if (!boundedString(data.sourceSetId, 120) || !boundedString(data.sourceCardId, 120)
-    || !boundedString(data.collectorNumber, 80) || !canonicalLanguage(data.language)
-    || !boundedString(data.finish, 80) || !boundedString(data.variant, 80)
-    || !Number.isSafeInteger(data.productId) || data.productId <= 0 || !isCollectionPriceMetric(data.metric)
-    || !collectionPriceMetricMatchesFinish(data.metric, data.finish)
-    || !Number.isSafeInteger(data.amountMinor) || data.amountMinor <= 0 || data.currency !== 'EUR'
-    || !Number.isSafeInteger(data.sourceAt) || data.sourceAt <= 0
-    || !Number.isSafeInteger(data.selectedAt) || data.selectedAt <= 0) return null;
-  return {
-    schemaVersion: 1, ownerUid, entrySyncId: id, revision: data.revision, lastMutationId: data.lastMutationId,
-    updatedAtClient: data.updatedAtClient, cleared: false, sourceSetId: data.sourceSetId, sourceCardId: data.sourceCardId,
-    collectorNumber: data.collectorNumber, language: data.language, finish: data.finish, variant: data.variant,
-    productId: data.productId, metric: data.metric as CollectionPriceMetric, amountMinor: data.amountMinor,
-    currency: 'EUR', sourceAt: data.sourceAt, selectedAt: data.selectedAt,
-  };
 }
 
 function exactEntryIdentity(data: DocumentData | undefined, id: string, ownerUid: string) {

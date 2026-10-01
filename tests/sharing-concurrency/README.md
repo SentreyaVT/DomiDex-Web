@@ -23,7 +23,7 @@ Cold and warm cycles are separate. The total-value fixture is deliberately 200,
 not a claimed 80-client, 5,000-card total benchmark. Tests also cover revocation
 during catalog work and separation of private options between two synthetic owners.
 
-## Root verification, 2026-10-01
+## Historical root verification before raw/prices partitioning, 2026-10-01
 
 **11/11 PASS**, 12.34 s. Three repetitions produce 54 cold/warm batches and one
 revocation batch: 2,350 measured handler calls. A separate ten-request owner-isolation
@@ -53,6 +53,31 @@ module loading, JavaScript scheduling and GC contribute to these numbers; 5 ms m
 sampling misses short peaks. The fake provider delay is not a provider/network SLA.
 Warm is not universally faster across runs. No 500 ms production target is declared
 passed from this simulation, and no autoscaling or quota has been changed.
+
+## Gate 6 resolver-mode contract and current verification, 2026-10-01
+
+The later, deliberate public-cache partition distinguishes unresolved `raw` data
+from enriched `prices` data within the same cache budgets. The historical mixed-owner
+test above expected nine cold fetches across both modes. Re-running it against that
+new contract produced **10 PASS / 1 FAIL**: the actual 18 fetches were correct for
+two separate nine-card modes, not a privacy or authorization failure. Evidence:
+`outputs/sharing-concurrency/2026-10-01T04-29-40-534Z-14744.{log,metrics.json}`.
+
+Only this obsolete expectation and its explanatory contract were updated. The
+mixed-owner test now requires **18 cold / 0 additional warm fetches**, with each
+owner retaining its own price visibility. A separate same-mode two-owner case
+requires **9 cold / 0 additional warm fetches**. Both cold and warm runs retain all
+private reads, Auth calls, DTO privacy assertions and opt-ins; the other ten
+concurrency/revocation scenarios are unchanged. The two owner tests now issue
+40 handler calls outside the unchanged 2,350-call structured metric batches.
+
+Current isolated result: **12/12 PASS**, 14.62 s, default three repetitions.
+Reports: `outputs/sharing-concurrency/2026-10-01T04-31-30-334Z-2832.{log,metrics.json}`.
+The historical 11-test result and measurements above describe the earlier contract,
+not this latest run. An Android test build could run concurrently; elapsed times
+must not be compared as a performance improvement or regression. No production
+code, limits, Rules, dependencies, network or deployment were changed by this
+test-only correction.
 
 ## Outstanding scaling limits exposed by the test
 
