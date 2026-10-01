@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { exactCardmarketProductId, exactTrendPrice, type TcgCardDetail } from '@/lib/domain';
 import { anniversaryProducts } from '@/lib/server/cardmarket-anniversary-products';
+import { alternativePriceCandidates } from '@/lib/price-alternatives';
 
 const GUIDE = 'https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json';
 type Fields = Record<string, unknown>;
@@ -191,6 +192,101 @@ describe('guide values and bounds', () => {
     await vi.advanceTimersByTimeAsync(6_001);
     const finished = await result;
     expect(exactTrendPrice(finished, finished.variants_detailed![0])).toBeNull();
+  });
+});
+
+describe('one coherent guide snapshot for every comparison field', () => {
+  const comparisonFields = ['avg', 'low', 'avg1', 'avg7', 'avg30', 'avg-holo', 'low-holo'] as const;
+  const previousPricing = () => ({
+    idProduct: 907737, unit: 'EUR', updated: '2026-09-01T08:00:00Z',
+    trend: 100, 'trend-holo': 200,
+    ...Object.fromEntries(comparisonFields.map((field, index) => [field, 900 + index])),
+    providerNote: 'Preserve non-price metadata',
+  });
+
+  it.each(comparisonFields.flatMap((field) => [undefined, null, 0, -1, '23.45'].map((value) => ({ field, value }))))(
+    'does not relabel old $field as current when its new guide value is $value', async ({ field, value }) => {
+      mockGuide([{ idProduct: 907737, trend: null, 'trend-holo': null, [field]: value }]);
+      const source = card('30th-129', { pricing: { cardmarket: previousPricing(), otherSource: { value: 5 } } });
+      const saved = structuredClone(source);
+      const result = await valued(source);
+      const variant = result.variants_detailed![0];
+      expect(variant.pricing?.cardmarket).toEqual({
+        idProduct: 907737, unit: 'EUR', providerNote: 'Preserve non-price metadata',
+        trend: null, 'trend-holo': null, updated: '2026-09-23T08:00:00Z',
+      });
+      expect(alternativePriceCandidates(result, variant)).toEqual([]);
+      expect(source).toEqual(saved);
+      expect(variant.pricing).toMatchObject({ otherSource: { value: 5 } });
+    },
+  );
+
+  it.each(['Normal', 'Holo', 'Reverse Holo'])('keeps only current positive metrics for %s without mixing price families', async (type) => {
+    mockGuide([{ idProduct: 907737, trend: null, 'trend-holo': null, avg: 1.23, low: 0.45, avg7: 2.34,
+      'avg-holo': 3.45, 'low-holo': 4.56 }]);
+    const result = await valued(card('30th-129', { type, pricing: { cardmarket: previousPricing() } }));
+    const variant = result.variants_detailed![0];
+    expect(variant.pricing?.cardmarket).toEqual({
+      idProduct: 907737, unit: 'EUR', providerNote: 'Preserve non-price metadata',
+      trend: null, 'trend-holo': null, updated: '2026-09-23T08:00:00Z',
+      avg: 1.23, low: 0.45, avg7: 2.34, 'avg-holo': 3.45, 'low-holo': 4.56,
+    });
+    expect(alternativePriceCandidates(result, variant).map(({ metric, amountMinor, sourceAt }) => ({ metric, amountMinor, sourceAt }))).toEqual(
+      (type === 'Reverse Holo'
+        ? [{ metric: 'reverse_holo_avg_sell', amountMinor: 345 }, { metric: 'reverse_holo_low', amountMinor: 456 }]
+        : [{ metric: 'normal_avg_sell', amountMinor: 123 }, { metric: 'normal_low', amountMinor: 45 }, { metric: 'normal_avg_7d', amountMinor: 234 }])
+        .map((value) => ({ ...value, sourceAt: Date.parse('2026-09-23T08:00:00Z') })),
+    );
+  });
+
+  it('applies the same replacement to the existing single-variant root fallback without mutating the source', async () => {
+    mockGuide([{ idProduct: 907737, trend: null, 'trend-holo': null, avg30: 6.78 }]);
+    const source = card('30th-129', {}, { pricing: { cardmarket: previousPricing() } });
+    const saved = structuredClone(source);
+    const result = await valued(source);
+    expect(result.variants_detailed![0].pricing?.cardmarket).toEqual({
+      idProduct: 907737, unit: 'EUR', providerNote: 'Preserve non-price metadata',
+      trend: null, 'trend-holo': null, updated: '2026-09-23T08:00:00Z', avg30: 6.78,
+    });
+    expect(alternativePriceCandidates(result, result.variants_detailed![0]).map(({ metric }) => metric)).toEqual(['normal_avg_30d']);
+    expect(source).toEqual(saved);
+  });
+
+  it('clears old comparison values even when the new guide date is unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ priceGuides: [{ idProduct: 907737, trend: null, avg: 1.23 }] })));
+    const result = await valued(card('30th-129', { pricing: { cardmarket: previousPricing() } }));
+    expect(result.variants_detailed![0].pricing?.cardmarket).toEqual({
+      idProduct: 907737, unit: 'EUR', providerNote: 'Preserve non-price metadata',
+      trend: null, 'trend-holo': null, avg: 1.23,
+    });
+    // No valid source timestamp means this value must not become a selectable source snapshot.
+    expect(alternativePriceCandidates(result, result.variants_detailed![0])).toEqual([]);
+  });
+
+  it('replaces only eligible ordinary variants and keeps explicit special/foreign printings unchanged', async () => {
+    mockGuide([{ idProduct: 907737, trend: null, 'trend-holo': null }]);
+    const source = card('30th-129', {}, { variants_detailed: [
+      { variantId: 'ordinary', type: 'Holo', size: 'Standard', pricing: { cardmarket: previousPricing() } },
+      { variantId: 'reverse', type: 'Reverse Holo', size: 'Standard', pricing: { cardmarket: previousPricing() } },
+      { variantId: 'stamped', type: 'Holo', size: 'Standard', stamp: ['Pokémon-Center'], pricing: { cardmarket: previousPricing() } },
+      { variantId: 'foreign', type: 'Holo', size: 'Standard', pricing: { cardmarket: { ...previousPricing(), idProduct: 123456 } } },
+    ] });
+    const saved = structuredClone(source);
+    const result = await valued(source);
+    for (const variant of result.variants_detailed!.slice(0, 2)) {
+      expect(alternativePriceCandidates(result, variant)).toEqual([]);
+      for (const field of comparisonFields) expect(variant.pricing?.cardmarket).not.toHaveProperty(field);
+    }
+    expect(result.variants_detailed!.slice(2)).toEqual(saved.variants_detailed.slice(2));
+    expect(source).toEqual(saved);
+  });
+
+  it.each(['absent', 'duplicate', 'unavailable'])('preserves the original complete source snapshot when the guide row is %s', async (kind) => {
+    if (kind === 'unavailable') vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('synthetic offline'); }));
+    else mockGuide(kind === 'absent' ? [] : [{ idProduct: 907737, trend: null }, { idProduct: 907737, trend: 1 }]);
+    const source = card('30th-129', { pricing: { cardmarket: previousPricing() } });
+    const result = await valued(source);
+    expect(result.variants_detailed![0].pricing).toEqual(source.variants_detailed[0].pricing);
   });
 });
 

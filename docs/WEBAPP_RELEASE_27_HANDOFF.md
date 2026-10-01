@@ -14,7 +14,7 @@ Web-Implementierung im Android-Repository pflegen.
 - **Gate 2 danach lokal implementiert, noch nicht veröffentlicht:** verteilter
   UID-Schreib-Limiter, serverseitige Revalidierung der Rollenvergabe, zugehöriger
   exakter Kontolösch-Cleanup und Packaging-Importfix. Zusätzliche
-  Preis-/Sharing-Optimierungen sind weiterhin nicht umgesetzt.
+  Umfangreiche Preis-/Sharing-Architekturänderungen sind weiterhin nicht umgesetzt.
 - **Gate 3 danach lokal implementiert, noch nicht aktiviert:** optionale
   App-Check-Beobachtung, Default-off; keine neue Zugangssperre oder Enforcement.
 - **Gate 4: isolierter Listener-Lifecycle-Fix lokal implementiert:** Preiswahl-
@@ -427,6 +427,26 @@ Der erneute Root-Lauf nach Reviewfix und dem separat geprüften Guide-Snapshotfi
 besteht **836/836 Tests in 57 Dateien**; Beleg
 `gate4-and-price-root-final-results.json`. Neu angelegte bewusste RED-Proben zur
 Root-Preisidentität gehören nicht zu dieser bestandenen Auswahl.
+
+## Gate 5: konsistente Guide-Preissnapshots
+
+`lib/server/cardmarket-anniversary-prices.ts` ersetzt beim Vorliegen eines neuen
+gültigen Guide-Datensatzes nun alle zehn verwalteten Preis-/Zeitfelder gemeinsam.
+Zuvor konnten fehlende `avg`-, `low`- und Vergleichsfelder aus dem älteren
+TCGdex-Snapshot erhalten bleiben und mit dem neuen Guide-Datum erscheinen.
+Identität, Nicht-Preis-Metadaten, Variantenfamilien und Quarantäne bleiben erhalten.
+
+44 neue synthetische Regressionen ergänzen die bestehende Guide-Suite. Vorher
+41 Fehler in 76 Fällen, danach **76/76 bestanden**, zusätzlich **165/165** in der
+Preis-/Katalogauswahl. Der abschließende gemeinsame Root-Lauf besteht 836/836;
+das umfasst auch den oben dokumentierten Snapshot-Listener-Reviewfix.
+Ein fehlender/duplizierter/nicht erreichbarer Guide übernimmt weiterhin den
+vorhandenen vollständigen Quellsnapshot unverändert, ohne ein neues Datum zu
+erfinden. Fehlende echte Preise bleiben fehlend. Keine Providerdaten heruntergeladen.
+
+Dies behebt weder sämtliche Preisabdeckung noch die separat untersuchte
+Root-Produktvererbung oder gemeinsame zentrale Preisversorgung. Keine
+Veröffentlichung oder Registry-Neuzuordnung durch diesen Snapshotfix.
 
 ## Sharing, Domains und Preiswahl: bestehender Vertrag
 

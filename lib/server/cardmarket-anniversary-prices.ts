@@ -19,6 +19,9 @@ type GuidePrice = {
   'low-holo'?: number;
   updated?: string;
 };
+const GUIDE_SNAPSHOT_FIELDS: readonly (keyof GuidePrice)[] = [
+  'trend', 'trend-holo', 'avg', 'low', 'avg1', 'avg7', 'avg30', 'avg-holo', 'low-holo', 'updated',
+];
 let cached: { expires: number; prices: Map<number, GuidePrice> } | undefined;
 let pending: Promise<Map<number, GuidePrice>> | undefined;
 
@@ -114,9 +117,9 @@ export async function enrichAnniversaryPrices<T extends object>(card: T, request
     if (!match) return raw;
     const cardmarket: Fields = { ...match.pricing, idProduct: productId, unit: 'EUR' };
     if (guide) {
-      // Treat the guide as one snapshot: a new null trend must not borrow a stale price,
-      // and a missing guide date must not inherit the older source's timestamp.
-      delete cardmarket.updated;
+      // Replace the complete price snapshot, including fields the new guide omits.
+      // Otherwise an old comparison price could acquire the new guide's timestamp.
+      for (const field of GUIDE_SNAPSHOT_FIELDS) delete cardmarket[field];
       Object.assign(cardmarket, guide);
     }
     return { ...match.variant, pricing: { ...fields(match.variant.pricing), cardmarket } };
