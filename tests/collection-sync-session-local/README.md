@@ -255,7 +255,7 @@ timestamps, readbacks, extra documents/claims and missing/failed method evidence
 Pure validator success would not itself establish the SDK or Room behavior above.
 
 Root executed all **11/11 actual SDK cases** successfully, including this new
-case (3.213 s), with complete harness duration 87.789 s. Fourteen pure validators
+case (3.213 s), with complete harness duration 87.918 s. Fourteen pure validators
 and focused lint pass separately. Evidence:
 `outputs/collection-sync-session-local/2026-10-01T20-25-48-822Z-ccab0ba13ece438187f1e58ac19444e3/`.
 Exit 0, full server proof, free ports, empty reverse mappings, idle instrumentation
