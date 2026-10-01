@@ -1,6 +1,12 @@
 # DomiDex Web
 
-Offizielle Webplattform und Desktop-Sammlungsoberfläche für DomiDex. Die Web-App nutzt dieselbe Firebase-Authentifizierung und denselben privaten Sammlungsbestand wie die Android-App, ohne deren Quellcode oder Datenmodell zu verändern.
+Offizielle Webplattform und Desktop-Sammlungsoberfläche für DomiDex. Die Web-App nutzt dieselbe Firebase-Authentifizierung und gemeinsam definierte Datenverträge für den privaten Sammlungsbestand wie die Android-App; ihr Quellcode liegt in einem separaten Repository.
+
+**Geschlossene Alpha – lokaler Release-27-Engineeringstand:** Umgesetzte Änderungen,
+Nachweise und offene Grenzen stehen im [Web-Handoff](docs/WEBAPP_RELEASE_27_HANDOFF.md).
+Lokale Tests bedeuten weder Deployment noch vollständige Releasefreigabe. Der
+Handoff dokumentiert auch die kanonische Functions-Quelle, App Check mit Default
+`off` und den Write-Limiter mit Default `monitor`; keine produktive Aktivierung daraus ableiten.
 
 ## Enthalten
 
@@ -8,7 +14,7 @@ Offizielle Webplattform und Desktop-Sammlungsoberfläche für DomiDex. Die Web-A
 - Google-Anmeldung über Firebase Authentication
 - Desktop-Sammlung mit Binderansicht, Kartensuche, Varianten und Portfolio
 - exakte TCGdex-/Cardmarket-Zuordnung; keine erfundenen Preise
-- Echtzeit-Synchronisierung mit `users/{uid}/collectionEntries/{syncId}`
+- Live-Listener für `users/{uid}/collectionEntries/{syncId}`; keine garantierte Null-Latenz oder pauschale Sofort-Synchronisierung aller Binder-/Offline-Daten
 - geschützter Adminbereich für öffentliche Website-Inhalte
 - geschütztes Scanner Control Center unter `/admin/scanner-lab` mit normalisierten Analysezonen, Profilversionen, explizitem Production-Publish und Rollback
 - lokaler, paginierter Referenzbrowser für das deutsche TCGdex-Kalibrierungsarchiv; Bilder und absolute Pfade werden nicht veröffentlicht
@@ -32,9 +38,10 @@ Die öffentlichen Firebase-Webwerte der registrierten Web-App kommen in `.env.lo
 Für das Scanner Control Center werden die privaten lokalen Quellen ausschließlich serverseitig konfiguriert:
 
 ```env
-DOMIDEX_SCANNER_INDEX_PATH=
-DOMIDEX_SCANNER_IMAGE_DIR=
-DOMIDEX_TCGDEX_DATABASE_DIR=
+DOMIDEX_SCANNER_REFERENCE_DIR=
+DOMIDEX_TCGDEX_DB_PATH=
+# Optional; Standard: .domidex/scanner/master-index.json
+DOMIDEX_SCANNER_MASTER_INDEX_PATH=
 ```
 
 Danach erzeugt `npm run scanner:index` den lokalen Master-Index unter `.domidex/`. Der Generator erhält `localId` vollständig als String, verbindet Bild- und Kartendaten und meldet fehlende Dateien, Metadaten, Duplikate und Einzelfehler. `.domidex/`, die Referenzbilder und die lokalen Pfade bleiben vom Repository und Deployment ausgeschlossen.
@@ -50,7 +57,7 @@ npm run test:android-contract
 npm run build
 ```
 
-`test:android-contract` führt die aus dem Android-Projekt übernommenen Vertragsprüfungen gegen die erweiterten Web-Regeln aus. Damit bleibt der bestehende Mobile-Sync kompatibel.
+`test:android-contract` führt die aus dem Android-Projekt übernommenen Vertragsprüfungen gegen die erweiterten Web-Regeln aus. Das prüft konkrete Vertragsfälle, ersetzt aber keinen vollständigen Android-/Web-/Zwei-Geräte-Endtest. Für die isolierte lokale Release-Regression ohne private `.env`-Werte und externe Netzwerkzugriffe steht `npm run test:release-local` zur Verfügung; Umfang und weitere Emulatorprüfungen stehen im Handoff.
 
 ## Firebase-Vertrag
 
@@ -86,7 +93,12 @@ Vor dem öffentlichen Einsatz:
 4. Impressum, Datenschutz und Kontakt mit den vollständigen Betreiberangaben vervollständigen.
 5. Optional Discord- und Kickstarter-URLs setzen; ohne Kickstarter-URL zeigt die Seite korrekt „Coming Soon“.
 
-Das Hosting erfolgt mit OpenAI Sites. Eine spätere eigene Domain (inklusive `www`-Weiterleitung) kann ohne Änderung der Anwendung verbunden werden.
+Das vorhandene `firebase.json` konfiguriert Firebase Hosting (`domidex`,
+`dist/client`) mit Weiterleitung an den Cloud-Run-Dienst `domidex-web` in
+`europe-west1`; die Functions-Quelle ist `backend/scan-knowledge`. Die vorhandene
+OpenAI-Sites-/Cloudflare-Buildintegration ersetzt diesen Deploymentvertrag nicht.
+Diese Beschreibung ist keine aktuelle Live-Verifikation. Regeln, Serverpaket und
+Hosting müssen gemeinsam geprüft werden; jede Veröffentlichung braucht ein separates Go.
 
 ## Repository-Sicherheit
 
