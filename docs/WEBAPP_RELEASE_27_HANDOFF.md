@@ -773,3 +773,38 @@ Rechnerlokale Rohbelege im Android-Checkout:
 `artifacts/release27-engineering-20261001/security-gate4-two-client/run-20261001-051731-ae8a5231/`.
 Node-Netzschutz ist kein OS-/Java-Firewallnachweis. Echte Nutzer, Cloud-Dienste,
 Release-AAB, Signing und Deployment blieben unberührt.
+
+## Gate 6: Offene Großansicht folgt aktuellen Freigabedaten (2026-10-01)
+
+Ein erfolgreicher Refresh aktualisierte zuvor nur die Binderübersicht, während der
+offene Dialog sein altes `SharedCard`-Objekt behielt. Damit blieben selbst nach
+Empfang eines aktuellen DTO ausgeblendete Preise und entfernte Karten sichtbar.
+Die echte Komponenten-Reproduktion ergab zunächst **5 FAIL / 2 PASS**, erweitert
+auf Identität/Neigung/Antwortreihenfolge **10 FAIL / 3 PASS**; keine echten API-Aufrufe.
+
+Der Dialog speichert jetzt ausschließlich die vorhandene DTO-Identität aus Slot,
+`cardId`, Finish und Sammlernummer. Preis, Bild, Holo und Darstellungsdaten stammen
+bei jedem Render aus dem jüngsten Binder-DTO. Eine fehlende/ausgetauschte Identität
+zeigt sofort keine alte Karte mehr; der Dialog schließt und setzt die Neigung
+zurück. Dieselbe Identität bleibt offen und behält die manuelle Neigung. Ein später
+wieder vorhandener Eintrag öffnet sich nicht automatisch. Keine erfundene
+Varianten-/Placement-ID und keine Änderung an Backend, Freigabe-Flags, Polling,
+Requestversion oder Abort-Prüfung. Die unveränderte Aktualisierung erfolgt weiterhin
+bei Sichtbarkeit bzw. im 15-Sekunden-Intervall; dies ist keine Echtzeit-Push-Zusage.
+
+`tests/shared-binder-viewer-refresh.test.tsx` enthält 13 neue Fälle und gehört zur
+normalen `npm test`-Auswahl. Zusammen mit den vier vorhandenen Viewer-Tests:
+**17/17 PASS**. Reguläre explizite Paket-Auswahl mit `envDir:false` und Netzschutz:
+**735/735 in 51 Dateien**, 18,18 s lokal. Typecheck, gezieltes Oxlint und Diffcheck
+sind grün; unabhängiger Read-only-Review ohne konkreten Blocker. Bekannte
+JSDOM-Canvas-/React-act-Warnungen wurden nicht unterdrückt. Kein Live-/Browser-E2E,
+kein Deployment und keine Änderung bereits ausgelieferter Daten.
+
+Nachweise im ignorierten `outputs/release27-engineering-20261001/baseline/`:
+`gate6-viewer-refresh-red.{json,log}`, `gate6-viewer-refresh-expanded-red.{json,log}`,
+`gate6-viewer-refresh-green.{json,log}`, `gate6-viewer-refresh-package-green.{json,log}`,
+`gate6-viewer-refresh-typecheck.log` und `gate6-viewer-refresh-lint.log`.
+
+Unabhängiger Root-Gegenlauf der erweiterten Regression: **1.013/1.013 Tests in
+63 Dateien bestanden**, 22,05 s. Nachweis: `gate6-root-viewer-regressions.{json,log}`
+im selben ignorierten Verzeichnis, ohne Umgebungsdateien oder externes Netzwerk.

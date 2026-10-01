@@ -7,15 +7,22 @@ import { SharedBinderMaterial } from './shared-binder-material';
 import styles from './shared-binder-viewer.module.css';
 
 const euro = (amount: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount);
+type SharedCardSelection = Pick<SharedCard, 'slot' | 'cardId' | 'finish' | 'collectorNumber'>;
 
 export function SharedBinderViewer({ token }: { token: string }) {
   const [page, setPage] = useState(0);
   const [binder, setBinder] = useState<SharedBinder | null>(null);
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState<SharedCard | null>(null);
+  const [selection, setSelection] = useState<SharedCardSelection | null>(null);
+  // Keep only identity in UI state: prices and artwork always come from the latest permitted DTO.
+  const selected = selection && binder?.cards.find((card) => card.slot === selection.slot && card.cardId === selection.cardId
+    && card.finish === selection.finish && card.collectorNumber === selection.collectorNumber) || null;
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const dialog = useRef<HTMLDialogElement>(null);
   const requestVersion = useRef(0);
+  useEffect(() => {
+    if (selection && !selected) { setSelection(null); setTilt({ x: 0, y: 0 }); dialog.current?.close(); }
+  }, [selection, selected]);
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
     const reset = () => { if (media.matches) setTilt({ x: 0, y: 0 }); };
@@ -30,13 +37,13 @@ export function SharedBinderViewer({ token }: { token: string }) {
       if (version === requestVersion.current && !signal.aborted) { setBinder(data); setError(''); }
     } catch (failure) {
       if (version !== requestVersion.current || signal.aborted) return;
-      setBinder(null); setSelected(null); dialog.current?.close();
+      setBinder(null); setSelection(null); dialog.current?.close();
       setError(failure instanceof Error ? failure.message : 'Freigabe nicht verfügbar.');
     }
   }, [page, token]);
   useEffect(() => {
     const controller = new AbortController();
-    setBinder(null); setSelected(null); dialog.current?.close(); setError('');
+    setBinder(null); setSelection(null); dialog.current?.close(); setError('');
     void refresh(controller.signal);
     // Revocation is enforced on every API request; an open view is also cleared promptly.
     const timer = setInterval(() => { if (!document.hidden) void refresh(controller.signal); }, 15000);
@@ -44,7 +51,7 @@ export function SharedBinderViewer({ token }: { token: string }) {
     document.addEventListener('visibilitychange', visible);
     return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
   }, [refresh]);
-  const open = (card: SharedCard) => { setSelected(card); setTilt({ x: 0, y: 0 }); dialog.current?.showModal(); };
+  const open = ({ slot, cardId, finish, collectorNumber }: SharedCard) => { setSelection({ slot, cardId, finish, collectorNumber }); setTilt({ x: 0, y: 0 }); dialog.current?.showModal(); };
   return <main className={styles.shell}>
     <a href="/" className={styles.brand}>DomiDex</a><p>Geteilter Binder · Nur ansehen</p>
     {error ? <section role="alert"><h1>Freigabe nicht verfügbar</h1><p>{error}</p><button onClick={() => void refresh(new AbortController().signal)}>Erneut versuchen</button></section> : !binder ? <p role="status">Binder wird geladen …</p> : <>
@@ -62,7 +69,7 @@ export function SharedBinderViewer({ token }: { token: string }) {
       </div>
       <nav aria-label="Binderseiten"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Zurück</button><span>Seite {page + 1} / {binder.pageCount}</span><button disabled={page + 1 >= binder.pageCount} onClick={() => setPage(page + 1)}>Weiter</button></nav>
     </>}
-    <dialog ref={dialog} className={styles.dialog} aria-labelledby="shared-card-title" onClose={() => { setSelected(null); setTilt({ x: 0, y: 0 }); }}>
+    <dialog ref={dialog} className={styles.dialog} aria-labelledby="shared-card-title" onClose={() => { setSelection(null); setTilt({ x: 0, y: 0 }); }}>
       <button className={styles.close} onClick={() => dialog.current?.close()} aria-label="Großansicht schließen">Schließen</button>
       {selected && <><h2 id="shared-card-title">{selected.name}</h2>
         <div className={styles.showcase} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => {
