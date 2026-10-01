@@ -223,4 +223,20 @@ Zusätzlicher bestätigter UI-Befund in Bearbeitung: Die Löschkomponente hielt 
 Bestätigung/Ergebnismeldung bisher über Kontowechsel. Ein alter COMPLETE-Callback
 konnte das inzwischen aktive andere Konto abmelden. Der Server verwendet weiterhin
 die UID des Auth-Tokens; kein Löschen von B mit einem A-Token ist damit nachgewiesen.
-Der neue Aktions-/Kontowechselschutz benötigt einen separaten RED/GREEN-Nachweis.
+Der neue Aktions-/Kontowechselschutz wurde anschließend separat nachgewiesen:
+
+- Lokale Auth-UID-Generation invalidiert auch A→B→A vor einem React-Zwischenrender.
+  Bestätigung, Busy-Zustand und Ergebnisse sind an genau diese Aktion gebunden;
+  gleichbleibende UID bei erneuter Anmeldung bleibt erlaubt.
+- Prüfung nach Reauthentifizierung, Token, Antwort und JSON sowie vor Logout;
+  alte Fehler/Finallys und Antworten nach Unmount ändern keine neue Sitzung.
+  Ein bereits abgesendeter serverseitiger Löschauftrag wird dadurch **nicht** zurückgenommen.
+- RED: 13 Fehler/2 bestanden am Ausgangsstand. GREEN: 16 neue Sitzungstests,
+  acht Statusfälle, zwei Routenfälle und 21 AuthProvider-Fälle (47/47), anschließend
+  Root-Gesamtregression **1.047/1.047 in 66 Dateien, 25,40 s**.
+- Belege: `outputs/release27-engineering-20261001/baseline/gate10-account-deletion-session-{red,final}.log`
+  sowie `outputs/release-local/2026-10-01T03-41-58-810Z-13204.{json,log}`.
+
+Diese Prüfung verwendete ausschließlich lokale Mocks, keine reale Löschung/Abmeldung.
+Der AuthProvider und das Backend wurden nicht geändert. Die neue Testsuite ist im
+versionierten lokalen Regressionsrunner enthalten. Kein Deployment.

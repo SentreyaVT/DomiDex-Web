@@ -4,10 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountDeletion } from '@/components/account-deletion';
 
 const mocks = vi.hoisted(() => ({ logout: vi.fn(), token: vi.fn(), reauthenticate: vi.fn() }));
+const owner = vi.hoisted(() => ({ uid: 'synthetic-owner', getIdToken: mocks.token }));
 vi.mock('@/components/auth-provider', () => ({ useAuth: () => ({
-  user: { uid: 'synthetic-owner', getIdToken: mocks.token }, loading: false, logout: mocks.logout,
+  user: owner, loading: false, logout: mocks.logout,
 }) }));
-vi.mock('firebase/auth', () => ({ GoogleAuthProvider: class {}, reauthenticateWithPopup: mocks.reauthenticate }));
+vi.mock('@/lib/firebase-client', () => ({ firebaseAuth: { currentUser: owner } }));
+vi.mock('firebase/auth', () => ({
+  GoogleAuthProvider: class {}, reauthenticateWithPopup: mocks.reauthenticate,
+  onAuthStateChanged: (_auth: unknown, listener: (user: typeof owner) => void) => { listener(owner); return vi.fn(); },
+}));
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.token.mockResolvedValue('synthetic-token');

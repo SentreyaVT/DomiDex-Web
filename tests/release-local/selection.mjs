@@ -6,6 +6,7 @@ const extraFiles = [
   'tests/collection-prices-incremental.test.ts',
   'tests/tcgdex-cache-metadata.test.ts',
   'tests/account-deletion-ui.test.tsx',
+  'tests/account-deletion-session.test.tsx',
   'tests/legal.test.tsx',
 ];
 
