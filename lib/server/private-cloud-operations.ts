@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 interface PrivateOperations {
+  readPrivateSyncTimeAnchor(request: Request): Promise<Response>;
   createBinderShare(request: Request): Promise<Response>;
   listBinderShares(request: Request): Promise<Response>;
   revokeBinderShare(request: Request): Promise<Response>;

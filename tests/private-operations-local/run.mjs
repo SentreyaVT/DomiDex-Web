@@ -71,7 +71,7 @@ try {
   if (existsSync(report)) {
     const results = readJson(report);
     manifest.tests = { total: results.numTotalTests, passed: results.numPassedTests, failed: results.numFailedTests, pending: results.numPendingTests };
-    if (!results.success || results.numTotalTests !== 27 || results.numPassedTests !== 27 || results.numPendingTests !== 0) process.exitCode = 1;
+    if (!results.success || results.numTotalTests !== 30 || results.numPassedTests !== 30 || results.numPendingTests !== 0) process.exitCode = 1;
   } else process.exitCode = 1;
   manifest.finishedAt = new Date().toISOString();
   manifest.exitCode = process.exitCode ?? 1;

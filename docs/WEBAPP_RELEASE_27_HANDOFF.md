@@ -999,3 +999,47 @@ Nur die Query-Doubles in `tests/shared-binder-collisions.test.mjs`,
 `tests/public-catalog-cache/handler.test.mjs`, `tests/sharing-scale/read-binder-scale.test.mjs`
 und `tests/sharing-concurrency/read-binder-concurrency.test.mjs` wurden für dieselbe
 reale Feldprojektion angepasst; ihre bisherigen Ergebnis-/Read-Assertions bleiben erhalten.
+
+### Gate 4: authentifizierter Zeitanker, noch kein aktiver Delta-Client (2026-10-01)
+
+Neu im lokalen Quellstand: `GET /api/private-sync/time-anchor`, mit unveränderter
+aktueller App-/Admin-Berechtigung. Das DTO enthält ausschließlich Version 1,
+authentifizierte eigene UID und exakte Sekunden/Nanosekunden des bereits vorhandenen
+letzten Auth-Löschlock-Reads. `actorFor` behält Form, Regeln und bisherige Readanzahl.
+Keine Geräteuhr, kein Token-Zeitstempel und kein zusätzliches Zeitmarker-Dokument.
+Ein fehlender/ungültiger SDK-`readTime` verweigert nur diesen Endpunkt mit 503.
+
+Eine getrennte, immer erzwungene Quote erlaubt 60 Anker pro UID/60-Sekunden-Fenster.
+Ihr einzelner gehashter technischer Zähler wird mit derselben Löschsperre in einer
+Firestore-Transaktion geprüft. Account-Löschung umfasst genau den eigenen Zähler.
+Das begrenzt erfolgreiche Antworten, **nicht Ingress, Auth-Arbeit oder alle Kosten**.
+`expiresAt` ist nur Aufbewahrungsmetadatum; keine TTL-Policy wurde aktiviert und
+keine automatische Löschfrist behauptet. Alte Write-Quoten/App-Check-Policy/Rules
+bleiben unverändert. Der interne Vertrag steht in `docs/openapi.release27.yaml`.
+
+Rootnachweise (alle lokal, keine echten Konten/Produktionszugriffe):
+
+- Neue Handler-Verträge zunächst 32 FAIL / 2 PASS; Quota-Modul fehlte bewusst,
+  exakter neuer Löschinventar-Key zunächst FAIL. Dies ist teilweise Feature-RED,
+  kein Beleg eines zuvor existierenden Laufzeitfehlers.
+- Fokussiert **68/68 PASS**, inklusive sauberem Standalone-Paketimport; vollständige
+  Unit-Regression **1.197/1.197 in 73 Dateien**, 44,06 s. Lint und Typecheck PASS.
+- Tatsächliche lokale Auth-/Firestore-/Storage-SDK-Suite **30/30 PASS**, 33,47 s:
+  exakter ReadTime eines fehlenden Lock-Snapshots, 59 echte Reservierungen plus
+  zwei konkurrierende Handler über zwei SDK-Instanzen (genau 200/429), eigener
+  Zähler für das zweite Konto, Rollen-/Disabled-/Löschsperren einschließlich nach
+  Auth, sowie bisherige Sharing-/Upload-/vollständige Löschregressionen.
+  Manifest: `outputs/private-operations-local/2026-10-01T05-11-28-535Z-5493909c/manifest.json`.
+  Ein rein testseitiger numerischer Sort-Comparator wurde nach Lint korrigiert;
+  der finale 30er-Lauf erfolgte danach. SDK-/Java-Harnesswarnungen bleiben sichtbar.
+- Public-Cache **69/69**, synthetische Sharing-Concurrency **12/12** und 5.000-
+  Placement-Scale **9/9** PASS. Keine Zeit daraus als Cloud-Speedup ausgeben.
+- Isolierter Produktionsmodus-Build **PASS**, 15,761 s, 302 Quelldateien, nur
+  Demo-Umgebung. Root-`dist` plus neun Build-/Deployment-Konfigurationen bleiben
+  per SHA-256 unverändert (3.267 Dateien / 70.962.371 Bytes; identisch zum vorherigen
+  Nachweis). Belege: `baseline/build-anchor-projection{-result,-integrity}.json`.
+
+**Nicht geschlossen:** Android-SDK-Reader, Aktivierung/Rollout, historische oder
+administrativ zurückdatierte `updatedAt`-Werte, fairer persistenter Nachlauf und
+vollständige geräteübergreifende Konvergenz. Der Zeitanker beweist weder einen
+Collection-Snapshot noch Dokumentexistenz. Kein Deployment oder Live-Speedup.

@@ -10,6 +10,11 @@ const extraFiles = [
   'tests/legal.test.tsx',
   'tests/shared-binder-price-parity.test.mjs',
   'tests/shared-binder-catalog-parity.test.mjs',
+  'tests/shared-binder-placement-projection.test.mjs',
+  'tests/private-sync-time-anchor.test.mjs',
+  'tests/private-sync-time-anchor-route.test.ts',
+  'tests/read-rate-limit.test.mjs',
+  'tests/read-quota-deletion.test.mjs',
 ];
 
 export function unitFiles(scripts) {

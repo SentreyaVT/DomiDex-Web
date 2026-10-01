@@ -50,3 +50,9 @@ unmount and late responses. Independent review found the pre-request consent rac
 the synchronous consent-generation check closes it. Root rerun: **1,050/1,050 in
 66 files, 33.73 s**, `outputs/release-local/2026-10-01T03-46-31-932Z-16420.{json,log}`.
 These are mocked auth/backend boundaries, not a live account deletion.
+
+The local time-anchor/read-quota and six-field shared-placement regressions are
+also selected explicitly. Root checkpoint on 2026-10-01: **1,197/1,197 in 73 files**,
+44.06 s, report `outputs/release-local/2026-10-01T05-05-55-371Z-17504.{json,log}`.
+The same existing act/Canvas warnings remain. The separate real local Firebase
+suite now has 30 cases; it is deliberately not included in this unit launcher.

@@ -1,12 +1,14 @@
 openapi: 3.1.0
 info:
-  title: DomiDex Release 27 — authenticated write boundaries
-  version: 27-gate2-draft
+  title: DomiDex Release 27 — private write boundaries and sync time anchor
+  version: 27-source-contract-draft
   description: >-
-    Source contract for the existing upload, binder-sharing and tester-grant APIs.
+    Internal source contract for upload, binder-sharing, tester grants and the
+    private sync time anchor; not a new public UI or client integration.
     This is a scoped subset, not a complete API catalogue or proof of deployment.
-    Rate limiting defaults to monitor; HTTP 429 is enforced only after the server
-    operator explicitly configures DOMIDEX_WRITE_RATE_LIMIT_MODE=enforce.
+    Write rate limiting defaults to monitor; its HTTP 429 requires explicit
+    DOMIDEX_WRITE_RATE_LIMIT_MODE=enforce. The new private sync-anchor read budget
+    is separately always enforced, independent of that write setting.
     Optional App Check observation defaults to off and never changes authorization
     or otherwise legitimate responses in this stage.
 servers:
@@ -14,6 +16,104 @@ servers:
 security:
   - firebaseBearer: []
 paths:
+  /api/private-sync/time-anchor:
+    get:
+      operationId: readPrivateSyncTimeAnchor
+      summary: Obtain the authenticated owner's exact server-time fence
+      x-internal: true
+      parameters:
+        - { $ref: '#/components/parameters/AppCheckHeader' }
+      description: >-
+        Local Release-27 source contract; Android is not wired to this endpoint
+        and this document does not establish deployment. Requires the unchanged
+        current app/admin authorization: revocation-checked Firebase ID token,
+        live user claims, accountAccess checks and no account-deletion lock.
+        No query parameters or client-supplied owner/timestamp are accepted.
+        The owner comes exclusively from authentication. seconds/nanoseconds
+        preserve the existing authorization deletion-lock snapshot's Firestore
+        readTime, including when that document is absent. This is a time fence,
+        not proof of a collection snapshot, document existence, updatedAt validity
+        or completion of a sync. It is not replaced by the later quota timestamp.
+        After authorization and timestamp validation, a separate always-enforced
+        budget admits at most 60 requests per UID per fixed 60-second server-time
+        window, starting with that window's first admission. It does not limit
+        ingress or authentication work and is not an anonymous/IP/token limiter.
+        A transaction checks the deletion lock and updates at most one bounded
+        privateReadRateLimits/syncTimeAnchor_<SHA-256(policy-NUL-UID)> document per
+        UID. The document stores no raw UID; its key is still owner-derived.
+        expiresAt is window end plus 24 hours: retention metadata only, with no
+        TTL policy activated or timed deletion promised. Account deletion includes
+        the exact own read counter without scanning other owners' counters.
+        This endpoint consumes no write quota and changes no existing write
+        policy or deletion behavior for write counters. Quota/storage failure
+        fails closed, never to unlimited access.
+      responses:
+        '200':
+          description: Exact authenticated owner and server timestamp; never cache
+          headers:
+            Cache-Control: { $ref: '#/components/headers/PrivateNoStore' }
+            X-Content-Type-Options: { $ref: '#/components/headers/NoSniff' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrivateSyncTimeAnchor' }
+        '400':
+          description: Any nonempty query string is invalid; no auth or quota work
+          headers:
+            Cache-Control: { $ref: '#/components/headers/PrivateNoStore' }
+            X-Content-Type-Options: { $ref: '#/components/headers/NoSniff' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/PrivateSyncAnchorError' }
+                  - properties: { error: { const: INVALID_REQUEST } }
+        '401':
+          description: Missing, invalid or revoked authentication; no read quota consumed
+          headers:
+            Cache-Control: { $ref: '#/components/headers/PrivateNoStore' }
+            X-Content-Type-Options: { $ref: '#/components/headers/NoSniff' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/PrivateSyncAnchorError' }
+                  - properties: { error: { const: AUTH_REQUIRED } }
+        '403':
+          description: Disabled/unauthorized account or deletion fence, including a quota-transaction lock recheck
+          headers:
+            Cache-Control: { $ref: '#/components/headers/PrivateNoStore' }
+            X-Content-Type-Options: { $ref: '#/components/headers/NoSniff' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/PrivateSyncAnchorError' }
+                  - properties: { error: { enum: [ACCESS_DENIED, ACCOUNT_DELETING] } }
+        '429':
+          description: Read budget exhausted; no anchor returned; explicit retry after the indicated seconds, not a sign-out
+          headers:
+            Retry-After:
+              required: true
+              schema: { type: integer, minimum: 1, maximum: 60 }
+            Cache-Control: { $ref: '#/components/headers/PrivateNoStore' }
+            X-Content-Type-Options: { $ref: '#/components/headers/NoSniff' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/RateLimitError' }
+                  - properties: { retryAfterSeconds: { maximum: 60 } }
+        '503':
+          description: Missing/invalid server readTime or safe infrastructure/quota failure; no anchor or raw provider details returned
+          headers:
+            Cache-Control: { $ref: '#/components/headers/PrivateNoStore' }
+            X-Content-Type-Options: { $ref: '#/components/headers/NoSniff' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/PrivateSyncAnchorError' }
+                  - properties: { error: { const: SERVER_OPERATION_FAILED } }
   /api/pretester/scan-reports:
     post:
       operationId: uploadManualScannerReport
@@ -170,6 +270,13 @@ paths:
         '502': { description: Existing generic Auth administration failure }
         '503': { $ref: '#/components/responses/Unavailable' }
 components:
+  headers:
+    PrivateNoStore:
+      required: true
+      schema: { const: 'private, no-store' }
+    NoSniff:
+      required: true
+      schema: { const: nosniff }
   parameters:
     AppCheckHeader:
       name: X-Firebase-AppCheck
@@ -188,6 +295,37 @@ components:
       scheme: bearer
       bearerFormat: Firebase ID token
   schemas:
+    PrivateSyncTimeAnchor:
+      type: object
+      required: [schemaVersion, ownerUid, seconds, nanoseconds]
+      additionalProperties: false
+      properties:
+        schemaVersion: { type: integer, const: 1 }
+        ownerUid:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Authenticated Firebase UID; never accepted as a request parameter
+        seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 253402300799
+          description: Exact Firestore readTime seconds since Unix epoch; no client-clock fallback
+        nanoseconds:
+          type: integer
+          minimum: 0
+          maximum: 999999999
+          description: Exact subsecond component; no conversion through milliseconds or Date
+    PrivateSyncAnchorError:
+      type: object
+      required: [ok, error]
+      additionalProperties: false
+      properties:
+        ok: { const: false }
+        error:
+          type: string
+          enum: [INVALID_REQUEST, AUTH_REQUIRED, ACCESS_DENIED, ACCOUNT_DELETING, SERVER_OPERATION_FAILED]
     Error:
       type: object
       required: [error]

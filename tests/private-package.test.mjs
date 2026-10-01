@@ -27,7 +27,7 @@ it('imports all private backend operations from a clean package without relying 
       globalThis.fetch=blocked; net.Socket.prototype.connect=blocked; tls.connect=blocked;
       await import(${JSON.stringify(pathToFileURL(path.join(root, 'scripts/package-private-operations.mjs')).href)});
       const operations=await import(${JSON.stringify(packaged)});
-      for(const key of ['uploadReport','createBinderShare','revokeBinderShare','changeRole','deletionRequest'])
+      for(const key of ['uploadReport','createBinderShare','revokeBinderShare','changeRole','deletionRequest','readPrivateSyncTimeAnchor'])
         if(typeof operations[key]!=='function') throw Error('PACKAGED_OPERATION_MISSING');
       console.log('CLEAN_PACKAGE_IMPORT_OK');`;
     const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { cwd: isolated, env, encoding: 'utf8', windowsHide: true, timeout: 30000 });
@@ -35,6 +35,8 @@ it('imports all private backend operations from a clean package without relying 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('CLEAN_PACKAGE_IMPORT_OK');
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/rate-limit.mjs'))).toBe(true);
+    expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/read-rate-limit.mjs'))).toBe(true);
+    expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/private-sync-time-anchor.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/app-check.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(isolated, 'dist/standalone/backend/security/cardmarket-identity.mjs'))).toBe(true);
     for (const moduleName of ['price-alternatives', 'collection-price-selection-codec', 'catalog-supplement',

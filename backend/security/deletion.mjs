@@ -3,6 +3,7 @@ import { aggregateVote } from '../scan-knowledge/knowledge-aggregate.js';
 import { actorFor, fail, failure, json, services } from './firebase.mjs';
 import { boundedJson } from '../../lib/bounded-json.ts';
 import { rateLimitDocumentId, writePolicies } from './rate-limit.mjs';
+import { readPolicies, readRateLimitDocumentId } from './read-rate-limit.mjs';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const safeUid = (value) => typeof value === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(value);
@@ -46,6 +47,7 @@ export async function inventory(context, uid) {
   result.docs.add(`accountAccess/${uid}`);
   // Deterministic exact ownership; never scan or delete another user's quota.
   for (const policy of Object.keys(writePolicies)) result.docs.add(`privateWriteRateLimits/${rateLimitDocumentId(policy, uid)}`);
+  for (const policy of Object.keys(readPolicies)) result.docs.add(`privateReadRateLimits/${readRateLimitDocumentId(policy, uid)}`);
   for (const [root, owner] of Object.entries(personalRoots)) {
     for await (const doc of documents(db.collection(root).where(owner, '==', uid))) {
       for await (const child of descendants(doc.ref)) result.docs.add(child.path);

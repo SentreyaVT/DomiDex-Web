@@ -1,9 +1,18 @@
 # Lokale Private-Operations-Regression
 
-Dieser versionierte Starter führt ausschließlich die **27 unveränderten Tests**
+Dieser versionierte Starter führt ausschließlich die **30 bestehenden/erweiterten Tests**
 aus `tests/private-operations.test.mjs` gegen lokale Auth-, Firestore- und
 Storage-Emulatoren aus. Das Projekt ist fest `demo-domidex-privacy`.
-Es gibt keine Anmeldung, Veröffentlichung, Produktionslöschung oder Downloads.
+Es gibt keine Anmeldung an echten Konten, Veröffentlichung, Produktionslöschung
+oder Downloads; Auth-Anmeldungen erfolgen ausschließlich im lokalen Demo-Emulator.
+
+Die bisherigen 27 Fälle enthalten zusätzlich die exakte Bereinigung des neuen
+Read-Quota-Zählers samt Fremdkonto- und Wiederaufnahmeprüfung. Drei weitere Fälle
+prüfen den lokalen Zeitanker mit echten Admin-SDKs: unveränderte Nanosekunden aus
+dem fehlenden Lock-Snapshot, ein gemeinsames 60+1-Limit über zwei SDK-Instanzen
+(59 echte Reservierungen, dann zwei konkurrierende Endpunktaufrufe) sowie
+Berechtigungsentzug/Disabled und Löschsperren vor und nach der Authentifizierung.
+Das ist kein Produktionslasttest und keine Android-Delta-Sync-Ende-zu-Ende-Prüfung.
 
 ## Voraussetzungen und Aufruf
 
@@ -68,7 +77,7 @@ Unter dem ignorierten `outputs/private-operations-local/<Lauf-ID>/` liegen
 `emulator.log`, `vitest-results.json` und `manifest.json`. Das Manifest enthält
 Werkzeugversionen, SHA256/Größe der beiden JARs, Hashes der Regeln/Tests/des
 Harness, Portprüfungen, Testzahlen und Exitstatus. Erfolg setzt ausdrücklich
-**27 bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
+**30 bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
 Ports nach Emulatorende voraus.
 
 Getestet werden echte lokale Admin-SDK-Aufrufe der Sharing-, Bild-/Berechtigungs-

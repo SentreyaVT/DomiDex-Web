@@ -11,10 +11,14 @@ import { deletionRequest, advanceDeletion } from '../backend/security/deletion.m
 import { authorize, changeRole } from '../backend/security/access.mjs';
 import { createBinderShare, listBinderShares, readBinderShare, revokeBinderShare } from '../backend/security/sharing.mjs';
 import { rateLimitDocumentId, writePolicies } from '../backend/security/rate-limit.mjs';
+import { createReadRateLimiter } from '../backend/security/read-rate-limit.mjs';
+import { readPrivateSyncTimeAnchor } from '../backend/security/private-sync-time-anchor.mjs';
 
 const projectId = 'demo-domidex-privacy';
 let app, context, tokens;
 const uidHash = (uid) => createHash('sha256').update(uid).digest('hex');
+// Exact future read-policy cleanup contract, independently of implementation.
+const anchorQuotaPath = uid => `privateReadRateLimits/syncTimeAnchor_${createHash('sha256').update(`syncTimeAnchor\0${uid}`).digest('hex')}`;
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jPZkAAAAASUVORK5CYII=', 'base64');
 
 async function login(uid, claims = {}) {
@@ -72,6 +76,98 @@ beforeEach(async () => {
   tokens = { a: await login('owner-a', { appAccess: true, pretester: true }), b: await login('owner-b', { appAccess: true }), admin: await login('operator', { admin: true }) };
 }, 30_000);
 afterAll(async () => deleteApp(app));
+
+describe('Private sync anchors: real local Auth and Firestore SDKs', () => {
+  const anchorRequest = token => new Request('http://localhost/api/private-sync/time-anchor', {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  it('preserves the exact real absent-lock snapshot readTime and authenticated identity', async () => {
+    let observed;
+    const checked = { ...context,
+      // Observe, do not replace, the actual Admin SDK authorization snapshot.
+      db: { doc: path => ({ get: async () => {
+        const snapshot = await context.db.doc(path).get();
+        if (path === 'accountDeletionLocks/owner-a') observed = snapshot;
+        return snapshot;
+      } }) },
+      // The real quota uses real DocumentReferences/transactions on the same DB.
+      consumeReadQuota: createReadRateLimiter(context.db, { observe: () => {} }),
+    };
+    const response = await readPrivateSyncTimeAnchor(anchorRequest(tokens.a), checked);
+    expect(response.status).toBe(200);
+    expect(observed).toBeDefined(); expect(observed.exists).toBe(false);
+    expect(await response.json()).toEqual({ schemaVersion: 1, ownerUid: 'owner-a',
+      seconds: observed.readTime.seconds, nanoseconds: observed.readTime.nanoseconds });
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect((await context.db.doc(anchorQuotaPath('owner-a')).get()).data()).toMatchObject({ schemaVersion: 1, policy: 'syncTimeAnchor', count: 1 });
+    expect((await context.db.doc(anchorQuotaPath('owner-b')).get()).exists).toBe(false);
+  });
+
+  it('enforces the shared 60+1 budget across independent SDK instances and isolates another owner', async () => {
+    const secondApp = initializeApp({ projectId }, `anchor-quota-${randomUUID()}`);
+    try {
+      const secondDb = getFirestore(secondApp);
+      const firstQuota = createReadRateLimiter(context.db, { observe: () => {} });
+      const secondQuota = createReadRateLimiter(secondDb, { observe: () => {} });
+      // 59 real successful reservations; then two competing endpoint calls.
+      // This is not 61 simultaneous requests or a production capacity benchmark.
+      for (let index = 0; index < 59; index++) await (index % 2 ? firstQuota : secondQuota)('syncTimeAnchor', 'owner-a');
+      const firstContext = { ...context, consumeReadQuota: firstQuota };
+      const secondContext = { ...context, db: secondDb, consumeReadQuota: secondQuota };
+      const replies = await Promise.all([
+        readPrivateSyncTimeAnchor(anchorRequest(tokens.a), firstContext),
+        readPrivateSyncTimeAnchor(anchorRequest(tokens.a), secondContext),
+      ]);
+      expect(replies.map(reply => reply.status).sort((a, b) => a - b)).toEqual([200, 429]);
+      const allowed = replies.find(reply => reply.status === 200);
+      const limited = replies.find(reply => reply.status === 429);
+      expect(await allowed.json()).toMatchObject({ schemaVersion: 1, ownerUid: 'owner-a' });
+      const limitedBody = await limited.json();
+      expect(limitedBody).toMatchObject({ ok: false, error: 'RATE_LIMITED' });
+      expect(Number.isInteger(limitedBody.retryAfterSeconds)).toBe(true);
+      expect(limitedBody.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+      expect(limitedBody.retryAfterSeconds).toBeLessThanOrEqual(60);
+      expect(limited.headers.get('retry-after')).toBe(String(limitedBody.retryAfterSeconds));
+      expect(limited.headers.get('cache-control')).toBe('private, no-store');
+      expect((await secondDb.doc(anchorQuotaPath('owner-a')).get()).data().count).toBe(60);
+      const other = await readPrivateSyncTimeAnchor(anchorRequest(tokens.b), secondContext);
+      expect(other.status).toBe(200); expect(await other.json()).toMatchObject({ ownerUid: 'owner-b' });
+      expect((await context.db.doc(anchorQuotaPath('owner-b')).get()).data().count).toBe(1);
+      expect((await context.db.collection('privateReadRateLimits').get()).size).toBe(2);
+    } finally { await deleteApp(secondApp); }
+  }, 60_000);
+
+  it('denies revoked/disabled access and both early and post-auth deletion fences without quota writes', async () => {
+    const denied = async (token, status, error, checked = context) => {
+      const response = await readPrivateSyncTimeAnchor(anchorRequest(token), checked);
+      expect(response.status).toBe(status); expect(await response.json()).toEqual({ ok: false, error });
+      expect((await context.db.doc(anchorQuotaPath('owner-a')).get()).exists).toBe(false);
+    };
+    await denied(null, 401, 'AUTH_REQUIRED');
+    await context.auth.setCustomUserClaims('owner-a', { pretester: true });
+    await denied(tokens.a, 403, 'ACCESS_DENIED');
+    await context.auth.setCustomUserClaims('owner-a', { appAccess: true, pretester: true });
+    await context.db.doc('accountAccess/owner-a').set({ disabled: true });
+    await denied(tokens.a, 403, 'ACCESS_DENIED');
+    await context.db.doc('accountAccess/owner-a').delete();
+    await context.db.doc('accountDeletionLocks/owner-a').set({ jobId: 'local-anchor-test' });
+    await denied(tokens.a, 403, 'ACCOUNT_DELETING');
+    await context.db.doc('accountDeletionLocks/owner-a').delete();
+    const quota = createReadRateLimiter(context.db, { observe: () => {} });
+    await denied(tokens.a, 403, 'ACCOUNT_DELETING', { ...context, consumeReadQuota: async (policy, uid) => {
+      // Deterministic interleaving after genuine Auth/absent-lock reads, before
+      // the genuine Firestore quota transaction; no fake transaction outcome.
+      await context.db.doc(`accountDeletionLocks/${uid}`).set({ jobId: 'local-post-auth-fence' });
+      await quota(policy, uid);
+    } });
+    await context.db.doc('accountDeletionLocks/owner-a').delete();
+    await context.auth.updateUser('owner-a', { disabled: true });
+    await denied(tokens.a, 401, 'AUTH_REQUIRED');
+    expect((await context.db.collection('privateReadRateLimits').get()).size).toBe(0);
+  });
+});
 
 describe('Read-only binder sharing server boundary', () => {
   const card = { id: 'sv1-200', localId: '200', name: 'Public card', image: 'https://assets.tcgdex.net/de/sv/sv1/200', set: { id: 'sv1', name: 'Public set' }, variants_detailed: [{ type: 'Normal', size: 'Standard', pricing: { cardmarket: { idProduct: 42, trend: 2.5, unit: 'EUR' } } }] };
@@ -306,6 +402,7 @@ describe('Private image server boundary', () => {
 });
 
 async function seedAccount() {
+  for (const uid of ['owner-a', 'owner-b']) await context.db.doc(anchorQuotaPath(uid)).set({ schemaVersion: 1, policy: 'syncTimeAnchor', count: 1, windowStartedAt: Date.now(), expiresAt: new Date(Date.now() + 86400000) });
   for (const policy of Object.keys(writePolicies)) {
     for (const uid of ['owner-a', 'owner-b']) await context.db.doc(`privateWriteRateLimits/${rateLimitDocumentId(policy, uid)}`).set({ schemaVersion: 1, policy, count: 1, windowStartedAt: Date.now(), expiresAt: new Date(Date.now() + 86400000) });
   }
@@ -354,6 +451,8 @@ describe('Account deletion: isolated real Firebase emulators', () => {
       expect((await context.db.doc(`privateWriteRateLimits/${rateLimitDocumentId(policy, 'owner-a')}`).get()).exists).toBe(false);
       expect((await context.db.doc(`privateWriteRateLimits/${rateLimitDocumentId(policy, 'owner-b')}`).get()).exists).toBe(true);
     }
+    expect((await context.db.doc(anchorQuotaPath('owner-a')).get()).exists).toBe(false);
+    expect((await context.db.doc(anchorQuotaPath('owner-b')).get()).exists).toBe(true);
     expect((await context.db.doc('supportRequests/own').get()).exists).toBe(false);
     expect((await context.db.doc('communitySubmissions/own').get()).exists).toBe(false);
     expect((await context.bucket.getFiles())[0].map((file) => file.name)).toEqual(['users/owner-b/keep.png']);
@@ -374,12 +473,15 @@ describe('Account deletion: isolated real Firebase emulators', () => {
     const first = await (await deletionRequest(request(tokens.admin, { uid: 'owner-a', confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context)).json();
     expect(first.status).toBe('PARTIAL_FAILURE');
     expect((await context.db.doc('users/owner-a/collectionEntries/one').get()).exists).toBe(true);
+    expect((await context.db.doc(anchorQuotaPath('owner-a')).get()).exists).toBe(true);
     delete context.beforeDelete;
     const job = (await context.db.doc(`accountDeletionJobs/${first.jobId}`).get()).data();
     context.now = () => job.settleAfter + 1000;
     context.bucket.getMetadata = async () => [{ softDeletePolicy: { retentionDurationSeconds: '604800' } }];
     const resumed = await advanceDeletion(context, 'owner-a', first.jobId);
     expect(resumed.status).toBe('ACTIVE_DATA_DELETED_PENDING_PROVIDER_RETENTION');
+    expect((await context.db.doc(anchorQuotaPath('owner-a')).get()).exists).toBe(false);
+    expect((await context.db.doc(anchorQuotaPath('owner-b')).get()).exists).toBe(true);
     expect((await context.db.doc(`accountDeletionReceipts/${first.jobId}`).get()).exists).toBe(false);
     expect((await context.db.doc('users/owner-b/collectionEntries/keep').get()).exists).toBe(true);
   }, 45_000);
