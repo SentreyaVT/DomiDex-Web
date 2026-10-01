@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET as getReports, PATCH as patchReport } from '@/app/api/admin/scan-reports/route';
 import { GET as getProfiles } from '@/app/api/admin/scanner-profiles/route';
+import { requestBody, requestUrl } from './helpers/http-fixture';
 
 const privateAuth = vi.hoisted(() => ({
   authorize: vi.fn(),
@@ -30,10 +31,10 @@ describe('scanner admin reads use authorized server credentials', () => {
   it('loads stored reports with the server credential after checking the current admin session', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('Authorization')).toBe(serverBearer);
-      if (String(input).endsWith(':runAggregationQuery')) {
+      if (requestUrl(input).endsWith(':runAggregationQuery')) {
         return Response.json([{ result: { aggregateFields: { total: { integerValue: '1' } } } }]);
       }
-      expect(new URL(String(input)).pathname).toMatch(/\/documents\/scannerReports$/);
+      expect(new URL(requestUrl(input)).pathname).toMatch(/\/documents\/scannerReports$/);
       return Response.json({ documents: [storedReport()] });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -56,7 +57,7 @@ describe('scanner admin reads use authorized server credentials', () => {
   it('also authorizes legacy full-list reads before using the server credential', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('Authorization')).toBe(serverBearer);
-      expect(new URL(String(input)).pathname).toMatch(/\/documents\/scannerReports$/);
+      expect(new URL(requestUrl(input)).pathname).toMatch(/\/documents\/scannerReports$/);
       return Response.json({ documents: [storedReport()] });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -75,7 +76,7 @@ describe('scanner admin reads use authorized server credentials', () => {
   it('loads every profile collection and the manifest with the server credential', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('Authorization')).toBe(serverBearer);
-      const path = new URL(String(input)).pathname;
+      const path = new URL(requestUrl(input)).pathname;
       if (path.endsWith('/scannerReleaseManifest/production')) {
         return Response.json({ name: 'projects/test/databases/(default)/documents/scannerReleaseManifest/production', fields: {} });
       }
@@ -90,7 +91,7 @@ describe('scanner admin reads use authorized server credentials', () => {
     expect(await response.json()).toMatchObject({ profiles: [], versions: [], benchmarks: [], manifest: { documentId: 'production' } });
     expect(privateAuth.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'scannerLab');
     expect(privateAuth.serverAuthorization).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname.split('/documents/')[1]).sort()).toEqual([
+    expect(fetchMock.mock.calls.map(([input]) => new URL(requestUrl(input)).pathname.split('/documents/')[1]).sort()).toEqual([
       'scannerBenchmarks', 'scannerProfileVersions', 'scannerProfiles', 'scannerReleaseManifest/production',
     ]);
     expect(privateAuth.authorize.mock.invocationCallOrder[0]).toBeLessThan(privateAuth.serverAuthorization.mock.invocationCallOrder[0]);
@@ -139,10 +140,10 @@ describe('scanner admin reads use authorized server credentials', () => {
   it('preserves report ownership and image metadata when an authorized admin reviews it', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('Authorization')).toBe(serverBearer);
-      if (String(input).endsWith('/scannerReports/scan-test')) return Response.json(storedReport());
-      expect(String(input)).toMatch(/\/documents:commit$/);
+      if (requestUrl(input).endsWith('/scannerReports/scan-test')) return Response.json(storedReport());
+      expect(requestUrl(input)).toMatch(/\/documents:commit$/);
       expect(init?.method).toBe('POST');
-      const body = JSON.parse(String(init?.body));
+      const body = JSON.parse(requestBody(init?.body));
       expect(body.writes[0].update.fields).toMatchObject({
         ownerUid: { stringValue: 'original-owner-test' },
         captureImagePath: { stringValue: 'scanner-report-images/scan-test/capture.jpg' },

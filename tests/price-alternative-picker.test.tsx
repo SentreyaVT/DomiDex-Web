@@ -20,7 +20,9 @@ describe('manual Cardmarket alternative picker', () => {
     const confirm = vi.fn().mockResolvedValue(undefined);
     render(<PriceAlternativePicker card={card} variant={variant} onConfirm={confirm} />);
     expect(confirm).not.toHaveBeenCalled();
-    expect((screen.getByRole('combobox', { name: 'Preiskennzahl' }) as HTMLSelectElement).value).toBe('');
+    const picker = screen.getByRole('combobox', { name: 'Preiskennzahl' });
+    if (!(picker instanceof HTMLSelectElement)) throw new Error('Price metric picker must be a select element.');
+    expect(picker.value).toBe('');
     expect((screen.getByRole('button', { name: 'Auswahl bestätigen' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/kein garantierter Verkaufs- oder Ankaufspreis/i)).toBeTruthy();
     expect(screen.getByText(/Datenstand der Preisquelle/i)).toBeTruthy();

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PATCH } from '@/app/api/admin/testers/route';
+import { requestUrl } from './helpers/http-fixture';
 
 const boundary = vi.hoisted(() => ({ authorize: vi.fn(), changeRole: vi.fn() }));
 vi.mock('@/lib/server/private-cloud-operations', () => ({ privateOperations: async () => boundary }));
@@ -31,10 +32,10 @@ describe('admin-only Scanner Lab role delegation', () => {
   it.each([true, false])('delegates exactly scannerLabAccess=%s through the private role setter', async (enabled) => {
     const claims = { admin: false, appAccess: true, pretester: true, feature: 'preserved', ...(enabled ? { scannerLabAccess: true } : {}) };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).endsWith('/instance/service-accounts/default/token')) {
+      if (requestUrl(input).endsWith('/instance/service-accounts/default/token')) {
         return Response.json({ access_token: 'server-auth-token', expires_in: 3600 });
       }
-      expect(String(input)).toMatch(/^https:\/\/identitytoolkit\.googleapis\.com\/v1\/projects\/[^/]+\/accounts:lookup$/);
+      expect(requestUrl(input)).toMatch(/^https:\/\/identitytoolkit\.googleapis\.com\/v1\/projects\/[^/]+\/accounts:lookup$/);
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer server-auth-token');
       expect(JSON.parse(init?.body as string)).toEqual({ localId: ['reviewer-uid'] });
       return Response.json({ users: [{ localId: 'reviewer-uid', email: 'reviewer@example.test', customAttributes: JSON.stringify(claims) }] });

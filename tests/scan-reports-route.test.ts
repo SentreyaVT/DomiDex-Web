@@ -23,7 +23,10 @@ describe('scanner report admin route', () => {
     const source = firestoreReport('scan-1', '2026-09-07T10:00:00Z', 'owner-1');
     const key = { schemaVersion: 1, knowledgeVersion: 1, scannerVersion: 'scanner-v2.1', fingerprint: 'a'.repeat(64) };
     Object.assign(source.fields, encodeFields({ knowledgeContext: key }));
-    let commit: { writes: Array<Record<string, any>> } | undefined;
+    let commit: { writes: Array<{
+      currentDocument?: { updateTime?: string };
+      update: { fields: ReturnType<typeof encodeFields> };
+    }> } | undefined;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (requestUrl(input).endsWith(':commit')) { commit = JSON.parse(requestBody(init?.body)); return jsonResponse({ writeResults: [{}, {}] }); }
       return jsonResponse(source);

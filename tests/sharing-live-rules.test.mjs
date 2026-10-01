@@ -34,7 +34,7 @@ before(async () => {
 beforeEach(async () => { await environment.clearFirestore(); await seed(environment); });
 after(async () => { await environment?.cleanup(); await baseline?.cleanup(); });
 
-test('preparation is pinned to the exact live snapshot and preserves unrelated rule text', () => {
+void test('preparation is pinned to the exact live snapshot and preserves unrelated rule text', () => {
   assert.equal(sha256(live), EXPECTED_LIVE_SHA256);
   assert.throws(()=>prepareSharingRules(live+'\n'), /LIVE_RULES_CHANGED/);
   for (const functionName of ['validCollectionEntry','validPrivateBinder','validCollectionLayout']) {
@@ -44,13 +44,13 @@ test('preparation is pinned to the exact live snapshot and preserves unrelated r
   assert.equal(candidate.includes('privateBinderShares'),false);
   assert.ok(candidate.includes('match /{document=**} { allow read, write: if false; }'));
 });
-test('live rules reproduce both missing account-status read and rejected current Holo wire fields', async () => {
+void test('live rules reproduce both missing account-status read and rejected current Holo wire fields', async () => {
   await seed(baseline);
   const db = baseline.authenticatedContext('owner',{appAccess:true}).firestore();
   await assertFails(getDoc(doc(db,'accountAccess/owner')));
   await assertFails(setDoc(doc(db,'users/owner/privateBinderPlacements/placement-1'),placement()));
 });
-test('only the owner can get accountAccess; grants cannot be listed, edited or deleted', async () => {
+void test('only the owner can get accountAccess; grants cannot be listed, edited or deleted', async () => {
   const db=user(), ref=doc(db,'accountAccess/owner');
   await assertSucceeds(getDoc(ref));
   await assertFails(getDocs(collection(db,'accountAccess')));
@@ -59,7 +59,7 @@ test('only the owner can get accountAccess; grants cannot be listed, edited or d
   await assertFails(getDoc(doc(environment.authenticatedContext('other').firestore(),'accountAccess/owner')));
   await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(),'accountAccess/owner')));
 });
-test('private Binder/placement owner reads remain allowed and foreign reads denied', async () => {
+void test('private Binder/placement owner reads remain allowed and foreign reads denied', async () => {
   const db=user();
   await assertSucceeds(getDocs(collection(db,'users/owner/privateBinders')));
   await assertSucceeds(setDoc(doc(db,'users/owner/privateBinderPlacements/placement-1'),placement()));
@@ -68,20 +68,20 @@ test('private Binder/placement owner reads remain allowed and foreign reads deni
   await assertFails(getDoc(doc(foreign,'users/owner/privateBinders/binder-1')));
   await assertFails(getDoc(doc(foreign,'users/owner/privateBinderPlacements/placement-1')));
 });
-test('old absent Holo fields and new explicit null/zero wire fields remain valid', async () => {
+void test('old absent Holo fields and new explicit null/zero wire fields remain valid', async () => {
   const data=placement(); delete data.holoEffectId; delete data.holoIntensity;
   const ref=doc(user(),'users/owner/privateBinderPlacements/placement-1');
   await assertSucceeds(setDoc(ref,data));
   await assertSucceeds(setDoc(ref,{...placement(),holoEffectId:null,holoIntensity:0,revision:2}));
 });
-test('Holo is bounded: rejects invalid identifiers, intensity, unknown fields and foreign ownership', async () => {
+void test('Holo is bounded: rejects invalid identifiers, intensity, unknown fields and foreign ownership', async () => {
   const ref=doc(user(),'users/owner/privateBinderPlacements/placement-1');
   for(const bad of [{holoEffectId:'../x'}, {holoEffectId:''}, {holoEffectId:'x'.repeat(81)}, {holoEffectId:4}, {holoIntensity:-.1}, {holoIntensity:1.1}, {holoIntensity:'1'}, {holoEffectId:null,holoIntensity:.5}, {unknownField:true}, {ownerUid:'other'}]) {
     await assertFails(setDoc(ref,{...placement(),...bad}));
   }
   await assertSucceeds(setDoc(ref,{...placement(),holoEffectId:'type.psychic-v2',holoIntensity:1}));
 });
-test('placement revisions, existing dependencies and tombstones stay enforced', async () => {
+void test('placement revisions, existing dependencies and tombstones stay enforced', async () => {
   const ref=doc(user(),'users/owner/privateBinderPlacements/placement-1');
   await assertFails(setDoc(ref,{...placement(),entrySyncId:'missing'}));
   await assertSucceeds(setDoc(ref,placement()));
@@ -90,7 +90,7 @@ test('placement revisions, existing dependencies and tombstones stay enforced', 
   await assertFails(setDoc(ref,{...placement(),revision:3,deleted:false}));
   await assertFails(deleteDoc(ref));
 });
-test('current collection, Binder, layout and tombstone wire shapes still work unchanged', async () => {
+void test('current collection, Binder, layout and tombstone wire shapes still work unchanged', async () => {
   const db=user();
   const cref=doc(db,'users/owner/collectionEntries/entry-1'), bref=doc(db,'users/owner/privateBinders/binder-1');
   await assertSucceeds(setDoc(cref,{...entry(),revision:2}));
@@ -101,7 +101,7 @@ test('current collection, Binder, layout and tombstone wire shapes still work un
   await assertFails(setDoc(cref,{...entry(),revision:4}));
   await assertFails(setDoc(bref,{...binder(),revision:4}));
 });
-test('public share records remain server-only for owner, other, anonymous and client admin', async () => {
+void test('public share records remain server-only for owner, other, anonymous and client admin', async () => {
   for(const db of [user(),environment.authenticatedContext('other').firestore(),environment.unauthenticatedContext().firestore(),environment.authenticatedContext('admin',{admin:true}).firestore()]) {
     await assertFails(getDoc(doc(db,'privateBinderShares/fixture-share')));
     await assertFails(setDoc(doc(db,'privateBinderShares/new'),{ownerUid:'owner'}));

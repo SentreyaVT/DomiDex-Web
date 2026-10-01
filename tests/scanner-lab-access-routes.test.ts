@@ -3,6 +3,7 @@ import { GET as getReports, PATCH as patchReport } from '@/app/api/admin/scan-re
 import { GET as getProfiles, POST as postProfile } from '@/app/api/admin/scanner-profiles/route';
 import { GET as getReferences } from '@/app/api/admin/scanner-references/route';
 import { GET as getReferenceImage } from '@/app/api/admin/scanner-reference-image/[file]/route';
+import { requestUrl } from './helpers/http-fixture';
 
 const boundary = vi.hoisted(() => ({ authorize: vi.fn(), serverAuthorization: vi.fn() }));
 const referenceReads = vi.hoisted(() => ({
@@ -63,8 +64,8 @@ describe('Scanner Lab route role boundaries', () => {
   it('lets a lab-only reviewer update review status while preserving the original owner and image metadata', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('Authorization')).toBe(serverBearer);
-      if (String(input).endsWith('/scannerReports/scan-test')) return Response.json(storedReport());
-      expect(String(input)).toMatch(/\/documents:commit$/);
+      if (requestUrl(input).endsWith('/scannerReports/scan-test')) return Response.json(storedReport());
+      expect(requestUrl(input)).toMatch(/\/documents:commit$/);
       const body = JSON.parse(init?.body as string);
       expect(body.writes[0].update.fields).toMatchObject({
         ownerUid: { stringValue: 'original-owner' }, captureImagePath: { stringValue: 'scanner-report-images/scan-test/capture.jpg' },
@@ -85,7 +86,7 @@ describe('Scanner Lab route role boundaries', () => {
   it('allows profile reads for lab-only users', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('Authorization')).toBe(serverBearer);
-      return String(input).endsWith('/scannerReleaseManifest/production')
+      return requestUrl(input).endsWith('/scannerReleaseManifest/production')
         ? Response.json({ name: 'projects/test/databases/(default)/documents/scannerReleaseManifest/production', fields: {} })
         : Response.json({ documents: [] });
     });

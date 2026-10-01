@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { requestUrl } from './helpers/http-fixture';
 
 const privateAuth = vi.hoisted(() => ({ changeRole: vi.fn() }));
 vi.mock('@/lib/server/private-cloud-operations', () => ({ privateOperations: async () => privateAuth }));
@@ -14,7 +15,7 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(
 
 function stubIdentity(users: Array<Record<string, unknown>>) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
+    const url = requestUrl(input);
     if (url.startsWith('http://metadata.test.invalid/')) return Response.json({ access_token: 'test-iam', expires_in: 3600 });
     expect(url).toContain('https://identitytoolkit.googleapis.com/v1/projects/');
     expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-iam');

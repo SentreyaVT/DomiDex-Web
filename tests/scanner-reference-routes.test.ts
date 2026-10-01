@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { requestUrl } from './helpers/http-fixture';
 
 const privateAuth = vi.hoisted(() => ({ authorize: vi.fn(), serverAuthorization: vi.fn(), changeRole: vi.fn(), uploadReport: vi.fn(), deleteReport: vi.fn() }));
 vi.mock('@/lib/server/private-cloud-operations', () => ({ privateOperations: async () => privateAuth }));
@@ -130,7 +131,7 @@ describe('Scanner Lab reference routes use the verified server read boundary', (
 
   it('TCGdex fallback uses the server index but receives no bearer credentials', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input); expect(init?.method ?? 'GET').toBe('GET'); expect(init?.body).toBeUndefined();
+      const url = requestUrl(input); expect(init?.method ?? 'GET').toBe('GET'); expect(init?.body).toBeUndefined();
       if (url.startsWith('https://storage.googleapis.com/')) {
         expect(new Headers(init?.headers).get('Authorization')).toBe(iam);
         return decodeURIComponent(url).includes(imageObject) ? new Response('', { status: 404 }) : Response.json(index);
