@@ -65,13 +65,15 @@ function fixture({ count, showTotal = false, owner = 'synthetic-owner-a', showPr
         expect(path).toBe(`users/${owner}/privateBinderPlacements`);
         return { where: (field, operator, value) => {
           expect([field, operator, value]).toEqual(['binderId', '==', binder]);
-          return { limit: (limit) => {
+          return { select: (...fields) => ({ limit: (limit) => {
             expect(limit).toBe(5_001);
             return { get: async () => {
               stats.placementQueries++; const selected = rows.slice(0, limit); stats.queryDocuments += selected.length;
-              return { size: selected.length, docs: selected.map((row) => ({ id: row.id, data: () => row.data })) };
+              return { size: selected.length, docs: selected.map((row) => ({ id: row.id,
+                data: () => Object.fromEntries(fields.filter((key) => Object.hasOwn(row.data, key)).map((key) => [key, row.data[key]])),
+              })) };
             } };
-          } };
+          } }) };
         } };
       },
       getAll: async (...refs) => {

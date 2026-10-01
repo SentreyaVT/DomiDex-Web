@@ -33,7 +33,10 @@ function fixture(rows, flags = {}) {
         expect(path).toBe(placementPath);
         return { where(field, operator, value) {
           expect([field, operator, value]).toEqual(['binderId', '==', binderId]);
-          return { limit: (limit) => ({ get: async () => ({ size: Math.min(rows.length, limit), docs: rows.slice(0, limit).map((row) => ({ id: row.id, data: () => row.data })) }) }) };
+          return { select: (...fields) => ({ limit: (limit) => ({ get: async () => ({ size: Math.min(rows.length, limit),
+            docs: rows.slice(0, limit).map((row) => ({ id: row.id,
+              data: () => Object.fromEntries(fields.filter((key) => Object.hasOwn(row.data, key)).map((key) => [key, row.data[key]])),
+            })) }) }) }) };
         } };
       },
       getAll: async (...references) => references.map(({ path }) => snapshot(path)),

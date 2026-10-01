@@ -66,15 +66,17 @@ function fixture({ count = COUNT, showPrices = false, showTotal = false, reverse
         expect(path).toBe(PLACEMENT_PATH);
         return { where: (field, operator, value) => {
           expect([field, operator, value]).toEqual(['binderId', '==', BINDER]);
-          return { limit: (limit) => {
+          return { select: (...fields) => ({ limit: (limit) => {
             expect(limit).toBe(5_001);
             return { get: async () => {
               counters.placementQueries++;
               const selected = rows.slice(0, limit);
               counters.queryDocuments += selected.length;
-              return { size: selected.length, docs: selected.map((row) => ({ id: row.id, data: () => row.data })) };
+              return { size: selected.length, docs: selected.map((row) => ({ id: row.id,
+                data: () => Object.fromEntries(fields.filter((key) => Object.hasOwn(row.data, key)).map((key) => [key, row.data[key]])),
+              })) };
             } };
-          } };
+          } }) };
         } };
       },
       getAll: async (...refs) => {

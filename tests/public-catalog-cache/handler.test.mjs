@@ -15,12 +15,14 @@ function fixture(owner = 'owner-a') {
     [binderPath, { ownerUid: owner, binderId: 'binder', name: 'Private named binder', coverStyle: 'galaxy' }]]);
   const entry = { ownerUid: owner, sourceCardId: card.id, sourceSetId: 'sv1', setId: 'sv1', collectorNumber: '001',
     finish: 'Normal', variant: 'Standard', externalProductId: 42, quantity: 1, notes: 'PRIVATE_NOTE' };
+  const placement = { ownerUid: owner, entrySyncId: 'entry', slotPosition: 0 };
   let reads = 0, authReads = 0, afterEntries = () => {};
   const context = { sharingEnabled: true,
     auth: { getUser: async () => { authReads++; return { disabled: false, customClaims: { appAccess: true } }; } },
     db: { doc: (path) => ({ get: async () => { reads++; const data = documents.get(path); return { exists: data !== undefined, data: () => data }; } }),
-      collection: () => ({ where: () => ({ limit: () => ({ get: async () => ({ size: 1,
-        docs: [{ id: 'placement', data: () => ({ ownerUid: owner, entrySyncId: 'entry', slotPosition: 0 }) }] }) }) }) }),
+      collection: () => ({ where: () => ({ select: (...fields) => ({ limit: () => ({ get: async () => ({ size: 1,
+        docs: [{ id: 'placement', data: () => Object.fromEntries(fields.filter((key) => Object.hasOwn(placement, key)).map((key) => [key, placement[key]])) }],
+      }) }) }) }) }),
       getAll: async () => { reads++; afterEntries(); return [{ id: 'entry', data: () => entry }]; },
     } };
   return { documents, binderPath, context, entry,

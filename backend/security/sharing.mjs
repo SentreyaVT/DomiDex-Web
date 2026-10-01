@@ -169,7 +169,8 @@ export async function readBinderShare(request, route, context = services()) {
     const binder = await ownedBinder(context, share.ownerUid, share.binderId);
     const page = Number(new URL(request.url).searchParams.get('page') ?? '0');
     if (!Number.isSafeInteger(page) || page < 0 || page > 100000) fail('INVALID_REQUEST', 400);
-    const snapshots = await context.db.collection(`users/${share.ownerUid}/privateBinderPlacements`).where('binderId', '==', share.binderId).limit(5001).get();
+    const snapshots = await context.db.collection(`users/${share.ownerUid}/privateBinderPlacements`).where('binderId', '==', share.binderId)
+      .select('ownerUid', 'entrySyncId', 'slotPosition', 'deleted', 'holoEffectId', 'holoIntensity').limit(5001).get();
     if (snapshots.size > 5000) fail('SERVER_OPERATION_FAILED', 503);
     const placements = sharedPlacements(snapshots.docs, share.ownerUid);
     const pageCount = Math.max(1, Number.isSafeInteger(binder.minimumPageCount) ? binder.minimumPageCount : 1, ...placements.map((item) => Math.floor(item.slotPosition / 9) + 1));

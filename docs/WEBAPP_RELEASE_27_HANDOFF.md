@@ -972,3 +972,30 @@ Cloud-Kosten-/Lastmessung. Anonyme öffentliche Read-Limits sind weiterhin nicht
 implementiert; eine vertrauenswürdige Ingress-/Client-IP-Grenze ist nicht bewiesen.
 Der öffentliche Cache ersetzt weder Rate-Limiting noch Owner-/Widerrufsprüfungen.
 Keine Veröffentlichung, neue Deployment-Freigabe oder Zusage über den Live-Stand.
+
+### Gate 6: kleinere Placement-Nutzdaten, keine Seitenabfrage (2026-10-01)
+
+`backend/security/sharing.mjs` projiziert die unveränderte, auf 5.001 Dokumente
+begrenzte Binderabfrage nun ausschließlich auf `ownerUid`, `entrySyncId`,
+`slotPosition`, `deleted`, `holoEffectId` und `holoIntensity`. Die Dokument-ID
+bleibt für die stabile Kollisionsauflösung erhalten; fehlende Legacyfelder werden
+nicht ergänzt. Filter, 5.000-Cap einschließlich Tombstones, Preis-/Namensfreigaben,
+DTO und abschließende Widerruf-/Owner-/Binderprüfungen sind unverändert.
+Das entfernt unbenutzte Felder aus dem gelesenen Payload, **spart aber keine
+Dokument-Reads** und belegt weder Cloud-Latenz noch einen Pagination-Speedup.
+Globale Kollisionsauflösung und Seitenzahl benötigen weiterhin alle Platzierungen
+(O(N) Reads, mit Sortierung); der Gesamtwert benötigt weiterhin den vollständigen
+Entry-/Preis-Fan-out. Kein neues Schema, Index, Backfill oder Deployment.
+
+Root bestätigte für `tests/shared-binder-placement-projection.test.mjs` zunächst
+**23 PASS / 3 FAIL**, danach **26/26 PASS**. Die Fixture projiziert tatsächlich
+Felder; ein Full-Document-Vergleich prüft identische DTOs und logische Reads über
+acht Freigabekombinationen, globale Kollisionen, Legacy-/Nullfälle und genaue
+Preiswahl. Gesondert bleiben ungültige Daten, der Tombstone-Cap und spätere
+Widerrufe abgesichert. RED-Nachweis: `outputs/release-local/anchor-and-projection-red.log`.
+Dies ist ein isolierter synthetischer Vertragstest, kein neuer SDK-/Live-Lastnachweis.
+Nur die Query-Doubles in `tests/shared-binder-collisions.test.mjs`,
+`tests/shared-binder-price-parity.test.mjs`, `tests/shared-binder-catalog-parity.test.mjs`,
+`tests/public-catalog-cache/handler.test.mjs`, `tests/sharing-scale/read-binder-scale.test.mjs`
+und `tests/sharing-concurrency/read-binder-concurrency.test.mjs` wurden für dieselbe
+reale Feldprojektion angepasst; ihre bisherigen Ergebnis-/Read-Assertions bleiben erhalten.

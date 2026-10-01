@@ -21,11 +21,13 @@ function fixture(id = '30th-c-001', productId = 907940, owner = 'owner-fixture')
     [binderPath, { ownerUid: owner, binderId: 'binder-a', name: 'Fixture', deleted: false }],
     [`users/${owner}/collectionEntries/entry-a`, entry]]);
   const snap = (path) => ({ id: path.split('/').at(-1), exists: documents.has(path), data: () => structuredClone(documents.get(path)) });
+  const placement = { ownerUid: owner, binderId: 'binder-a', entrySyncId: 'entry-a', slotPosition: 0 };
   const context = { sharingEnabled: true, auth: { getUser: async () => ({ disabled: false, customClaims: { appAccess: true } }) },
     db: { doc: (path) => ({ path, get: async () => snap(path) }),
       getAll: vi.fn(async (...refs) => refs.map(({ path }) => snap(path))),
-      collection: () => ({ where: () => ({ limit: () => ({ get: async () => ({ size: 1,
-        docs: [{ id: 'placement-a', data: () => ({ ownerUid: owner, binderId: 'binder-a', entrySyncId: 'entry-a', slotPosition: 0 }) }] }) }) }) }),
+      collection: () => ({ where: () => ({ select: (...fields) => ({ limit: () => ({ get: async () => ({ size: 1,
+        docs: [{ id: 'placement-a', data: () => Object.fromEntries(fields.filter((key) => Object.hasOwn(placement, key)).map((key) => [key, placement[key]])) }],
+      }) }) }) }) }),
     } };
   const raw = { id, localId, name: 'Public fixture', set: { id: setId, name: 'Public set' },
     image: 'https://assets.tcgdex.net/de/example', variants_detailed: [{ type: 'Holo', size: 'Standard' }] };

@@ -35,8 +35,10 @@ export function priceFixture(flags = { showPrices: true, showTotal: true }, owne
     db: { doc: (path) => ({ path, get: async () => snapshot(path) }),
       collection: (path) => {
         expect(path).toBe(`users/${owner}/privateBinderPlacements`);
-        return { where: () => ({ limit: (limit) => ({ get: async () => ({ size: rows.length,
-          docs: rows.slice(0, limit).map((row) => ({ id: row.id, data: () => structuredClone(row) })) }) }) }) };
+        return { where: () => ({ select: (...fields) => ({ limit: (limit) => ({ get: async () => ({ size: rows.length,
+          docs: rows.slice(0, limit).map((row) => ({ id: row.id,
+            data: () => structuredClone(Object.fromEntries(fields.filter((key) => Object.hasOwn(row, key)).map((key) => [key, row[key]]))),
+          })) }) }) }) }) };
       },
       getAll: vi.fn(async (...refs) => refs.map(({ path }) => snapshot(path))),
     }, cardFor: vi.fn(async () => structuredClone(card)),
