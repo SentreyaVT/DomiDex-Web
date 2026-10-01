@@ -226,4 +226,57 @@ describe('shared binder successful refresh and open large-card view', () => {
     expect(screen.queryByRole('heading', { name: 'Alte Freigabe' })).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('aborts a pending manual retry when the viewer unmounts', async () => {
+    const retry = deferred<Response>();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockReturnValueOnce(retry.promise);
+    const view = render(<SharedBinderViewer token={token} />);
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const retrySignal = vi.mocked(fetch).mock.calls[1][1]?.signal;
+
+    try {
+      expect(retrySignal).toBeInstanceOf(AbortSignal);
+      expect(retrySignal?.aborted).toBe(false);
+      view.unmount();
+      expect(retrySignal?.aborted).toBe(true);
+    } finally {
+      // The mock deliberately ignores abort; settle even when the RED assertion fails.
+      await act(async () => { retry.resolve(response(binder('Verspäteter manueller Retry'))); });
+    }
+  });
+
+  it('aborts a manual retry on token change and ignores its late JSON body', async () => {
+    const oldBody = deferred<SharedBinder>();
+    const readOldBody = vi.fn(() => oldBody.promise);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockResolvedValueOnce({ ok: true, json: readOldBody } as unknown as Response);
+    const view = render(<SharedBinderViewer token={token} />);
+    await screen.findByRole('alert');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' })); });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(readOldBody).toHaveBeenCalledTimes(1);
+    const retrySignal = vi.mocked(fetch).mock.calls[1][1]?.signal;
+
+    try {
+      expect(retrySignal).toBeInstanceOf(AbortSignal);
+      expect(retrySignal?.aborted).toBe(false);
+      vi.mocked(fetch).mockResolvedValueOnce(response(binder('Neue Freigabe nach Retry', [])));
+      view.rerender(<SharedBinderViewer token={'y'.repeat(43)} />);
+      await screen.findByRole('heading', { level: 1, name: 'Neue Freigabe nach Retry' });
+      expect(retrySignal?.aborted).toBe(true);
+
+      await act(async () => { oldBody.resolve(binder('Alte Freigabe aus manuellem Retry')); });
+      expect(screen.getByRole('heading', { level: 1, name: 'Neue Freigabe nach Retry' })).toBeTruthy();
+      expect(screen.queryByRole('heading', { name: 'Alte Freigabe aus manuellem Retry' })).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      await act(async () => { oldBody.resolve(binder('Alte Freigabe aus manuellem Retry')); });
+    }
+  });
 });

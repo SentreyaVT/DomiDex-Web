@@ -1,7 +1,8 @@
 # Release 27 — öffentliche Binder-Reads: Gate 2/6
 
-Stand: 01.10.2026, rein lokaler Source-Audit. Keine Cloud-/Auth-/Netzabfragen,
-keine Runtime-/Rulesänderung und kein Deployment für diesen Befund.
+Stand: 01.10.2026, lokaler Source-Audit mit getrennt gekennzeichnetem
+Retry-Cleanup-Follow-up. Keine Cloud-/Auth-/Netzabfragen, keine Rules-/Ingressänderung
+und kein Deployment für diesen Bericht.
 
 ## Status und Beleggrenzen
 
@@ -83,16 +84,31 @@ Produktionslatenzen und keine Aussage über eine Provider-SLA.
   Ohne vorherige Daten bleibt die Ladeanzeige stehen; bereits dargestellte Daten
   werden durch diese verworfenen Antworten nicht aktualisiert. Zusätzliche
   Visibility-Aufrufe können weitere Requests und Versionen erzeugen.
-- „Erneut versuchen“ erzeugt einen eigenen `AbortController`, speichert ihn
-  jedoch nicht für das Cleanup. Mehrfache Klicks können daher ebenfalls überlappen;
-  dieser manuelle Request wird bei Unmount oder Freigabewechsel nicht durch den
-  Effect-Controller abgebrochen. Die Versionsprüfung schützt weiterhin vor einer
-  alten Antwort nach einem neu gestarteten Request. Normale Effect-Requests werden
-  bei Seiten-/Tokenwechsel und Unmount dagegen bereits abgebrochen.
-- Die bestehenden Viewer-Tests belegen die jüngste zulässige DTO-Veröffentlichung,
+- **Historischer Retry-Befund, inzwischen lokal korrigiert:** „Erneut versuchen“
+  erzeugte einen eigenen `AbortController`, ohne ihn für das Cleanup zu speichern.
+  Dieser manuelle Request wurde deshalb bei Unmount oder Freigabewechsel nicht
+  durch den Effect-Controller abgebrochen. Der minimale lokale Fix hält den
+  bestehenden Effect-Controller in `requestLifetime`; manuelle Retries teilen
+  jetzt dessen Signal und damit das Cleanup bei Seiten-/Tokenwechsel und Unmount.
+  Das Cleanup leert die Referenz nur, wenn sie noch auf seinen eigenen Controller
+  zeigt. Es gibt weder Abbruch vor jedem Refresh noch Coalescing oder neue Timeouts.
+  Mehrfache Retries können während derselben Lebensdauer weiterhin überlappen.
+  Die bereits vorhandene Versionsprüfung gegen alte Antworten bleibt unverändert;
+  diese Korrektur ist kein neu eingeführter Schutz vor veralteten DTOs.
+- Die bisherigen Viewer-Tests belegen die jüngste zulässige DTO-Veröffentlichung,
   das Entfernen widerrufener Preise/Karten und den Schutz vor verspäteten alten
-  Antworten. Sie belegen keine Obergrenze tatsächlich laufender Requests und kein
-  lückenloses Controller-Cleanup manueller Retries.
+  Antworten. Zwei neue reale Komponententests prüfen zusätzlich einen manuellen
+  Retry mit offenem Fetch bei Unmount sowie einen offenen Retry-JSON-Body bei
+  Tokenwechsel einschließlich verspäteter alter Antwort. Der lokale RED-Lauf
+  vor dem Fix ergab 1.199 PASS / 2 FAIL, beide exakt am noch nicht abgebrochenen
+  Retry-Signal: `outputs/release-local/2026-10-01T15-08-35-416Z-4664.json`
+  und die gleichnamige `.log`-Datei. Anschließend **1.201/1.201 PASS, kein Skip**:
+  `outputs/release-local/2026-10-01T15-10-38-849Z-8752.{json,log}`.
+  Typecheck und gezieltes Lint bestanden ebenfalls; der isolierte Produktionsmodus-
+  Build dauerte 19,304 Sekunden. Root-`dist` und neun Build-/Deploymentdateien
+  blieben unverändert (`baseline/build-viewer-manual-retry-*` unter
+  `outputs/release27-engineering-20261001/`). Kein Deployment. Die Tests sind kein Nachweis
+  einer Obergrenze tatsächlich laufender Requests oder von beendetem Serveraufwand.
 
 Der Viewer ruft direkt Browser-`fetch` mit einem Signal auf. Der API-Router und
 `privateOperations` reichen das `Request`-Objekt an `readBinderShare` weiter;
@@ -112,10 +128,10 @@ Socket-/Gesamtspeichergrenzen.
 den beschriebenen Verwerfungsfall nicht beheben. Automatisches Zusammenfassen
 gleichzeitiger Aktualisierungen könnte eine langsame Antwort fertig werden lassen,
 würde aber die Frequenz neuer Widerrufprüfungen ändern; ohne weitere Grenze könnte
-ein hängender Request diese dauerhaft aufhalten. Controllerbesitz, bewusst gewählte
-Frische-/Timeout-Semantik und ihre Tests müssen daher vor einer Produktänderung
-getrennt entschieden werden. Der bestehende 15-Sekunden-Takt, die finalen
-Berechtigungsprüfungen und die Darstellung privater Auswahlen bleiben unverändert.
+ein hängender Request diese dauerhaft aufhalten. Über den separat korrigierten
+Controllerbesitz hinaus müssen Frische-/Timeout-Semantik und ihre Tests vor einer
+weiteren Produktänderung bewusst entschieden werden. Der bestehende 15-Sekunden-Takt,
+die finalen Berechtigungsprüfungen und die Darstellung privater Auswahlen bleiben unverändert.
 
 ## Vorhandene Technik, die gezielt wiederverwendbar wäre
 
@@ -181,5 +197,7 @@ davon getrennt; der Association-HEAD ist ausdrücklich in
 Vor Änderung: Tests für null DB-/Katalogaufrufe bei API-HEAD, leeren Body,
 Methoden-/Securityheader, unverändertes GET/Revoke und beide Runtimewege ergänzen.
 
-**Entscheidung dieses Audits:** Nur Befunde dokumentiert. Kein öffentlicher
-Limiter, keine HEAD-Änderung, keine neue Secret-/Proxy-/Firestore-Konfiguration.
+**Entscheidung zu öffentlichen Read-Limits:** Nur Befunde dokumentiert. Kein
+öffentlicher Limiter, keine HEAD-Änderung, keine neue Secret-/Proxy-/Firestore-Konfiguration.
+Der oben separat beschriebene lokale Retry-Cleanup-Fix ändert diese Entscheidung
+und die offenen Polling-/Serverlastgrenzen nicht.

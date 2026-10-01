@@ -20,6 +20,7 @@ export function SharedBinderViewer({ token }: { token: string }) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const dialog = useRef<HTMLDialogElement>(null);
   const requestVersion = useRef(0);
+  const requestLifetime = useRef<AbortController | null>(null);
   // Content is already derived from the new DTO; close its now-empty native modal
   // in the same layout commit instead of leaving it open until a passive effect.
   useLayoutEffect(() => {
@@ -45,18 +46,28 @@ export function SharedBinderViewer({ token }: { token: string }) {
   }, [page, token]);
   useEffect(() => {
     const controller = new AbortController();
+    requestLifetime.current = controller;
     setBinder(null); setSelection(null); dialog.current?.close(); setError('');
     void refresh(controller.signal);
     // Revocation is enforced on every API request; an open view is also cleared promptly.
     const timer = setInterval(() => { if (!document.hidden) void refresh(controller.signal); }, 15000);
     const visible = () => { if (!document.hidden) void refresh(controller.signal); };
     document.addEventListener('visibilitychange', visible);
-    return () => { controller.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
+    return () => {
+      controller.abort();
+      if (requestLifetime.current === controller) requestLifetime.current = null;
+      clearInterval(timer); document.removeEventListener('visibilitychange', visible);
+    };
   }, [refresh]);
+  const retry = () => {
+    // Manual requests belong to the same page/share lifetime as automatic reads.
+    const controller = requestLifetime.current;
+    if (controller && !controller.signal.aborted) void refresh(controller.signal);
+  };
   const open = ({ slot, cardId, finish, collectorNumber }: SharedCard) => { setSelection({ slot, cardId, finish, collectorNumber }); setTilt({ x: 0, y: 0 }); dialog.current?.showModal(); };
   return <main className={styles.shell}>
     <a href="/" className={styles.brand}>DomiDex</a><p>Geteilter Binder · Nur ansehen</p>
-    {error ? <section role="alert"><h1>Freigabe nicht verfügbar</h1><p>{error}</p><button onClick={() => void refresh(new AbortController().signal)}>Erneut versuchen</button></section> : !binder ? <p role="status">Binder wird geladen …</p> : <>
+    {error ? <section role="alert"><h1>Freigabe nicht verfügbar</h1><p>{error}</p><button onClick={retry}>Erneut versuchen</button></section> : !binder ? <p role="status">Binder wird geladen …</p> : <>
       <header><div className={styles.cover} aria-label={`Binder-Cover ${binder.coverStyle}`}><SharedBinderMaterial cover effect={binder.coverStyle} /><img src="/domidex-logo.jpg" alt="" /><strong>{binder.title}</strong></div><h1>{binder.title}</h1>{binder.displayName && <p>Geteilt von {binder.displayName}</p>}
         {binder.total && <p>Binderwert: {binder.total.complete && binder.total.amount !== null ? euro(binder.total.amount) : 'Nicht vollständig verfügbar'}</p>}
       </header>
