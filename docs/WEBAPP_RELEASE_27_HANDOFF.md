@@ -583,6 +583,39 @@ Rechte-/Binder-/Share-Daten bleiben ungecacht, Antworten `no-store`. Ein später
 Katalog-Cache darf ausschließlich validierte öffentliche Daten verwenden; fremde
 Bildhosts und private alternative Preiswahlen werden nicht still veröffentlicht.
 
+### Gate 6: reproduzierbare 5.000-Platzierungen-Simulation
+
+`node tests/sharing-scale/run.mjs` startet einen separaten Prozess mit bereinigter
+Umgebung, `envDir:false` und Netzwerksperren vor dem Produktimport. Keine Firebase-App
+wird initialisiert. Der tatsächliche `readBinderShare` läuft gegen synthetische
+Firestore/Auth/Katalog-Doubles. Der Standardlauf wiederholt repräsentative Seiten
+dreimal; ein optionales Argument 1–10 steuert diese Wiederholungen. Der dedizierte
+Runner ist nötig, der normale Vitest-Lauf führt diesen Scale-Benchmark nicht aus.
+
+Root-Nachprüfung: **9/9 Tests bestanden**, 4,74 s Vitest-Gesamtdauer. Alle 5.000 Karten
+erscheinen exakt einmal über 556 Seiten, einschließlich fünf Slotkollisionen mit
+Overflow. Query-Reihenfolge, erste/mittlere/letzte Seite, vier getrennte Preis-/Total-
+Opt-ins, unveränderte Ownerdaten, Widerruf während Katalogauflösung und Ablehnung
+von 5.001 Platzierungen sind geprüft. Beleg: `gate6-root-scale-simulation.log`.
+
+| Aktueller Handler, je volle Seite | Ohne Gesamtwert | Mit Gesamtwert |
+|---|---:|---:|
+| Placement-Dokumente aus einer Query | 5.000 | 5.000 |
+| Einzelne Dokumentabfragen | 8 | 8 |
+| Collection-Dokumente via getAll | 9 | 5.000 |
+| Katalogaufrufe | 9 | 5.000 |
+| Maximale Katalogparallelität | 6 | 6 |
+
+Das sind **logische Aufrufe der Doubles, keine Firebase-Abrechnung**. Ein kompletter
+556-Seiten-Durchlauf ohne Gesamtwert verursachte 2.789.448 logische Dokumentlesungen.
+Lokale Medianzeiten erster/mittlerer/letzter Seite ohne Opt-ins: 1,96/1,88/1,98 ms;
+mit Preisen und Gesamtwert: 111,19/112,91/111,64 ms. JSON maximal 3.308 Bytes in
+diesen Fixtures. Die Zeiten enthalten Assertions, Microtasks und Serialisierung,
+aber keinerlei Netz-/Cloud-Latenz; sie sind kein Produktions-SLA oder Geschwindigkeits-
+vergleich. Das aktuelle O(N)-Lesen je Seite ist damit ausdrücklich sichtbar, nicht
+als erfolgreich optimiert abgehakt. Gesamtwert multipliziert weiterhin nicht mit
+Exemplaranzahl: dieser bestehende Vertrag wurde im Test erhalten, nicht verändert.
+
 ### Weiter offene Abnahme
 
 - Security-Emulatorergebnisse einschließlich der neun erneut registrierten
