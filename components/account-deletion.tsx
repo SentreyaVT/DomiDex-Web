@@ -15,12 +15,14 @@ export function AccountDeletion() {
   const session = useRef({
     uid: firebaseAuth.currentUser?.uid ?? null, generation: 0, active: false,
     request: undefined as object | undefined,
+    consentGeneration: null as number | null,
   });
   const observeOwner = useCallback((uid: string | null) => {
     if (session.current.uid === uid) return;
     session.current.uid = uid;
     session.current.generation += 1;
     session.current.request = undefined;
+    session.current.consentGeneration = null;
     setConfirmed(false); setBusy(false); setMessage(''); setSubmitted(false);
   }, []);
   useEffect(() => {
@@ -35,6 +37,7 @@ export function AccountDeletion() {
       observedSession.active = false;
       observedSession.generation += 1;
       observedSession.request = undefined;
+      observedSession.consentGeneration = null;
       stop();
     };
   }, [observeOwner]);
@@ -42,6 +45,7 @@ export function AccountDeletion() {
 
   async function requestDeletion() {
     if (!user || loading || !confirmed || busy || submitted || session.current.request
+      || session.current.consentGeneration !== session.current.generation
       || !session.current.active || session.current.uid !== user.uid || firebaseAuth.currentUser?.uid !== user.uid) return;
     const ownerUid = user.uid;
     const generation = session.current.generation;
@@ -91,10 +95,13 @@ export function AccountDeletion() {
       <p>Globale Kartenkataloge und Sammlungen anderer Personen bleiben erhalten. Bei einer erforderlichen Prüfung oder technischen Aufbewahrungsfrist wird der Auftrag noch nicht als abgeschlossen angezeigt.</p>
       <p><a href="/konto-loeschen">Ablauf und Löschfristen nachlesen</a> · <a href="/datenschutz">Datenschutz</a></p>
       {loading ? <p>Kontostatus wird geladen …</p> : !user && !submitted ? <p><a href="/login">Zur Bestätigung anmelden</a> oder <a href={deletionRequestHref}>Löschanfrage ohne Anmeldung senden</a>.</p> : !submitted && <>
-        <label className="admin-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(
-          event.target.checked && !!user && session.current.active && session.current.uid === user.uid
-          && firebaseAuth.currentUser?.uid === user.uid,
-        )} /> Ich möchte mein DomiDex-Konto und die zugehörigen Daten unwiderruflich löschen lassen.</label>
+        <label className="admin-check"><input type="checkbox" checked={confirmed} onChange={(event) => {
+          const consent = event.target.checked && !!user && session.current.active && session.current.uid === user.uid
+            && firebaseAuth.currentUser?.uid === user.uid;
+          // The ref revokes stale button closures before React commits its state update.
+          session.current.consentGeneration = consent ? session.current.generation : null;
+          setConfirmed(consent);
+        }} /> Ich möchte mein DomiDex-Konto und die zugehörigen Daten unwiderruflich löschen lassen.</label>
         <button className="danger" disabled={!confirmed || busy} onClick={() => void requestDeletion()}>{busy ? 'Löschauftrag wird geprüft …' : 'Anmeldung bestätigen und Löschauftrag senden'}</button>
       </>}
       {message && <p role="status">{message}</p>}

@@ -43,3 +43,10 @@ component and public technical-information tests. Its initial run reproduced fou
 missing status/reader descriptions; after the narrow text fixes all **1,031 tests
 in 65 files** pass. That does not close the separate account-switch UI audit.
 Report: `outputs/release-local/2026-10-01T03-37-40-496Z-14648.{json,log}`.
+
+The account-switch follow-up is now included: 19 session cases cover pending and
+not-yet-started actions, SDK A→B→A before a React commit, same-UID refresh, uncheck,
+unmount and late responses. Independent review found the pre-request consent race;
+the synchronous consent-generation check closes it. Root rerun: **1,050/1,050 in
+66 files, 33.73 s**, `outputs/release-local/2026-10-01T03-46-31-932Z-16420.{json,log}`.
+These are mocked auth/backend boundaries, not a live account deletion.

@@ -172,4 +172,29 @@ describe('account deletion is bound to the explicitly confirmed local auth sessi
     expect(mock.reauthenticate).toHaveBeenCalledOnce();
     await act(async () => pending.resolve()); expect(mock.fetch).toHaveBeenCalledOnce();
   });
+
+  it('cannot start through an old confirmed button after SDK A to B to A before React rerenders', async () => {
+    const original = mock.user!; render(<AccountDeletion />);
+    fireEvent.click(checkbox()); const oldButton = button();
+    await act(async () => {
+      changeAccount(account('owner-b')); changeAccount(original); fireEvent.click(oldButton);
+    });
+    expect(mock.reauthenticate).not.toHaveBeenCalled(); expect(mock.fetch).not.toHaveBeenCalled();
+    expect(checkbox().checked).toBe(false);
+  });
+
+  it('revokes consent synchronously when unchecked before clicking the previous button', async () => {
+    render(<AccountDeletion />); fireEvent.click(checkbox()); const oldButton = button();
+    await act(async () => { fireEvent.click(checkbox()); fireEvent.click(oldButton); });
+    expect(mock.reauthenticate).not.toHaveBeenCalled(); expect(mock.fetch).not.toHaveBeenCalled();
+    expect(checkbox().checked).toBe(false);
+  });
+
+  it('retains consent for a same-UID SDK callback with a new user object', async () => {
+    const view = render(<AccountDeletion />); fireEvent.click(checkbox());
+    await act(async () => { changeAccount(account('owner-a')); view.rerender(<AccountDeletion />); });
+    expect(checkbox().checked).toBe(true);
+    await act(async () => fireEvent.click(button()));
+    expect(mock.fetch).toHaveBeenCalledOnce(); expect(mock.logout).toHaveBeenCalledOnce();
+  });
 });
