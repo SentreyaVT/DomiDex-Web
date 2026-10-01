@@ -5,10 +5,10 @@ import {
   ImageOff, LayoutDashboard, LibraryBig, LoaderCircle, LockKeyhole, LogIn, LogOut, Minus, Plus,
   RefreshCw, ScanLine, Search, Settings, ShieldCheck, Sparkles, Trash2, UserRoundCog, X,
 } from 'lucide-react';
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useAuth } from './auth-provider';
 import { addExactCard, changeQuantity, collectionSyncIdForExactCard, subscribeCollection } from '@/lib/collection';
-import { canonicalTcgCardId, cardVariantsForSelection, collectionVariantLabel, exactCardmarketProductId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail, type TcgCardSummary } from '@/lib/domain';
+import { canonicalTcgCardId, cardVariantsForSelection, collectionVariantLabel, exactCardmarketProductId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail, type TcgCardSummary, type TcgVariant } from '@/lib/domain';
 import { buildBinderSlots, paginateBinderSlots, variantForBinderSlot, type BinderSlot } from '@/lib/binder';
 import { imageUrl, loadCard, loadSet, searchCards } from '@/lib/tcgdex';
 import { adminNavigation } from '@/lib/admin-navigation';
@@ -208,16 +208,95 @@ export function CollectionView({ entries, prices, priceSources = {}, selections 
   return <div className="app-view"><div className="view-title"><div><p>SAMMLUNG</p><h1>Alle Karten.</h1><span>{entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten in {new Set(entries.map((entry) => entry.setName)).size} Sets</span></div><label className="search-field"><Search /><input aria-label="Sammlung durchsuchen" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Sammlung durchsuchen" /></label></div>{filtered.length ? <WindowedCollectionGrid entries={filtered} onSelect={setSelectedId} renderCard={(entry) => <CardTile entry={entry} price={prices[entry.syncId]} />} /> : <Empty title="Keine Karten gefunden" text="Passe deine Suche an oder füge eine neue Karte hinzu." />}{selected && <CardDialog entry={selected} price={prices[selected.syncId]} priceSource={priceSources[selected.syncId]} selection={selections[selected.syncId]} user={user} onError={onError} busy={busy} onClose={() => setSelectedId(null)} onChange={mutate} />}</div>;
 }
 
+type CardAddUser = NonNullable<ReturnType<typeof useAuth>['user']>;
+type PendingCardPrice = { user: CardAddUser; ownerUid: string; syncId: string; cardName: string; candidate: AlternativePriceCandidate };
+type CardAddScope = { identity: string; active: boolean; inFlight: boolean; pending: PendingCardPrice | null };
+
+/** A committed collection write is never retried to repair its optional sidecar. */
+function useCardAddition({ user, card, variant, entries, context, onError, onSuccess, onBusy }: {
+  user: CardAddUser; card: TcgCardDetail | null; variant?: TcgVariant; entries: CollectionEntry[];
+  context: string; onError: (message: string) => void; onSuccess: (name: string) => void;
+  onBusy?: (busy: boolean) => void;
+}) {
+  const identity = JSON.stringify([user.uid, context, card?.id, variant?.variantId, variant?.type,
+    variant && collectionVariantLabel(variant), card && variant && exactCardmarketProductId(card, variant)]);
+  const scope = useMemo<CardAddScope>(() => ({ identity, active: false, inFlight: false, pending: null }), [identity]);
+  const [busyScope, setBusyScope] = useState<CardAddScope | null>(null);
+  const [pendingState, setPendingState] = useState<{ scope: CardAddScope; failed: boolean } | null>(null);
+  // Invalidate before a newly committed account/card context can receive old results.
+  useLayoutEffect(() => {
+    scope.active = true;
+    return () => {
+      scope.active = false;
+      scope.pending = null;
+      if (scope.inFlight) { scope.inFlight = false; onBusy?.(false); }
+    };
+  }, [scope, onBusy]);
+  const start = () => { scope.inFlight = true; setBusyScope(scope); onBusy?.(true); };
+  const finish = () => {
+    if (!scope.active) return;
+    scope.inFlight = false; setBusyScope(null); onBusy?.(false);
+  };
+  const savePending = async (target: PendingCardPrice) => {
+    setPendingState({ scope, failed: false });
+    try {
+      await saveCollectionPriceSelection(target.user, target.syncId, target.candidate);
+      if (!scope.active) return;
+      scope.pending = null; setPendingState(null); onSuccess(target.cardName);
+    } catch {
+      if (scope.active) setPendingState({ scope, failed: true });
+    }
+  };
+  const add = async (quantity: number, candidate: AlternativePriceCandidate | null) => {
+    if (!scope.active || scope.inFlight || scope.pending || !card || !variant) return;
+    start();
+    try {
+      const syncId = collectionSyncIdForExactCard(user.uid, card, variant, entries);
+      await addExactCard(user, card, variant, quantity, entries);
+      if (!scope.active) return;
+      if (candidate) {
+        const target = { user, ownerUid: user.uid, syncId, cardName: card.name, candidate: { ...candidate } };
+        scope.pending = target;
+        await savePending(target);
+      } else onSuccess(card.name);
+    } catch (error) {
+      if (scope.active) onError(error instanceof Error ? error.message : 'Karte konnte nicht hinzugefügt werden.');
+    } finally { finish(); }
+  };
+  const retry = async () => {
+    const target = scope.pending;
+    if (!scope.active || scope.inFlight || !target || target.ownerUid !== user.uid) return;
+    start();
+    try { await savePending(target); } finally { finish(); }
+  };
+  return {
+    add, retry, busy: busyScope === scope,
+    pending: pendingState?.scope === scope && scope.pending ? { failed: pendingState.failed } : null,
+  };
+}
+
+function PendingCardPriceNotice({ failed, busy, onRetry }: { failed: boolean; busy: boolean; onRetry: () => void }) {
+  return <section className="price-alternative-picker" aria-label="Ausstehende Preisauswahl">
+    <p role="status">{failed ? 'Karte wurde hinzugefügt. Die Preisauswahl konnte nicht gespeichert werden.' : 'Karte wurde hinzugefügt. Die Preisauswahl wird gespeichert …'}</p>
+    <small>Die Kartenmenge bleibt erhalten. Erneut speichern wiederholt nur die Preisauswahl.</small>
+    <button type="button" disabled={busy} onClick={onRetry}>Preisauswahl erneut speichern</button>
+  </section>;
+}
+
 function SearchView({ entries, user, onError }: { entries: CollectionEntry[]; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [selectionGeneration, setSelectionGeneration] = useState(0);
   const [query, setQuery] = useState(''); const [results, setResults] = useState<TcgCardSummary[]>([]); const [card, setCard] = useState<TcgCardDetail | null>(null); const [variantIndex, setVariantIndex] = useState(0); const [quantity, setQuantity] = useState(1); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [fallbackCandidate, setFallbackCandidate] = useState<AlternativePriceCandidate | null>(null);
   const variants = card ? cardVariantsForSelection(card) : [];
   const variant = variants[variantIndex] ?? variants[0]; const price = card && variant ? exactTrendPrice(card, variant) : null;
-  useEffect(() => { setFallbackCandidate(null); }, [card?.id, variantIndex]);
-  const search = async () => { setBusy(true); setMessage(''); try { setResults(await searchCards(query)); setCard(null); } catch (error) { onError(error instanceof Error ? error.message : 'Kartensuche fehlgeschlagen.'); } finally { setBusy(false); } };
-  const choose = async (summary: TcgCardSummary) => { setBusy(true); setMessage(''); try { setCard(await loadCard(summary.id)); setVariantIndex(0); setQuantity(1); } catch (error) { onError(error instanceof Error ? error.message : 'Kartendetails fehlen.'); } finally { setBusy(false); } };
-  const add = async () => { if (!card || !variant) return; setBusy(true); setMessage(''); try { const syncId = collectionSyncIdForExactCard(user.uid, card, variant, entries); await addExactCard(user, card, variant, quantity, entries); if (price === null && fallbackCandidate) await saveCollectionPriceSelection(user, syncId, fallbackCandidate); setMessage(`${card.name} wurde synchronisiert.`); } catch (error) { onError(error instanceof Error ? error.message : 'Karte konnte nicht hinzugefügt werden.'); } finally { setBusy(false); } };
-  return <div className="app-view"><div className="view-title"><div><p>MANUELL HINZUFÜGEN</p><h1>Karte suchen.</h1><span>Set, Karte, Variante und Menge – der Scanner bleibt in der Android-App.</span></div></div><div className="search-layout"><section className="panel search-panel"><form onSubmit={(event) => { event.preventDefault(); void search(); }}><label className="search-field large"><Search /><input aria-label="Kartenname suchen" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Kartenname, z. B. Glurak" /><button disabled={busy || query.trim().length < 2}>{busy ? <LoaderCircle className="spin" /> : 'Suchen'}</button></label></form><div className="search-results">{results.map((result) => <button className={card?.id === result.id ? 'active' : ''} onClick={() => void choose(result)} key={result.id}><div className="mini-card">{result.image ? <img src={imageUrl(result.image, 'low') ?? ''} alt={result.name} loading="lazy" /> : <span className="image-unavailable"><ImageOff /><small>Kein offizielles Bild</small></span>}</div><div><b>{result.name}</b><small>#{result.localId} · {result.id}</small></div><ChevronRight /></button>)}</div>{!results.length && !busy && <Empty title="Suche im deutschen Kartenkatalog" text="Geprüfte Karten aus TCGdex und dem ergänzten DomiDex-Katalog." />}</section><section className="panel card-add-panel">{card && variant ? <><div className="selected-card"><button className="selected-card-image card-open" aria-label={`Karte groß ansehen: ${card.name}`} onClick={() => setPreviewOpen(true)}>{card.image ? <img src={imageUrl(card.image) ?? ''} alt={card.name} /> : <span className="image-unavailable large"><ImageOff /><small>Kein offizielles Bild verfügbar</small></span>}</button><div><p>{card.set.name}</p><h2>{card.name}</h2><span>#{card.localId} · {card.rarity ?? 'Seltenheit unbekannt'}</span></div></div><label>Variante<select value={variantIndex} onChange={(event) => setVariantIndex(Number(event.target.value))}>{variants.map((item, index) => <option value={index} key={`${item.variantId ?? item.type}-${collectionVariantLabel(item)}-${index}`}>{item.type} · {collectionVariantLabel(item)}</option>)}</select></label><div className="add-price"><span>Cardmarket Trendpreis</span><strong>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</strong><small>{price === null ? 'Keine eindeutige Trendpreis-Zuordnung für diese Variante.' : `Exakte Quelle · Produkt ${exactCardmarketProductId(card, variant)}`}</small></div>{price === null && <PriceAlternativePicker key={`${card.id}-${variantIndex}`} card={card} variant={variant} disabled={busy} confirmLabel="Fürs Hinzufügen auswählen" successLabel="Für diese Karte vorgemerkt; gespeichert wird beim Hinzufügen." onConfirm={setFallbackCandidate} onError={onError} />}<label>Menge<div className="stepper"><button onClick={() => setQuantity((value) => Math.max(1, value - 1))}><Minus /></button><output>{quantity}</output><button onClick={() => setQuantity((value) => Math.min(100, value + 1))}><Plus /></button></div></label><button className="add-card-button" disabled={busy} onClick={() => void add()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button>{message && <p className="success-message">✓ {message}</p>}</> : <Empty title="Wähle eine Karte" text="Danach erscheinen die tatsächlich gemeldeten Varianten und der passende Cardmarket-Preis." />}</section></div>{previewOpen && card && variant && <CardArtDialog key={`${card.id}-${variantIndex}`} image={imageUrl(card.image)} name={card.name} finish={variant.type} rarity={card.rarity} variant={collectionVariantLabel(variant)} onClose={() => setPreviewOpen(false)} />}</div>;
+  const addition = useCardAddition({ user, card, variant, entries, context: `${selectionGeneration}:${variantIndex}`, onError,
+    onSuccess: (name) => setMessage(`${name} wurde synchronisiert.`) });
+  const adding = busy || addition.busy;
+  useEffect(() => { setFallbackCandidate(null); setMessage(''); }, [card?.id, variantIndex, selectionGeneration, user.uid]);
+  const search = async () => { setSelectionGeneration((value) => value + 1); setBusy(true); setMessage(''); try { setResults(await searchCards(query)); setCard(null); } catch (error) { onError(error instanceof Error ? error.message : 'Kartensuche fehlgeschlagen.'); } finally { setBusy(false); } };
+  const choose = async (summary: TcgCardSummary) => { setSelectionGeneration((value) => value + 1); setBusy(true); setMessage(''); try { setCard(await loadCard(summary.id)); setVariantIndex(0); setQuantity(1); } catch (error) { onError(error instanceof Error ? error.message : 'Kartendetails fehlen.'); } finally { setBusy(false); } };
+  const add = () => { setMessage(''); return addition.add(quantity, price === null ? fallbackCandidate : null); };
+  return <div className="app-view"><div className="view-title"><div><p>MANUELL HINZUFÜGEN</p><h1>Karte suchen.</h1><span>Set, Karte, Variante und Menge – der Scanner bleibt in der Android-App.</span></div></div><div className="search-layout"><section className="panel search-panel"><form onSubmit={(event) => { event.preventDefault(); void search(); }}><label className="search-field large"><Search /><input aria-label="Kartenname suchen" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Kartenname, z. B. Glurak" /><button disabled={adding || query.trim().length < 2}>{adding ? <LoaderCircle className="spin" /> : 'Suchen'}</button></label></form><div className="search-results">{results.map((result) => <button className={card?.id === result.id ? 'active' : ''} onClick={() => void choose(result)} key={result.id}><div className="mini-card">{result.image ? <img src={imageUrl(result.image, 'low') ?? ''} alt={result.name} loading="lazy" /> : <span className="image-unavailable"><ImageOff /><small>Kein offizielles Bild</small></span>}</div><div><b>{result.name}</b><small>#{result.localId} · {result.id}</small></div><ChevronRight /></button>)}</div>{!results.length && !adding && <Empty title="Suche im deutschen Kartenkatalog" text="Geprüfte Karten aus TCGdex und dem ergänzten DomiDex-Katalog." />}</section><section className="panel card-add-panel">{card && variant ? <><div className="selected-card"><button className="selected-card-image card-open" aria-label={`Karte groß ansehen: ${card.name}`} onClick={() => setPreviewOpen(true)}>{card.image ? <img src={imageUrl(card.image) ?? ''} alt={card.name} /> : <span className="image-unavailable large"><ImageOff /><small>Kein offizielles Bild verfügbar</small></span>}</button><div><p>{card.set.name}</p><h2>{card.name}</h2><span>#{card.localId} · {card.rarity ?? 'Seltenheit unbekannt'}</span></div></div><label>Variante<select value={variantIndex} onChange={(event) => setVariantIndex(Number(event.target.value))}>{variants.map((item, index) => <option value={index} key={`${item.variantId ?? item.type}-${collectionVariantLabel(item)}-${index}`}>{item.type} · {collectionVariantLabel(item)}</option>)}</select></label><div className="add-price"><span>Cardmarket Trendpreis</span><strong>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</strong><small>{price === null ? 'Keine eindeutige Trendpreis-Zuordnung für diese Variante.' : `Exakte Quelle · Produkt ${exactCardmarketProductId(card, variant)}`}</small></div>{price === null && !addition.pending && <PriceAlternativePicker key={`${user.uid}-${selectionGeneration}-${card.id}-${variantIndex}`} card={card} variant={variant} disabled={adding} confirmLabel="Fürs Hinzufügen auswählen" successLabel="Für diese Karte vorgemerkt; gespeichert wird beim Hinzufügen." onConfirm={setFallbackCandidate} onError={onError} />}<label>Menge<div className="stepper"><button onClick={() => setQuantity((value) => Math.max(1, value - 1))}><Minus /></button><output>{quantity}</output><button onClick={() => setQuantity((value) => Math.min(100, value + 1))}><Plus /></button></div></label>{addition.pending ? <PendingCardPriceNotice failed={addition.pending.failed} busy={addition.busy} onRetry={() => void addition.retry()} /> : <button className="add-card-button" disabled={adding} onClick={() => void add()}>{adding ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button>}{message && <p className="success-message">✓ {message}</p>}</> : <Empty title="Wähle eine Karte" text="Danach erscheinen die tatsächlich gemeldeten Varianten und der passende Cardmarket-Preis." />}</section></div>{previewOpen && card && variant && <CardArtDialog key={`${card.id}-${variantIndex}`} image={imageUrl(card.image)} name={card.name} finish={variant.type} rarity={card.rarity} variant={collectionVariantLabel(variant)} onClose={() => setPreviewOpen(false)} />}</div>;
 }
 
 function Portfolio({ entries, prices, total, pricedCount, totalCount }: { entries: CollectionEntry[]; prices: Record<string, number | null>; total: number; pricedCount: number; totalCount: number }) {
@@ -231,15 +310,17 @@ function BinderCardDialog({ slot, entries, prices, priceSources, selections, use
   const [expanded, setExpanded] = useState(false);
   const [ownedIndex, setOwnedIndex] = useState(0); const owned = slot.owned[Math.min(ownedIndex, Math.max(0, slot.owned.length - 1))]; const [card, setCard] = useState<TcgCardDetail | null>(null); const [loading, setLoading] = useState(true); const [fallbackCandidate, setFallbackCandidate] = useState<AlternativePriceCandidate | null>(null);
   useEffect(() => { let active = true; setLoading(true); setCard(null); void loadCard(canonicalTcgCardId(slot.card.id)).then((value) => { if (active) setCard(value); }).catch(() => { if (active) onError('Kartendetails konnten nicht geladen werden.'); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [onError, slot.card.id]);
-  useEffect(() => { setFallbackCandidate(null); }, [slot.slotId, card?.id]);
-  if (owned) {
+  useEffect(() => { setFallbackCandidate(null); }, [slot.slotId, card?.id, user.uid]);
+  const variants = card ? cardVariantsForSelection(card) : [];
+  const variant = variantForBinderSlot(variants, slot); const price = card && variant ? exactTrendPrice(card, variant) : null;
+  const addition = useCardAddition({ user, card, variant, entries, context: slot.slotId, onError,
+    onSuccess: onClose, onBusy: setBusy });
+  if (owned && !addition.pending && !addition.busy) {
     const mutate = async (entry: CollectionEntry, delta: number) => { setBusy(true); try { await changeQuantity(user, entry, delta); if (delta < 0 && entry.quantity === 1) onClose(); } catch { onError('Die Kartenmenge konnte nicht aktualisiert werden.'); } finally { setBusy(false); } };
     return <CardDialog entry={owned} price={prices[owned.syncId]} priceSource={priceSources[owned.syncId]} selection={selections[owned.syncId]} user={user} onError={onError} alternatives={slot.owned} selectedIndex={ownedIndex} onSelect={setOwnedIndex} busy={busy} onClose={onClose} onChange={mutate} />;
   }
-  const variants = card ? cardVariantsForSelection(card) : [];
-  const variant = variantForBinderSlot(variants, slot); const price = card && variant ? exactTrendPrice(card, variant) : null;
-  const add = async () => { if (!card || !variant) return; setBusy(true); try { const syncId = collectionSyncIdForExactCard(user.uid, card, variant, entries); await addExactCard(user, card, variant, 1, entries); if (price === null && fallbackCandidate) await saveCollectionPriceSelection(user, syncId, fallbackCandidate); onClose(); } catch (error) { onError(error instanceof Error ? error.message : 'Die Karte konnte nicht zum Binder hinzugefügt werden.'); } finally { setBusy(false); } };
-  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className={`card-dialog missing-card-dialog ${expanded ? 'card-dialog--expanded' : ''}`} role="dialog" aria-modal="true" aria-labelledby="binder-card-title"><ModalFocus onClose={onClose} /><button className="dialog-close" onClick={onClose} aria-label="Schließen"><X /></button><div className="dialog-card-image"><CardShowcase key={slot.slotId} image={imageUrl(card?.image ?? slot.card.image, 'high')} name={card?.name ?? slot.card.name} finish={slot.finish} rarity={card?.rarity ?? slot.card.rarity} variant={slot.variant} expanded={expanded} onExpand={() => setExpanded((value) => !value)} /></div><div className="dialog-card-info"><p>{card?.set.name ?? 'Set-Karte'} · NICHT IM BESITZ</p><h2 id="binder-card-title">{card?.name ?? slot.card.name}</h2><span>#{card?.localId ?? slot.card.localId} · {card?.rarity ?? slot.card.rarity ?? 'Seltenheit nicht angegeben'}</span>{loading ? <div className="binder-detail-loading"><LoaderCircle className="spin" /> Kartendaten werden geladen …</div> : <><div className="binder-print-identity"><span>Variante</span><strong>{slot.finish} · {slot.variant}</strong></div><dl><div><dt>Besitzstatus</dt><dd>Fehlt im Binder</dd></div><div><dt>Cardmarket Trend</dt><dd>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</dd></div></dl>{price === null && card && variant && <PriceAlternativePicker key={`${slot.slotId}-${variant.variantId ?? variant.type}`} card={card} variant={variant} disabled={busy} confirmLabel="Fürs Hinzufügen auswählen" successLabel="Für diese Karte vorgemerkt; gespeichert wird beim Hinzufügen." onConfirm={setFallbackCandidate} onError={onError} />}<button className="binder-add-button" disabled={busy || !variant} onClick={() => void add()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button></>}</div></section></div>;
+  const add = () => addition.add(1, price === null ? fallbackCandidate : null);
+  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className={`card-dialog missing-card-dialog ${expanded ? 'card-dialog--expanded' : ''}`} role="dialog" aria-modal="true" aria-labelledby="binder-card-title"><ModalFocus onClose={onClose} /><button className="dialog-close" onClick={onClose} aria-label="Schließen"><X /></button><div className="dialog-card-image"><CardShowcase key={slot.slotId} image={imageUrl(card?.image ?? slot.card.image, 'high')} name={card?.name ?? slot.card.name} finish={slot.finish} rarity={card?.rarity ?? slot.card.rarity} variant={slot.variant} expanded={expanded} onExpand={() => setExpanded((value) => !value)} /></div><div className="dialog-card-info"><p>{card?.set.name ?? 'Set-Karte'} · {addition.pending || owned ? 'HINZUGEFÜGT' : 'NICHT IM BESITZ'}</p><h2 id="binder-card-title">{card?.name ?? slot.card.name}</h2><span>#{card?.localId ?? slot.card.localId} · {card?.rarity ?? slot.card.rarity ?? 'Seltenheit nicht angegeben'}</span>{loading ? <div className="binder-detail-loading"><LoaderCircle className="spin" /> Kartendaten werden geladen …</div> : <><div className="binder-print-identity"><span>Variante</span><strong>{slot.finish} · {slot.variant}</strong></div><dl><div><dt>Besitzstatus</dt><dd>{addition.pending || owned ? 'Karte hinzugefügt' : 'Fehlt im Binder'}</dd></div><div><dt>Cardmarket Trend</dt><dd>{price === null ? 'Preis nicht verfügbar' : formatPrice(price)}</dd></div></dl>{price === null && card && variant && !addition.pending && <PriceAlternativePicker key={`${user.uid}-${slot.slotId}-${variant.variantId ?? variant.type}`} card={card} variant={variant} disabled={busy} confirmLabel="Fürs Hinzufügen auswählen" successLabel="Für diese Karte vorgemerkt; gespeichert wird beim Hinzufügen." onConfirm={setFallbackCandidate} onError={onError} />}{addition.pending ? <PendingCardPriceNotice failed={addition.pending.failed} busy={addition.busy} onRetry={() => void addition.retry()} /> : <button className="binder-add-button" disabled={busy || !variant} onClick={() => void add()}>{busy ? <LoaderCircle className="spin" /> : <Plus />} Zur Sammlung hinzufügen</button>}</>}</div></section></div>;
 }
 
 function CardDialog({ entry, price, priceSource, selection, user, onError, alternatives, selectedIndex = 0, onSelect, busy, onClose, onChange }: { entry: CollectionEntry; price: number | null | undefined; priceSource?: CollectionPriceResult['source']; selection?: CollectionPriceSelection; user?: NonNullable<ReturnType<typeof useAuth>['user']>; onError?: (value: string) => void; alternatives?: CollectionEntry[]; selectedIndex?: number; onSelect?: (index: number) => void; busy: boolean; onClose: () => void; onChange?: (entry: CollectionEntry, delta: number) => void }) {

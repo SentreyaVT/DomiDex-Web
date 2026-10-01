@@ -696,3 +696,80 @@ gelockten `backend/scan-knowledge`-Dependencies installiert sein (`npm ci` und
 nicht; er scheitert sichtbar. Hier wurde nichts nachinstalliert, keine CI erfunden
 und kein installierender Pretest-Hook eingeführt. Automatische CI-Abdeckung bleibt
 offen, bis eine Pipeline mit diesen Voraussetzungen separat eingerichtet wird.
+
+## Gate 5: Kartenhinzufügen mit teilweise fehlgeschlagener Preiswahl (2026-10-01)
+
+Suche und fehlender Set-Binder-Platz schrieben zuerst die Karte und danach separat
+die optionale Preiswahl. Scheiterte nur die zweite Transaktion, meldete die UI einen
+allgemeinen Fehler; erneutes Hinzufügen konnte die bereits bestätigte Menge nochmals
+erhöhen. Echte Komponenten-/Picker-Tests reproduzierten dies: **4 FAIL / 4 PASS**,
+darunter zweimal tatsächlich zwei Add-Aufrufe statt eines.
+
+Der lokale UI-Ablauf trennt jetzt bestätigten Kartenwrite und Preiswahl. Bei einem
+Teilerfolg erscheint ausdrücklich „Karte wurde hinzugefügt. Die Preisauswahl konnte
+nicht gespeichert werden.“ Ein eigener Button wiederholt nur die Preiswahl mit
+festgehaltener UID, Eintrags-ID und kopiertem Kandidaten. Kein Rollback, Re-Add,
+automatischer Retry, erfundener Preis oder neue Backend-/Rule-/Schemaänderung.
+Auch wenn der Collection-Listener die Karte inzwischen als vorhanden liefert,
+bleibt der ausstehende Vorgang sichtbar, ohne erneut Add/Menge freizugeben.
+
+Synchrone Busy-Guards fangen Doppelklicks ab. Kontextgenerationen verwerfen späte
+Antworten nach Account-/Karten-/Variantenwechsel oder Unmount. Bereits das Auswählen
+einer anderen Karte invalidiert den alten Vorgang, nicht erst deren fertiger
+Detaildownload. Picker-Bestätigung und Parent-Kandidat werden bei Accountwechsel
+und erneuter Kartenauswahl gemeinsam zurückgesetzt. Ein echter erster Kartenfehler
+bleibt regulär retrybar. Der Preiswahl-Retry ist bewusst **nur UI-lokal**, keine
+persistente Offline-Outbox; beim Verlassen bleibt die bereits gespeicherte Karte
+erhalten, eine fehlende Preiswahl kann später in der Sammlung bestätigt werden.
+
+27 neue Tests in `tests/card-add-partial-success.test.tsx` sind Bestandteil der
+normalen `npm test`-Auswahl. Finale gezielte Auswahl: **40/40**; reguläre explizite
+Paket-Auswahl: **722/722 in 50 Dateien**, 33,58 s lokal. Anschließend wurde ein
+unsicherer Select-Testcast durch eine echte `instanceof`-Prüfung ersetzt; die 27
+Fälle erneut grün, finaler Typecheck/Oxlint/Diffcheck grün. Ein unabhängiger Read-only-
+Review fand keinen konkreten Blocker. Bestehende JSDOM-Canvas-/React-act-Warnungen
+blieben sichtbar, keine Assertions oder Timeouts abgeschwächt.
+
+Nachweise im ignorierten Baseline-Verzeichnis: `gate5-partial-add-red.{json,log}`,
+`gate5-partial-add-context-red.{json,log}`, `gate5-partial-add-confirmation-red.{json,log}`,
+`gate5-partial-add-focused-green.json`, `gate5-partial-add-package-final.{json,log}`,
+`gate5-partial-add-final-test-guard.json`, `gate5-partial-add-typecheck.log` und
+`gate5-partial-add-lint.log`. Alle UI-Läufe nutzten `envDir:false` und gesperrte echte
+Netzwerkpfade. Dies ist kein Live-Firestore-/Android-E2E-Nachweis; kein Deployment.
+
+Root-Gegenprüfung der erweiterten expliziten Regression: **1.000/1.000 Tests in
+62 Dateien bestanden**, 32,52 s, einschließlich inkrementeller Preisauflösung,
+Owner-/App-Check-/Rate-Limit-Grenzen und der 27 neuen Teil-Erfolgsfälle.
+`gate4-5-root-price-regressions.{json,log}` im selben ignorierten Verzeichnis.
+Die bekannten React-act-/Canvas-Testumgebungswarnungen bleiben sichtbar.
+
+### Reale lokale Zwei-Client-Preiswahlmatrix
+
+`tests/price-selection-two-client.rules.test.ts` ergänzt 21 echte SDK-/Rules-Fälle;
+zusammen mit den vier vorhandenen Sync-Fällen bestehen **25/25 Tests**. Abgedeckt:
+alle sieben Metriken, Original-Quelldatum, Clear/Update-Konflikte, Offline-Queue,
+Widerruf/Disabled/Löschlock, Owner-/Parent-Isolation, bestätigte Listenerdaten und
+Transportabbruch. `permission-denied` bei konkurrierenden Revisionen ist nicht
+zwingend ein vom SDK automatisch wiederholter Konflikt. Ein bewusster neuer Retry
+ist getrennt geprüft; Rules wurden dafür nicht gelockert.
+
+Da `disableNetwork()` im installierten Node-SDK direkte Transaction-RPCs nicht
+vollständig unterbricht, prüft ein eigener Loopback-Proxy zusätzlich echten Ausfall.
+Er nutzt den validierten lokalen Emulator-Endpunkt und einen OS-zugewiesenen Port;
+er beendet nur seine eigenen Verbindungen. Kein Replay nach Reconnect und keine
+Bestätigung bei fehlgeschlagenem Write. Das ist kein Android-Worker-/Web-UI-E2E.
+
+`npm run test:sync-emulator` verwendet jetzt eine getrennte serielle Konfiguration
+ohne .env-Laden; Demo-Projekt und lokaler Emulator sind verpflichtend. Es nutzt
+die vorhandene Firebase-CLI, startet keinen Produktionsdienst und ändert keine
+Projekt-Emulatorports. Der Root-Gegenlauf über den credential-freien isolierten
+Engineering-Runner besteht **25/25 in 20,51 s / 29,73 s gesamt**. Alle belegten
+Rules-Kopien blieben identisch; alle reservierten Ports waren danach frei.
+Ein anfänglicher Konfigurationslauf fand wegen falschem Arbeitsverzeichnis keine
+Tests; der neue explizite root-Pfad behebt diese Harness-Abweichung. Der fehlende
+Testlauf wurde nicht als Produkt-RED oder PASS gezählt.
+
+Rechnerlokale Rohbelege im Android-Checkout:
+`artifacts/release27-engineering-20261001/security-gate4-two-client/run-20261001-051731-ae8a5231/`.
+Node-Netzschutz ist kein OS-/Java-Firewallnachweis. Echte Nutzer, Cloud-Dienste,
+Release-AAB, Signing und Deployment blieben unberührt.
