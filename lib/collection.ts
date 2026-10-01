@@ -165,10 +165,13 @@ function samePrinting(card: TcgCardDetail, selected: TcgVariant, entry: Collecti
   if (entry.sourceSetId?.toLowerCase() !== card.set.id.toLowerCase() || !entry.sourceCardId) return false;
   if (canonicalTcgCardId(entry.sourceCardId).toLowerCase() !== canonicalTcgCardId(card.id).toLowerCase()) return false;
   if (normalizeFinish(entry.finish) !== finish || entry.condition !== 'Near Mint') return false;
-  const matched = variantForCollectionEntry(card, entry);
-  if (matched?.variantId && selected.variantId) return matched.variantId === selected.variantId;
   const selectedProduct = exactCardmarketProductId(card, selected);
   if (selectedProduct !== null && entry.externalProductId !== null && selectedProduct !== entry.externalProductId) return false;
+  const matched = variantForCollectionEntry(card, entry);
+  // Some source IDs are reused across physical printings. Keep legacy ID aliases,
+  // but an ID alone must not bypass a different descriptor or market product.
+  if (matched?.variantId && selected.variantId) return matched.variantId === selected.variantId
+    && normalizeVariant(collectionVariantLabel(matched)) === normalizeVariant(variant);
   return normalizeVariant(entry.variant) === normalizeVariant(variant);
 }
 

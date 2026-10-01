@@ -4,6 +4,30 @@ Stand: 01.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
+### Lokaler Zwischenstand: wiederverwendete Druck-IDs beim Hinzufügen
+
+`collectionSyncIdForExactCard` akzeptiert dieselbe rohe Varianten-ID nicht mehr
+als alleinigen Gleichheitsbeweis. Zusätzlich muss die bereits aufgelöste
+Variantenbeschreibung übereinstimmen; ein bekannter Produkt-ID-Widerspruch wird
+vor diesem Kurzpfad geprüft. Eindeutige vorhandene ID-/Legacy-Aliase bleiben
+erhalten. Bestehende Einträge werden weder migriert noch verändert; Transaktion,
+UUID-Verfahren, Schema und Regeln sind unverändert.
+
+Reproduktion über echte Produktfunktionen: **1.224 PASS / vier gezielte FAIL**;
+nach der Korrektur **1.228/1.228 PASS**, einschließlich der identischen normalen
+und besonderen Drucke als Kontrollen. Artefakte:
+`outputs/release-local/2026-10-01T17-35-21-319Z-21756.{json,log}` und
+`outputs/release-local/2026-10-01T17-36-52-001Z-22180.{json,log}`.
+Typecheck und gezielter Oxlint bestehen. Isolierter Produktionsmodus-Build:
+12,734 s, 303 Dateien; Root-dist und neun Build-/Deploymentdateien unverändert
+(`outputs/release27-engineering-20261001/baseline/build-printing-merge-guard*`).
+
+Grenze: Diese Fälle verwenden bereits vollständige Beschreibungen im `size`-Feld.
+Die separate Übernahme roher `subtype`-/`stamp`-/`foil`-Metadaten ist damit noch
+nicht bewiesen oder korrigiert; der zusätzliche Paritätsbefund wird getrennt
+bearbeitet. Kein Firebase-/Produktionszugriff, keine Veröffentlichung.
+Gesamtrelease weiterhin **NOT READY**.
+
 ## Geltungsbereich und belastbarer Stand
 
 - Eingefrorene Web-Baseline: `6caa46a`; Android-Baseline des übergeordneten Runs:
