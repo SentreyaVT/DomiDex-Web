@@ -16,7 +16,7 @@ const finalStamp = scenario => scenario.key === 'pending-overlay'
 const documentFixture = scenario => ({ path: entryPath(scenario), data: finalEntryFixture(scenario, runId, finalStamp(scenario)) });
 const scenarioSeeds = scenario => seedFixtures(scenario, runId, seedStamp(scenario))
   .map(item => ({ method: scenario.method, ...item }));
-const finalDocuments = index => SCENARIOS.slice(0, index + 1).flatMap(scenario => ['missing', 'session-healthy', 'session-offline'].includes(scenario.key) ? [] :
+const finalDocuments = index => SCENARIOS.slice(0, index + 1).flatMap(scenario => ['missing', 'session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key) ? [] :
   [...(scenario.key === 'late-parent' ? lateParentSeedFixtures(runId, seedStamp(scenario)) : []), documentFixture(scenario)]);
 const snapshot = (index, before = false) => {
   const current = SCENARIOS[index];
@@ -42,8 +42,8 @@ const proof = () => ({ project: PROJECT, runId, verified: true, accountUnchanged
 
 void test('exact demo/AVD and path-safe run ID are fixed, with no project/serial/port override', () => {
   assert.equal(PROJECT, 'demo-domidex-privacy'); assert.equal(SERIAL, 'emulator-5554'); assert.equal(AVD, 'DomiDex_R27_Baseline_API36');
-  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 10);
-  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline']);
+  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 11);
+  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect']);
   assert.deepEqual(PORTS, { auth: 9097, firestore: 8187, storage: 9297, hub: 4407, logging: 4507, websocket: 9150 });
   assert.equal(validRunId(runId), runId); assert.ok(parseSessionOptions(['--android-root', '.'])['--android-root']);
   for (const value of ['', '../bad', 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), undefined, 1e31, {}]) assert.throws(() => validRunId(value));
@@ -71,7 +71,7 @@ void test('each SDK method requires exact START+PASS, mandatory numtests and fin
   assert.throws(() => validateInstrumentation(instrumentation(SCENARIOS[0].method), SCENARIOS[1].method));
 });
 void test('exact server fixtures reject extra/missing fields, changed identity and fabricated ACK revision', () => {
-  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline'].includes(value.key))) {
+  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline', 'session-reconnect'].includes(value.key))) {
     const make = () => finalEntryFixture(scenario, runId, { seconds: 1700000100, nanoseconds: 1234 });
     assert.equal(assertEntry(make(), scenario, runId).revision, scenario.key === 'pending-overlay' ? 2 : 1);
     for (const mutate of [value => { delete value.notes; }, value => { delete value.acquisitionPriceMinor; },
@@ -104,7 +104,7 @@ void test('every independent readback checks exact Google accounts, no access ov
   }
 });
 void test('remote commit alone, RED, missing teardown PASS or missing readback never count as a passing session proof', () => {
-  assert.equal(validateServerProof(proof(), runId).androidCases, 9);
+  assert.equal(validateServerProof(proof(), runId).androidCases, 10);
   for (const mutate of [value => { value.verified = false; }, value => { value.accountUnchanged = false; },
     value => { value.project = 'production'; }, value => { value.runId = 'b'.repeat(32); },
     value => { value.errors.push({ method: SCENARIOS[1].method, error: 'STALE_SESSION_ACKED_COMMITTED_MUTATION' }); },
@@ -201,7 +201,7 @@ void test('pending overlay requires the exact rev1 seed and actual agreed rev2 w
   const equal = proof();
   for (const item of [...equal.readbacks.slice(5), ...equal.preflights.slice(6)])
     item.entries.find(row => row.path === entryPath(scenario)).data.updatedAt = structuredClone(seed.data.updatedAt);
-  assert.equal(validateServerProof(equal, runId).androidCases, 9);
+  assert.equal(validateServerProof(equal, runId).androidCases, 10);
 });
 void test('late parent preserves all three orphan seeds, requires only the client-created parent and rejects extras', () => {
   const scenario = SCENARIOS[6]; const valid = proof();
@@ -229,14 +229,16 @@ void test('late parent preserves all three orphan seeds, requires only the clien
   }
 });
 
-void test('two session-only cases are exact nominal Google owners, unseeded and entirely server-read-only', () => {
+void test('three session-only cases are exact nominal Google owners, unseeded and entirely server-read-only', () => {
   assert.deepEqual(SCENARIOS.slice(7), [
     { key: 'session-healthy', owner: 'sdk-proof-collection-session-healthy', method: 'sessionHealthyStartConfirmsAccessWithoutRunningWorkers' },
     { key: 'session-offline', owner: 'sdk-proof-collection-session-offline', method: 'offlineSessionNeedsExplicitRecheckWithinObservedReconnectWindow' },
+    { key: 'session-reconnect', owner: 'sdk-proof-collection-session-reconnect', method: 'usableConnectivitySignalRechecksActualEntitlementWithoutManualSync' },
   ]);
   const valid = proof();
   assert.equal(validateServerProof(valid, runId).readOnlySessionCharacterizationCases, 2);
-  for (const index of [7, 8]) {
+  assert.equal(validateServerProof(valid, runId).readOnlyConnectivityRecoveryCases, 1);
+  for (const index of [7, 8, 9]) {
     const scenario = SCENARIOS[index];
     assert.deepEqual(seedFixtures(scenario, runId, seedStamp(scenario)), []);
     assert.equal(valid.seeds.some(seed => seed.method === scenario.method), false);
@@ -254,7 +256,7 @@ void test('two session-only cases are exact nominal Google owners, unseeded and 
 });
 
 void test('session-only proof rejects server writes, new claims, missing phases and altered complete readbacks', () => {
-  for (const index of [7, 8]) {
+  for (const index of [7, 8, 9]) {
     const scenario = SCENARIOS[index];
     const addDocument = (snapshot, documentPath, data) => {
       snapshot.entries.push({ path: documentPath, data });

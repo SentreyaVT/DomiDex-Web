@@ -14,8 +14,9 @@ export const SCENARIOS = Object.freeze([
   { key: 'late-parent', owner: 'sdk-proof-collection-late-parent', method: 'lateParentPlacementIsRecoveredWithoutRemoteRewrite' },
   { key: 'session-healthy', owner: 'sdk-proof-collection-session-healthy', method: 'sessionHealthyStartConfirmsAccessWithoutRunningWorkers' },
   { key: 'session-offline', owner: 'sdk-proof-collection-session-offline', method: 'offlineSessionNeedsExplicitRecheckWithinObservedReconnectWindow' },
+  { key: 'session-reconnect', owner: 'sdk-proof-collection-session-reconnect', method: 'usableConnectivitySignalRechecksActualEntitlementWithoutManualSync' },
 ]);
-const isReadOnlySession = scenario => scenario.key === 'session-healthy' || scenario.key === 'session-offline';
+const isReadOnlySession = scenario => ['session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key);
 export const OTHER_OWNER = 'sdk-proof-collection-other';
 const lexical = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 export const ACCOUNTS = Object.freeze([...SCENARIOS.map(item => item.owner), OTHER_OWNER].sort(lexical).map(uid => ({
@@ -133,7 +134,7 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All ten nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All eleven nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
@@ -207,9 +208,10 @@ export function validateServerProof(proof, runId) {
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
   assert.deepEqual(proof.preflights?.map(item => item.method), SCENARIOS.map(item => item.method));
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
-  return { verified: true, androidCases: 9, independentAdminReadbacks: 9, independentAdminPreflights: 9,
+  return { verified: true, androidCases: 10, independentAdminReadbacks: 10, independentAdminPreflights: 10,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
     readOnlySessionCharacterizationCases: 2,
+    readOnlyConnectivityRecoveryCases: 1,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }

@@ -1,10 +1,10 @@
 # Collection/private-worker session proof — local only
 
-The nine-case expansion was verified locally on 2026-10-01, including both
-session-only characterizations. Automatic connectivity recovery is not yet added.
+All ten real-SDK cases, including the new event-driven session recheck, were
+verified locally on 2026-10-01.
 Exact evidence and input hashes below apply only to their dated pinned inputs.
 
-This reuses the existing launcher, actual named Google SDK clients, isolated in-memory Room and production worker functions. It is not a Web-product test, a new sync protocol, WorkManager-delivery proof, production deployment or physical-device test. The two new cases use an internal per-session scheduling recorder; its production adapter preserves all six original scheduling effects. No authorization result, owner predicate, server read or Rules is replaced. The earlier seven-case expansion required no product change.
+This reuses the existing launcher, actual named Google SDK clients, isolated in-memory Room and production worker functions. It is not a Web-product test, a new sync protocol, WorkManager-delivery proof, production deployment or physical-device test. The three session-only cases use an internal per-session scheduling recorder; its production adapter preserves all six original scheduling effects. No authorization result, owner predicate, server read or Rules is replaced. The earlier seven-case expansion required no product change.
 
 ## Prerequisites and run
 
@@ -23,9 +23,9 @@ node tests/collection-sync-session-local/run.mjs --android-root C:/Users/Dominik
 
 Allowed preinstalled path overrides are `--firebase-cli`, `--java-home`, `--emulator-cache`. Project, ports, serial, account list, method registry and run-ID shape are fixed. New run IDs are lowercase 32-hex. Pure validator tests are not SDK evidence.
 
-## Exact fixtures and nine methods
+## Exact fixtures and ten methods
 
-Host requires entirely empty Auth/Firestore emulators. It imports exactly ten nominal Google users: the nine `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
+Host requires entirely empty Auth/Firestore emulators. It imports exactly eleven nominal Google users: the ten `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
 
 Class remains `com.dominik.cardvault.data.sync.CollectionSyncSessionSdkInstrumentedTest`. Existing arguments remain `domidexCollectionSessionProof=demo-loopback-only` and `domidexCollectionSessionRunId=<32hex>`.
 
@@ -59,14 +59,27 @@ The negative window characterizes this bounded SDK/session case, not permanent
 failure, an OS connectivity event, real process cold boot or a latency SLA.
 Unexpected token/generation events fail this characterization rather than being
 reported as reproduction. Close occurs in finally and first in fixture cleanup.
-No network callback or reconnect fix has been added by the mechanical seam.
+The original negative case retains the no-op connectivity source; the new case
+below separately exercises the production recheck path.
 Both new owners receive no server seed and may never create an entry, sidecar,
 access override or orphan reference; the complete Admin preflight and readback
 must be exactly equal. Earlier owners remain unchanged.
 
+10. `usableConnectivitySignalRechecksActualEntitlementWithoutManualSync`: a third
+    empty diagnostic owner uses the actual Session, verifier and named SDK, but a
+    controlled Boolean connectivity source. Real offline failure and subsequent
+    SERVER reachability precede a signal burst. Only that burst triggers recovery;
+    no manual requestSync is used. Generation must advance exactly once, all four
+    positive scheduling requests occur exactly once, and already-active bursts do
+    not restart verification. Close releases exactly one registration; its retained
+    callback and another start cannot revive the Session. Both bounded two-second
+    negative observations are not latency guarantees. Full Room/remote state stays
+    unchanged. This case is **synthetic OS delivery**, not actual Android network
+    switching, automatic worker execution or multi-device convergence.
+
 ## Independent complete-tree evidence
 
-Before **every** method, Admin captures the complete small database tree plus all ten Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents.
+Before **every** method, Admin captures the complete small database tree plus all eleven Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents.
 
 Each preflight must equal the previous method's complete final state plus exactly this method's allowed seeds. Healthy/stale remain unseeded; missing remains absent. Pending-overlay must still be revision1. Late-parent must have exactly two binders/one placement and **no Collection parent**. Earlier owners, exact fields/timestamps and accounts must remain unchanged.
 
@@ -76,7 +89,7 @@ Raw preflights/readbacks are saved before validation. A server commit alone, inc
 
 ## Fail-closed completion, scope and cleanup
 
-- Exactly nine START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
+- Exactly ten START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
 - Each host invocation retains its 180-second bound and the unchanged launcher keeps an overall 18-minute budget. A slow case can exhaust the total budget; no timeout is converted to success.
 - Existing `run.mjs` is unchanged: it already hashes the entire product Kotlin source set (including the new scheduling seam), the existing SDK class/gate, APK inputs and all five host files (including this README). No manifest list entry is needed.
 - Original Android bounds: setup60s / test120s / Task20s / held-gate15s. Late-parent adds 45s per real worker pass and control queries limit8. Actual product FULL queries retain limit200 / logical budget1000. This small fixture does not instrument total RPC/read billing or establish scale.
@@ -89,6 +102,28 @@ Raw preflights/readbacks are saved before validation. A server commit alone, inc
 Evidence belongs to `outputs/collection-sync-session-local/<timestamp>-<runId>/`:
 manifest, complete server-proof, per-method logs and emulator log. Source alone is
 not evidence that a later build or environment passed.
+
+## Ten-case Root verification on 2026-10-01
+
+**10/10 actual SDK cases PASS**, with ten full independent Admin preflights and
+readbacks, eleven nominal accounts, exact previous-owner state and unchanged
+diagnostic owners. The new case recovers on a controlled usable-network signal
+without manual sync, with exactly one generation advance and one set of four
+scheduling requests. Duplicate healthy signals and callbacks after close cannot
+reactivate it. This proves the session path with synthetic OS delivery, not real
+Android network switching, automatic WorkManager execution or a latency SLA.
+The original nine methods remain intact. Twelve pure validators and focused lint
+pass separately. Complete harness duration: 78.799 s.
+
+Evidence: `outputs/collection-sync-session-local/2026-10-01T20-07-42-715Z-a417bd8b48954918bb8cf634c6c906ea/`.
+Exit 0, serverVerified, free ports, empty reverse mappings, idle instrumentation
+and unchanged inputs all verify. Root's installation proof is Android
+`artifacts/release27-engineering-20261001/collection-session-room-200651-0aa74074/manifest.json`:
+app `58613d94075ea30791e4996c791ed5aedd9f960f97326aea66d0d3f5ddbdf958`,
+test `ea5bc02b4a59ba64045d41376b3362014360c634729d3df4d56315ed45c1cac7`.
+The same APKs pass 11 Room cases and fixed 371 emulator regressions; sources/APKs
+stay unchanged and the device stays offline. No release artifact, production,
+Rules, signing, deployment or Xiaomi action. Hashes precede this evidence text.
 
 ## Nine-case Root verification on 2026-10-01
 
