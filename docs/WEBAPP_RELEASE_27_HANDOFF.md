@@ -558,6 +558,31 @@ ohne konkreten Restbefund. Root-Gesamtlauf: **962/962 Tests in 60 Dateien**, Typ
 Oxlint und Diffprüfung bestanden. Beleg im ignorierten Evidence-Verzeichnis:
 `gate5-6-root-incremental-sharing-results.json`. Keine Live-Abfrage oder Veröffentlichung.
 
+### Gate 6: Binder-Löschung während einer Freigabeabfrage (2026-10-01)
+
+Nach langsamer Katalogauflösung wird neben Freigabewiderruf und Besitzerzugang
+jetzt auch der Binder erneut geprüft: Er muss weiterhin existieren, zur erwarteten
+UID/ID gehören und darf keinen Tombstone tragen. Andernfalls folgt 404 ohne private
+Antwortdaten. Zuvor konnte die bereits geladene Binderkopie trotz zwischenzeitlicher
+Löschung noch ausgegeben werden. Es wird ein zusätzlicher Dokument-Read benötigt;
+dies ist eine Integritätskorrektur, keine Read-/Latenzoptimierung.
+
+Vier neue In-flight-Fälle (Tombstone, physisch fehlendes Dokument, fremder Owner,
+falsche Binder-ID) lieferten zuerst 200 statt 404. Danach 23/23 fokussierte Tests.
+Root-Verifikation: 87/87 Tests in neun Sharing-/Lösch-/Packaging-Dateien sowie 4/4
+separate Node-Kompatibilitätstests bestanden. Diese Auswahl überschneidet sich mit
+den 962 Webtests und wird nicht dazuaddiert. Belege: `gate6-root-final-guard-results.json`
+und `gate6-root-deletion-compat.log`. DTO, Freigabeoptionen, Cache, Schema, Preise
+und Sidecars bleiben unverändert. Keine Live-Firebase- oder signierte-v26-E2E-Prüfung.
+
+Die größere Skalierungsarbeit bleibt offen: Die jetzige globale Slotkollisions-
+auflösung reserviert alle belegten Plätze und verschiebt Überläufe kontrolliert.
+Eine naive Slotbereichs-Abfrage würde Karten/Seitenzahl verlieren. Materialisierte
+Seiten und Gesamtwerte benötigen einen eigenen kompatiblen Invalidierungsvertrag.
+Rechte-/Binder-/Share-Daten bleiben ungecacht, Antworten `no-store`. Ein späterer
+Katalog-Cache darf ausschließlich validierte öffentliche Daten verwenden; fremde
+Bildhosts und private alternative Preiswahlen werden nicht still veröffentlicht.
+
 ### Weiter offene Abnahme
 
 - Security-Emulatorergebnisse einschließlich der neun erneut registrierten

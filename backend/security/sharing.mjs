@@ -184,8 +184,9 @@ export async function readBinderShare(request, route, context = services()) {
         cards.push(card);
       }
     }
-    // Re-check after slow catalog work; concurrent revoke or owner access loss must win.
+    // Re-check after slow catalog work; concurrent revoke, access loss or binder deletion must win.
     if ((await reference.get()).data()?.revokedAt !== null || !await ownerStillAllowed(context, share.ownerUid)) fail('NOT_FOUND', 404);
+    await ownedBinder(context, share.ownerUid, share.binderId);
     const dto = {
       title: typeof binder.name === 'string' ? binder.name.slice(0, 100) : 'Geteilter Binder', coverStyle: sharedVisualId(binder.coverStyle, true),
       page, pageCount, cards: cards.sort((a, b) => a.slot - b.slot), unavailableSlots,

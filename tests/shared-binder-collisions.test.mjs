@@ -135,4 +135,27 @@ describe('shared binder read-only collision recovery', () => {
     context.cardFor.mockImplementation(async (id) => { documents.get(sharePath).revokedAt = 1; return cardFor(id); });
     expect((await read()).status).toBe(404);
   });
+
+  it.each(['tombstone', 'deleted-document', 'foreign-owner', 'different-binder-id'])(
+    'fails closed when the binder changes during catalog resolution: %s', async (change) => {
+      const { context, documents, read } = fixture([placement('001', 0)], { showTotal: true, showPrices: true });
+      const cardFor = context.cardFor.getMockImplementation();
+      context.cardFor.mockImplementation(async (id) => {
+        // Replace the record: the earlier snapshot remains unchanged, just like a real SDK read.
+        const previous = documents.get(binderPath);
+        if (change === 'deleted-document') documents.delete(binderPath);
+        else documents.set(binderPath, {
+          ...previous,
+          ...(change === 'tombstone' ? { deleted: true } : {}),
+          ...(change === 'foreign-owner' ? { ownerUid: 'other-owner' } : {}),
+          ...(change === 'different-binder-id' ? { binderId: 'other-binder' } : {}),
+        });
+        return cardFor(id);
+      });
+      const response = await read();
+      expect(context.cardFor).toHaveBeenCalledOnce();
+      expect(response.status).toBe(404);
+      expect(await response.text()).not.toMatch(/Shared fixture|Card sv1|owner-fixture|other-owner|other-binder/);
+    },
+  );
 });
