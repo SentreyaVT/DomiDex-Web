@@ -19,7 +19,9 @@ Web-Implementierung im Android-Repository pflegen.
   App-Check-Beobachtung, Default-off; keine neue Zugangssperre oder Enforcement.
 - **Gate 4: isolierter Listener-Lifecycle-Fix lokal implementiert:** Preiswahl-
   Abonnement erst nach App-Freigabe, veraltete Callbacks abgefangen und expliziter
-  Wiederverbindungsbutton. Noch keine allgemeine Initial-/Delta-Sync-Optimierung.
+  Wiederverbindungsbutton. Die vorhandenen Owner-Listener verarbeiten jetzt
+  inkrementelle SDK-Dokumentänderungen; die Remote-Queries bleiben unverändert.
+  Noch keine paginierte allgemeine Initial-/Delta-Sync-Architektur.
 - Kein Deployment, kein produktiver Firebase-Zugriff, keine Rollenänderung, kein
   Google-Play-Aufruf und kein Android-Build durch diesen Web-Prüfabschnitt.
   Aus vorhandenem Quellcode folgt keine Behauptung über den derzeitigen Live-Stand.
@@ -388,6 +390,43 @@ Full-Sync-, Firebase-Emulator-, echter Android/Web-Roundtrip- oder Live-Test.
 Keine neue Persistenz, Pagination, Schema-/Regeländerung, allgemeine
 Preisresolver-Optimierung, Signierung, Build oder Veröffentlichung. Der größere
 Initial-/Delta-Sync-Vertrag bleibt ein separater Gate-4-Arbeitsschritt.
+
+## Gate 4: inkrementelle lokale Snapshot-Verarbeitung
+
+Die fünf bestehenden Owner-Datasets (Collection, Layouts, Preiswahl, private
+Binder und Platzierungen) verwenden `docChanges()` statt einer Neudekodierung
+aller Dokumente bei jedem Event. Queries, Regeln, Schema und Client-Persistenz
+bleiben unverändert. Unveränderte Objekte werden weiterverwendet; veröffentlichte
+Arrays/Maps werden bei Änderungen neu erstellt und später nicht mutiert.
+
+SDK-Indizes beziehen auch ungültige Dokumente ein. Deshalb bleiben deren rohe
+Positionen erhalten, während die UI nur erfolgreich dekodierte Einträge erhält.
+Auch niedrigere Revisionen aus SDK-Rollbacks werden verarbeitet. Ein unabhängiges
+Review fand einen Decoder-Ausnahmefall bei alten Daten: Ein solcher Eintrag darf
+nicht die Verarbeitung aller nachfolgenden Änderungen unterbrechen. Drei neue
+Regressionen waren zunächst rot und bestätigen jetzt die vollständige Erholung
+nach einer Reparatur, ohne Listener-Neustart.
+
+Nachweise: ursprünglich 16 RED / 16 GREEN vor der Optimierung, anschließend
+61/61 Fokusfälle; nach dem zusätzlichen Reviewfix **64/64** Fokusfälle.
+Typecheck, Lint und Diffprüfung bestehen. Die SDK-Adapter werden lokal mit
+synthetischen Snapshot-Sequenzen geprüft, nicht mit einem produktiven Account.
+
+Bei 1k/5k/20k Einträgen erzeugt eine einzelne Änderung jeweils einen `data()`-
+Aufruf und ein neues dekodiertes Objekt statt N. Die Array-/Map-Projektion bleibt
+O(N). Lokale synthetische Zeiten (0,118/0,443/1,837 ms gegenüber
+0,086/0,265/4,810 ms beim minimalen kompletten Neuaufbau) belegen **keine pauschale
+Latenzverbesserung**. Initiale Netzwerk-Reads und SDK-Speicherhaltung bleiben
+unverändert; keine Heap-/Cloud-Kosteneinsparung daraus ableiten.
+
+Rohbelege liegen im ignorierten `outputs/release27-engineering-20261001/baseline/`:
+`gate4-incremental-red-results.json`, `gate4-incremental-scale.json` und
+`gate4-incremental-review-{red,green}-results.json`. Frühere 789/789 aus
+`gate4-incremental-full-results.json` stammen ausdrücklich vor dem Reviewfix.
+Der erneute Root-Lauf nach Reviewfix und dem separat geprüften Guide-Snapshotfix
+besteht **836/836 Tests in 57 Dateien**; Beleg
+`gate4-and-price-root-final-results.json`. Neu angelegte bewusste RED-Proben zur
+Root-Preisidentität gehören nicht zu dieser bestandenen Auswahl.
 
 ## Sharing, Domains und Preiswahl: bestehender Vertrag
 

@@ -1,6 +1,7 @@
 'use client';
 
 import type { CollectionEntry } from './domain';
+import { ownerDocumentState } from './owner-document-state';
 
 export type SetBinderVisibility = ReadonlyMap<string, boolean>;
 
@@ -20,14 +21,11 @@ export function setBinderEntries(entries: CollectionEntry[], visibility: SetBind
 export async function subscribeCollectionLayouts(uid: string, next: (visibility: SetBinderVisibility) => void, fail: (error: Error) => void) {
   const [{ collection, onSnapshot }, { firestore }] = await Promise.all([import('firebase/firestore'), import('./firebase-client')]);
   let active = true;
+  const update = ownerDocumentState((data, id) => decodeCollectionLayout(data, id, uid));
   const unsubscribe = onSnapshot(collection(firestore, 'users', uid, 'collectionLayouts'), (snapshot) => {
     if (!active) return;
-    const visibility = new Map<string, boolean>();
-    for (const item of snapshot.docs) {
-      const layout = decodeCollectionLayout(item.data(), item.id, uid);
-      if (layout) visibility.set(layout.entrySyncId, layout.visibleInSetBinder);
-    }
-    next(visibility);
+    const layouts = update(snapshot);
+    if (layouts !== null) next(new Map(layouts.map((layout) => [layout.entrySyncId, layout.visibleInSetBinder])));
   }, (error) => { if (active) { active = false; fail(error); } });
   return () => { active = false; unsubscribe(); };
 }

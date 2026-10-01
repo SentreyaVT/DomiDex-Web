@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrivateBinderGallery } from '@/components/private-binder-gallery';
 import type { CollectionEntry } from '@/lib/domain';
 import type { CardEffectConfig } from '@/lib/card-profile-visual';
+import { ownerSnapshotSequence, type OwnerTestSnapshot } from './helpers/owner-snapshot';
 
 type Raw = Record<string, unknown>;
-type Listener = { path: string; next: (value: { docs: { id: string; data: () => Raw }[] }) => void; error: () => void; stop: ReturnType<typeof vi.fn> };
+type Listener = { path: string; next: (value: OwnerTestSnapshot) => void; error: () => void; stop: ReturnType<typeof vi.fn> };
 const firebase = vi.hoisted(() => ({ listeners: [] as Listener[], collection: vi.fn(), onSnapshot: vi.fn(), setDoc: vi.fn(), updateDoc: vi.fn(), deleteDoc: vi.fn() }));
 vi.mock('firebase/firestore', () => firebase);
 vi.mock('@/lib/firebase-client', () => ({ firestore: { fixture: true } }));
@@ -23,7 +24,11 @@ const owned: CollectionEntry = Object.freeze({
 });
 const binder = (extra: Raw = {}): Raw => ({ binderId: 'binder-a', ownerUid: uid, revision: 1, deleted: false, name: 'Privater Testbinder', coverStyle: 'galaxy', minimumPageCount: 2, ...extra });
 const placement = (extra: Raw = {}): Raw => ({ placementId: 'placement-a', ownerUid: uid, revision: 1, deleted: false, binderId: 'binder-a', entrySyncId: owned.syncId, slotPosition: 0, holoEffectId: 'galaxy', holoIntensity: .72, ...extra });
-const emit = (listener: Listener, records: Raw[], id: string) => listener.next({ docs: records.map((data) => ({ id: String(data[id]), data: () => data })) });
+let sequences = new WeakMap<Listener, ReturnType<typeof ownerSnapshotSequence>>();
+const emit = (listener: Listener, records: Raw[], id: string) => {
+  if (!sequences.has(listener)) sequences.set(listener, ownerSnapshotSequence(id));
+  listener.next(sequences.get(listener)!(records));
+};
 async function loaded(placements = [placement()], binders = [binder()], entries = [owned]) {
   const rendered = render(<PrivateBinderGallery user={{ uid }} entries={entries} prices={{ [owned.syncId]: 12.34 }} />);
   await waitFor(() => expect(firebase.listeners).toHaveLength(2));
@@ -32,6 +37,7 @@ async function loaded(placements = [placement()], binders = [binder()], entries 
 }
 
 beforeEach(() => {
+  sequences = new WeakMap();
   vi.clearAllMocks(); firebase.listeners.length = 0;
   vi.stubGlobal('React', React);
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No network permitted')));

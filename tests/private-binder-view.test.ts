@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodePrivateBinder, decodePrivatePlacement, privateBinderPage, subscribePrivateBinderView } from '@/lib/private-binder-view';
 import type { CollectionEntry } from '@/lib/domain';
+import { ownerSnapshotSequence, type OwnerTestSnapshot } from './helpers/owner-snapshot';
 
 type Raw = Record<string, unknown>;
-type Snapshot = { docs: { id: string; data: () => Raw }[] };
+type Snapshot = OwnerTestSnapshot;
 type Listener = { path: string; next: (snapshot: Snapshot) => void; error: () => void; stop: ReturnType<typeof vi.fn> };
 const firebase = vi.hoisted(() => ({ listeners: [] as Listener[], collection: vi.fn(), onSnapshot: vi.fn(), setDoc: vi.fn(), updateDoc: vi.fn(), deleteDoc: vi.fn() }));
 vi.mock('firebase/firestore', () => firebase);
@@ -12,10 +13,15 @@ vi.mock('@/lib/firebase-client', () => ({ firestore: { fixture: true } }));
 const uid = 'owner-a';
 const binderData = (extra: Raw = {}): Raw => ({ binderId: 'binder-a', ownerUid: uid, revision: 1, deleted: false, name: 'Meine Karten', coverStyle: 'galaxy', minimumPageCount: 1, ...extra });
 const placementData = (extra: Raw = {}): Raw => ({ placementId: 'placement-a', binderId: 'binder-a', ownerUid: uid, entrySyncId: 'exact-entry', revision: 1, deleted: false, slotPosition: 0, holoEffectId: 'galaxy', holoIntensity: .72, ...extra });
-const snapshot = (records: Raw[], field: string): Snapshot => ({ docs: records.map((data) => ({ id: String(data[field]), data: () => data })) });
+const sequences = new Map<string, ReturnType<typeof ownerSnapshotSequence>>();
+const snapshot = (records: Raw[], field: string): Snapshot => {
+  if (!sequences.has(field)) sequences.set(field, ownerSnapshotSequence(field));
+  return sequences.get(field)!(records);
+};
 const entry = (syncId: string, extra: Partial<CollectionEntry> = {}) => ({ syncId, ownerUid: uid, deleted: false, sourceCardId: 'same-card', finish: 'Holo', name: syncId, ...extra }) as CollectionEntry;
 
 beforeEach(() => {
+  sequences.clear();
   firebase.listeners.length = 0;
   vi.clearAllMocks();
   firebase.collection.mockImplementation((_store: unknown, ...path: string[]) => path.join('/'));

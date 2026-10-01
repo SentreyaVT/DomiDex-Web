@@ -1,4 +1,5 @@
 import type { CollectionEntry } from './domain';
+import { ownerDocumentState } from './owner-document-state';
 
 export type PrivateBinderView = { binderId: string; name: string; coverStyle: string; minimumPageCount: number };
 export type PrivatePlacementView = { placementId: string; binderId: string; entrySyncId: string; slotPosition: number; holoEffectId: string | null; holoIntensity: number };
@@ -26,6 +27,8 @@ export async function subscribePrivateBinderView(uid: string, next: (value: Priv
   const [{ collection, onSnapshot }, { firestore }] = await Promise.all([import('firebase/firestore'), import('./firebase-client')]);
   let active = true, loadedBinders = false, loadedPlacements = false;
   let binders: PrivateBinderView[] = [], placements: PrivatePlacementView[] = [];
+  const updateBinders = ownerDocumentState((data, id) => decodePrivateBinder(data, id, uid));
+  const updatePlacements = ownerDocumentState((data, id) => decodePrivatePlacement(data, id, uid));
   const stops: Array<() => void> = [];
   const stop = () => { active = false; stops.forEach((unsubscribe) => unsubscribe()); };
   const error = () => { if (active) { stop(); fail(); } };
@@ -33,12 +36,17 @@ export async function subscribePrivateBinderView(uid: string, next: (value: Priv
   try {
     stops.push(onSnapshot(collection(firestore, 'users', uid, 'privateBinders'), (snapshot) => {
       if (!active) return;
-      binders = snapshot.docs.map((item) => decodePrivateBinder(item.data(), item.id, uid)).filter((item): item is PrivateBinderView => item !== null).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+      const updated = updateBinders(snapshot);
+      if (updated === null) return;
+      // Stable name sorting retains SDK document-ID order for equal names.
+      binders = updated.sort((a, b) => a.name.localeCompare(b.name, 'de'));
       loadedBinders = true; publish();
     }, error));
     if (active) stops.push(onSnapshot(collection(firestore, 'users', uid, 'privateBinderPlacements'), (snapshot) => {
       if (!active) return;
-      placements = snapshot.docs.map((item) => decodePrivatePlacement(item.data(), item.id, uid)).filter((item): item is PrivatePlacementView => item !== null);
+      const updated = updatePlacements(snapshot);
+      if (updated === null) return;
+      placements = updated;
       loadedPlacements = true; publish();
     }, error));
     if (!active) stop();

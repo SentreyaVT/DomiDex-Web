@@ -1,17 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeCollectionLayout, setBinderEntries, subscribeCollectionLayouts } from '@/lib/collection-layouts';
 import type { CollectionEntry } from '@/lib/domain';
+import { ownerSnapshotSequence, type OwnerTestSnapshot } from './helpers/owner-snapshot';
 
 type Raw = Record<string, unknown>;
-type Snapshot = { docs: { id: string; data: () => Raw }[] };
+type Snapshot = OwnerTestSnapshot;
 type Listener = { path: string; next: (snapshot: Snapshot) => void; error: (error: Error) => void; stop: ReturnType<typeof vi.fn> };
 const firebase = vi.hoisted(() => ({ listeners: [] as Listener[], collection: vi.fn(), onSnapshot: vi.fn(), setDoc: vi.fn(), updateDoc: vi.fn(), deleteDoc: vi.fn() }));
 vi.mock('firebase/firestore', () => firebase);
 vi.mock('@/lib/firebase-client', () => ({ firestore: {} }));
 const data = (extra: Raw = {}): Raw => ({ entrySyncId: 'entry-a', ownerUid: 'owner-a', revision: 1, updatedAtClient: 1, visibleInSetBinder: false, ...extra });
-const snapshot = (records: Raw[]): Snapshot => ({ docs: records.map((record) => ({ id: String(record.entrySyncId), data: () => record })) });
+let snapshot = ownerSnapshotSequence('entrySyncId');
 
 beforeEach(() => {
+  snapshot = ownerSnapshotSequence('entrySyncId');
   firebase.listeners.length = 0;
   vi.clearAllMocks();
   firebase.collection.mockImplementation((_store: unknown, ...path: string[]) => path.join('/'));

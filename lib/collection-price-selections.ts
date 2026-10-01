@@ -4,6 +4,7 @@ import type { DocumentData } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { isQuarantinedCardmarketIdentity } from './cardmarket-identity';
 import { canonicalTcgCardId } from './domain';
+import { ownerDocumentState } from './owner-document-state';
 import {
   collectionPriceMetricMatchesFinish,
   collectionPriceMetrics,
@@ -26,14 +27,11 @@ export async function subscribeCollectionPriceSelections(
 ) {
   const [{ collection, onSnapshot }, { firestore }] = await Promise.all([import('firebase/firestore'), import('./firebase-client')]);
   let active = true;
+  const update = ownerDocumentState((data, id) => decodeCollectionPriceSelection(data, id, ownerUid));
   const unsubscribe = onSnapshot(collection(firestore, 'users', ownerUid, 'collectionPriceSelections'), (snapshot) => {
     if (!active) return;
-    const selections: Record<string, CollectionPriceSelection> = {};
-    for (const item of snapshot.docs) {
-      const decoded = decodeCollectionPriceSelection(item.data(), item.id, ownerUid);
-      if (decoded) selections[item.id] = decoded;
-    }
-    next(selections);
+    const selections = update(snapshot);
+    if (selections !== null) next(Object.fromEntries(selections.map((selection) => [selection.entrySyncId, selection])));
   }, (error) => { if (active) { active = false; fail(error); } });
   return () => { active = false; unsubscribe(); };
 }

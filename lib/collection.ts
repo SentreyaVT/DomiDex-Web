@@ -14,18 +14,26 @@ import { canonicalTcgCardId, collectionVariantLabel, exactCardmarketProductId, e
 import { firestore } from './firebase-client';
 import { imageUrl } from './tcgdex';
 import { deterministicSourceSyncId } from './sync-id';
+import { ownerDocumentState } from './owner-document-state';
 
 const SOURCE = 'CARDMARKET_PUBLIC_DOWNLOAD';
 
 export function subscribeCollection(user: User, next: (entries: CollectionEntry[]) => void, fail: (error: Error) => void) {
-  return onSnapshot(
+  let active = true;
+  const update = ownerDocumentState((data, id) => {
+    const entry = decodeEntry(data, id, user.uid);
+    return entry && !entry.deleted ? entry : null;
+  });
+  const unsubscribe = onSnapshot(
     collection(firestore, 'users', user.uid, 'collectionEntries'),
-    (snapshot) => next(snapshot.docs
-      .map((item) => decodeEntry(item.data(), item.id, user.uid))
-      .filter((entry): entry is CollectionEntry => Boolean(entry))
-      .filter((entry) => !entry.deleted)),
-    (error) => fail(error),
+    (snapshot) => {
+      if (!active) return;
+      const entries = update(snapshot);
+      if (entries !== null) next(entries);
+    },
+    (error) => { if (active) { active = false; fail(error); } },
   );
+  return () => { active = false; unsubscribe(); };
 }
 
 export async function addExactCard(
