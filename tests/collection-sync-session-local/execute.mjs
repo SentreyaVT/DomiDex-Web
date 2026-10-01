@@ -70,7 +70,7 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 12); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 13); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
     const scenario = SCENARIOS[index]; const { method } = scenario;
@@ -83,6 +83,8 @@ try {
     // Their original pending mutations exist only inside the Android Room fixture.
     // Deferred point-read seeds a valid parent/binder/placement. Its Android
     // client may only read: all three seed documents remain fully unchanged.
+    // Private offline retry starts remotely empty; only the genuine Android
+    // worker may create its final binder after transport is enabled again.
     for (const fixture of seedFixtures(scenario, runId, FieldValue.serverTimestamp())) {
       const reference = db.doc(fixture.path);
       await reference.create(fixture.data);

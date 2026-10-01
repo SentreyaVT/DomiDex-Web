@@ -18,7 +18,27 @@ Optimierung, nicht auf die R27-Freigabe. Bestehende Owner-, Preiswahl-, Outbox-,
 Offline-/Multi-Client- und Regressionstests bleiben erforderlich. Dieser Beschluss
 ist kein Beleg für verzögerungsfreien Sync und keine Signing-/Deploymentfreigabe.
 
-### Aktueller lokaler Zwischenstand: Hinzufügen mit echten lokalen SDK-Transaktionen
+### Aktueller lokaler Zwischenstand: aktiver FULL-Sync über Offline-Wiederaufnahme
+
+**12/12 echte Android-SDK-Fälle PASS**, inklusive neuem privatem Binder mit
+ursprünglicher Outbox-Mutation: Zwei Offline-Worker-Versuche vor/nach echtem
+Datei-Room-Reopen bewahren alle 14 Tabellen; erst nach tatsächlicher
+SERVER-Autorisierung folgen Commit, ACK und vierteiliger FULL-Pull. Der zweite
+Online-Lauf bleibt in Room und remote vollständig idempotent. Unabhängige
+vollständige Admin-Zustände vor/nach jedem Fall und 13 nominelle Googlekonten
+bestätigt; keine zusätzlichen Rechte, Sidecars oder geänderten früheren Owner.
+
+Gesamtlauf 91,365 s, neuer Fall 4,094 s; 16 reine Nachweisprüfer PASS. Beleg:
+`outputs/collection-sync-session-local/2026-10-01T22-27-50-753Z-8fc2d585e11e4d0881894a53d65a83f2/`.
+Ports/Reverse/Instrumentierung anschließend frei, Eingaben unverändert. Frische
+Web-Regression **1285/1285 PASS** in 78 Dateien, 34,68 s:
+`outputs/release-local/2026-10-01T22-30-01-188Z-19892.{json,log}`.
+Vorhandene act/Canvas-/SDK-Warnungen bleiben. Nur Testvertrag und Dokumentation
+ergänzt, Web-/Android-Produktcode und Regeln unverändert. Kein Deployment, Signing
+oder Releasepaket. Der Nachweis umfasst weder Prozessneustart noch automatische
+OS-/WorkManager-Zustellung, große FULL-Zyklen oder komplette Mehrgeräteabdeckung.
+
+### Vorheriger lokaler Zwischenstand: Hinzufügen mit echten lokalen SDK-Transaktionen
 
 Der bestehende Private-Operations-Starter bewahrt alle 31 bisherigen Fälle und
 ergänzt zwei echte Web-Client-Fälle: `addExactCard` legt Menge 2/Revision 1 an und

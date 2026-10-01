@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PROJECT, SERIAL, AVD, SCENARIOS, OTHER_OWNER, ACCOUNTS, TEST_CLASS, validRunId, parseSessionOptions,
   entryPath, entryFixture, finalEntryFixture, seedFixtures, lateParentSeedFixtures, assertEntry, assertSeed,
+  offlinePrivateBinderFixture, assertOfflinePrivateBinder,
   validateInstrumentation, validateReadback, validatePreflight, validateReadbacks, validateServerProof,
   assertNoInstrumentation } from './contract.mjs';
 import { PORTS, assertTestEnvironment, isolatedEnvironment } from '../private-operations-local/safety.mjs';
@@ -18,6 +19,7 @@ const scenarioSeeds = scenario => seedFixtures(scenario, runId, seedStamp(scenar
   .map(item => ({ method: scenario.method, ...item }));
 const finalDocuments = index => SCENARIOS.slice(0, index + 1).flatMap(scenario => ['missing', 'session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key) ? [] :
   scenario.key === 'deferred-point-read' ? seedFixtures(scenario, runId, seedStamp(scenario)) :
+  scenario.key === 'private-offline-retry' ? [offlinePrivateBinderFixture(runId, finalStamp(scenario))] :
   [...(scenario.key === 'late-parent' ? lateParentSeedFixtures(runId, seedStamp(scenario)) : []), documentFixture(scenario)]);
 const snapshot = (index, before = false) => {
   const current = SCENARIOS[index];
@@ -43,8 +45,8 @@ const proof = () => ({ project: PROJECT, runId, verified: true, accountUnchanged
 
 void test('exact demo/AVD and path-safe run ID are fixed, with no project/serial/port override', () => {
   assert.equal(PROJECT, 'demo-domidex-privacy'); assert.equal(SERIAL, 'emulator-5554'); assert.equal(AVD, 'DomiDex_R27_Baseline_API36');
-  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 12);
-  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect', 'deferred-point-read']);
+  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 13);
+  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect', 'deferred-point-read', 'private-offline-retry']);
   assert.deepEqual(PORTS, { auth: 9097, firestore: 8187, storage: 9297, hub: 4407, logging: 4507, websocket: 9150 });
   assert.equal(validRunId(runId), runId); assert.ok(parseSessionOptions(['--android-root', '.'])['--android-root']);
   for (const value of ['', '../bad', 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), undefined, 1e31, {}]) assert.throws(() => validRunId(value));
@@ -72,7 +74,7 @@ void test('each SDK method requires exact START+PASS, mandatory numtests and fin
   assert.throws(() => validateInstrumentation(instrumentation(SCENARIOS[0].method), SCENARIOS[1].method));
 });
 void test('exact server fixtures reject extra/missing fields, changed identity and fabricated ACK revision', () => {
-  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline', 'session-reconnect'].includes(value.key))) {
+  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline', 'session-reconnect', 'private-offline-retry'].includes(value.key))) {
     const make = () => finalEntryFixture(scenario, runId, { seconds: 1700000100, nanoseconds: 1234 });
     assert.equal(assertEntry(make(), scenario, runId).revision, scenario.key === 'pending-overlay' ? 2 : 1);
     for (const mutate of [value => { delete value.notes; }, value => { delete value.acquisitionPriceMinor; },
@@ -105,7 +107,7 @@ void test('every independent readback checks exact Google accounts, no access ov
   }
 });
 void test('remote commit alone, RED, missing teardown PASS or missing readback never count as a passing session proof', () => {
-  assert.equal(validateServerProof(proof(), runId).androidCases, 11);
+  assert.equal(validateServerProof(proof(), runId).androidCases, 12);
   for (const mutate of [value => { value.verified = false; }, value => { value.accountUnchanged = false; },
     value => { value.project = 'production'; }, value => { value.runId = 'b'.repeat(32); },
     value => { value.errors.push({ method: SCENARIOS[1].method, error: 'STALE_SESSION_ACKED_COMMITTED_MUTATION' }); },
@@ -202,7 +204,7 @@ void test('pending overlay requires the exact rev1 seed and actual agreed rev2 w
   const equal = proof();
   for (const item of [...equal.readbacks.slice(5), ...equal.preflights.slice(6)])
     item.entries.find(row => row.path === entryPath(scenario)).data.updatedAt = structuredClone(seed.data.updatedAt);
-  assert.equal(validateServerProof(equal, runId).androidCases, 11);
+  assert.equal(validateServerProof(equal, runId).androidCases, 12);
 });
 void test('late parent preserves all three orphan seeds, requires only the client-created parent and rejects extras', () => {
   const scenario = SCENARIOS[6]; const valid = proof();
@@ -297,11 +299,78 @@ void test('session-only proof rejects server writes, new claims, missing phases 
   }
 });
 
+void test('offline private retry has no Admin seed and only one exact worker-created binder', () => {
+  const scenario = SCENARIOS[11];
+  assert.deepEqual(scenario, { key: 'private-offline-retry', owner: 'sdk-proof-collection-private-offline-retry',
+    method: 'offlinePrivateMutationSurvivesRoomReopenAndCompletesFullPull' });
+  assert.deepEqual(seedFixtures(scenario, runId, seedStamp(scenario)), []);
+  const expected = { path: `users/${scenario.owner}/privateBinders/offline-retry-binder`, data: {
+    binderId: 'offline-retry-binder', ownerUid: scenario.owner, name: 'Synthetic offline retry binder',
+    description: null, coverStyle: 'DOMIDEX', minimumPageCount: 1, createdAtClient: 1700000000000,
+    updatedAtClient: 1700000000000, lastOpenedAtClient: null, deleted: false, revision: 1,
+    lastMutationId: `private-offline-${runId}-binder`, updatedAt: finalStamp(scenario),
+  } };
+  assert.deepEqual(offlinePrivateBinderFixture(runId, finalStamp(scenario)), expected);
+  assert.deepEqual(assertOfflinePrivateBinder(expected.data, runId), expected.data);
+  assert.throws(() => assertEntry(entryFixture(scenario, runId, finalStamp(scenario)), scenario, runId));
+  const valid = proof();
+  assert.deepEqual(valid.seeds.filter(item => item.method === scenario.method), []);
+  assert.deepEqual(valid.preflights[11].entries, valid.readbacks[10].entries);
+  assert.deepEqual(valid.preflights[11].documentPaths, valid.readbacks[10].documentPaths);
+  assert.deepEqual(valid.readbacks[11].entries,
+    [...valid.readbacks[10].entries, expected].sort((a, b) => lexical(a.path, b.path)));
+  assert.equal(valid.readbacks[11].collectionPaths.length, 13);
+  assert.equal(valid.readbacks[11].documentPaths.length, 21);
+  const summary = validateServerProof(valid, runId);
+  assert.equal(summary.androidCases, 12);
+  assert.equal(summary.actualPrivateWorkerOfflineRetryCases, 1);
+});
+
+void test('offline private retry rejects fabricated ACKs, extra writes, missing phases and altered prior owners', () => {
+  const scenario = SCENARIOS[11];
+  const fixture = () => offlinePrivateBinderFixture(runId, finalStamp(scenario));
+  for (const change of [
+    data => { data.binderId = 'other'; }, data => { data.ownerUid = OTHER_OWNER; },
+    data => { data.name = 'other'; }, data => { delete data.description; },
+    data => { data.description = ''; }, data => { data.coverStyle = 'other'; },
+    data => { data.minimumPageCount = 2; }, data => { data.createdAtClient++; },
+    data => { data.updatedAtClient++; }, data => { delete data.lastOpenedAtClient; },
+    data => { data.lastOpenedAtClient = 1700000000000; }, data => { data.deleted = true; },
+    data => { data.revision = 0; }, data => { data.revision = 2; },
+    data => { data.lastMutationId = 'admin-ack'; }, data => { data.extra = true; },
+    data => { data.updatedAt = null; }, data => { data.updatedAt.seconds = 0; },
+    data => { data.updatedAt.nanoseconds = 1e9; }, data => { data.updatedAt.extra = true; },
+  ]) {
+    const document = fixture(); change(document.data);
+    assert.throws(() => assertOfflinePrivateBinder(document.data, runId));
+    const broken = proof();
+    change(broken.readbacks[11].entries.find(item => item.path === document.path).data);
+    assert.throws(() => validateServerProof(broken, runId));
+  }
+  for (const change of [
+    value => { value.readbacks[11].entries = value.readbacks[11].entries.filter(item => item.path !== fixture().path); },
+    value => { value.preflights[11].entries.push(fixture()); },
+    value => { value.seeds.push({ method: scenario.method, ...fixture() }); },
+    value => { value.readbacks[11].entries.push({ path: entryPath(scenario), data: {} }); },
+    value => { value.readbacks[11].collectionPaths.push(`users/${scenario.owner}/collectionPriceSelections`); },
+    value => { value.readbacks[11].documentPaths.push(`accountAccess/${scenario.owner}`); },
+    value => { value.readbacks[11].documentPaths.push(`users/${OTHER_OWNER}/privateBinders/other`); },
+    value => { value.readbacks[11].entries[0].data.updatedAt.nanoseconds++; },
+    value => { value.preflights[11].entries[0].data.updatedAt.nanoseconds++; },
+    value => { value.readbacks[11].accounts.find(item => item.uid === scenario.owner).customClaims.admin = true; },
+    value => { value.phases.pop(); }, value => { value.preflights.pop(); }, value => { value.readbacks.pop(); },
+    value => { value.errors.push({ method: scenario.method, error: 'offline outbox lost' }); },
+  ]) {
+    const broken = proof(); change(broken);
+    assert.throws(() => validateServerProof(broken, runId));
+  }
+});
+
 void test('deferred point-read appends one nominal owner with exactly three immutable valid server seeds', () => {
   const scenario = SCENARIOS[10];
   assert.deepEqual(scenario, { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read',
     method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' });
-  assert.equal(SCENARIOS.length, 11); assert.equal(ACCOUNTS.length, 12);
+  assert.equal(SCENARIOS.length, 12); assert.equal(ACCOUNTS.length, 13);
   assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
     uid: scenario.owner, email: `${scenario.owner}@example.invalid`, emailVerified: true,
     disabled: false, customClaims: { appAccess: true },
@@ -331,7 +400,7 @@ void test('deferred point-read appends one nominal owner with exactly three immu
   assert.equal(valid.readbacks[10].collectionPaths.length, 12);
   assert.equal(valid.readbacks[10].documentPaths.length, 19);
   const summary = validateServerProof(valid, runId);
-  assert.equal(summary.androidCases, 11);
+  assert.equal(summary.androidCases, 12);
   assert.equal(summary.readOnlyDeferredPointReadCases, 1);
   for (const prior of valid.readbacks[9].entries)
     assert.deepEqual(valid.readbacks[10].entries.find(item => item.path === prior.path), prior);

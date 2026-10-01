@@ -66,7 +66,7 @@ async function main() {
   writeFileSync(path.join(directory, 'firebase.json'), JSON.stringify(config, null, 2));
   const manifest = { project: PROJECT, runId, serial: SERIAL, avd: AVD, startedAt: new Date().toISOString(), inputs: hashes,
     apkHashScope: 'Local APK files only; operator must separately verify exact installed APKs on this AVD',
-    roomCleanupScope: 'In-memory Room owned and closed by Android @After; PASS includes teardown, RED alone does not prove teardown',
+    roomCleanupScope: 'Android @After closes owned Room; persistent cases verify exact owner/run-marked file before deleting only that fixture; PASS includes teardown, RED alone does not prove teardown',
     node: process.version, java: (javaVersion.stderr + javaVersion.stdout).trim(), firebaseCli: cliPackage.version,
     cliMetadataSha256: await sha256(metadataFile), jars: entries, ports: PORTS, startedEmulators: ['auth', 'firestore'],
     beforePortsFree: true, afterPortsFree: false, beforeReverseEmpty: true, afterReverseEmpty: false,

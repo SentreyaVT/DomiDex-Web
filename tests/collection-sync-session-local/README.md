@@ -1,10 +1,10 @@
 # Collection/private-worker session proof — local only
 
-All eleven real-SDK cases, including the new deferred point-read case, were
-verified locally on 2026-10-01.
+All twelve real-SDK cases, including offline private-worker retry across Room
+file reopen, were verified locally on 2026-10-02 (UTC run starts 2026-10-01).
 Exact evidence and input hashes below apply only to their dated pinned inputs.
 
-This reuses the existing launcher, actual named Google SDK clients, isolated Room and production sync functions. The deferred-marker case alone owns a separate named Room file to prove close/reopen; the other ten cases retain their existing in-memory Room setup. It is not a Web-product test, a new sync protocol, WorkManager-delivery proof, production deployment or physical-device test. The three session-only cases use an internal per-session scheduling recorder; its production adapter preserves all six original scheduling effects. No authorization result, owner predicate, server read or Rules is replaced. The earlier seven-case expansion required no product change.
+This reuses the existing launcher, actual named Google SDK clients, isolated Room and production sync functions. The deferred-marker and offline private-worker cases each own a separate named Room file to prove close/reopen; the other ten cases retain their existing in-memory Room setup. It is not a Web-product test, a new sync protocol, WorkManager-delivery proof, production deployment or physical-device test. The three session-only cases use an internal per-session scheduling recorder; its production adapter preserves all six original scheduling effects. No authorization result, owner predicate, server read or Rules is replaced. The earlier seven-case expansion required no product change.
 
 ## Prerequisites and run
 
@@ -23,9 +23,9 @@ node tests/collection-sync-session-local/run.mjs --android-root C:/Users/Dominik
 
 Allowed preinstalled path overrides are `--firebase-cli`, `--java-home`, `--emulator-cache`. Project, ports, serial, account list, method registry and run-ID shape are fixed. New run IDs are lowercase 32-hex. Pure validator tests are not SDK evidence.
 
-## Exact fixtures and eleven methods
+## Exact fixtures and twelve methods
 
-Host requires entirely empty Auth/Firestore emulators. It imports exactly twelve nominal Google users: the eleven `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
+Host requires entirely empty Auth/Firestore emulators. It imports exactly thirteen nominal Google users: the twelve `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
 
 Class remains `com.dominik.cardvault.data.sync.CollectionSyncSessionSdkInstrumentedTest`. Existing arguments remain `domidexCollectionSessionProof=demo-loopback-only` and `domidexCollectionSessionRunId=<32hex>`.
 
@@ -77,9 +77,33 @@ must be exactly equal. Earlier owners remain unchanged.
     unchanged. This case is **synthetic OS delivery**, not actual Android network
     switching, automatic worker execution or multi-device convergence.
 
+## Offline private-worker retry and actual FULL recovery
+
+12. `offlinePrivateMutationSurvivesRoomReopenAndCompletesFullPull` starts with one
+    deterministic pending private binder and its original outbox mutation in an
+    owned, file-backed Room fixture. Its remote owner starts empty; no Admin seed.
+    Real subject SDK transport is disabled. Two actual worker passes, separated
+    by a verified Room file close/reopen, must return retry before opening the
+    database and preserve all fourteen business tables exactly. The separate
+    nominal control SDK confirms no remote writes. After enableNetwork and real
+    SERVER access, the actual worker pushes/ACKs revision1 and completes its four
+    active FULL-pull groups. A fresh online pass preserves the complete Room and
+    server payload, including the server timestamp. No Delta is activated.
+
+The new owner is `sdk-proof-collection-private-offline-retry`; the sole allowed
+new document is `privateBinders/offline-retry-binder`, with mutation ID
+`private-offline-<runId>-binder`. Exact payload and nulls are checked by Android
+and independently by the complete Host readback. The final twelve-case tree has
+13 collection paths, 21 document references and 13 actual documents; existing
+16-collection/32-reference bounds remain unchanged. This proves neither actual
+OS reconnect delivery, automatic WorkManager retry, process death nor a large
+FULL cycle. The pending start is a synthetic valid DAO fixture, not a claimed
+repository creation or previous remote commit. Worker pass bounds are 30s,
+whole-case 120s; timeouts are never converted into passing retry evidence.
+
 ## Independent complete-tree evidence
 
-Before **every** method, Admin captures the complete small database tree plus all twelve Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents.
+Before **every** method, Admin captures the complete small database tree plus all thirteen Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents.
 
 Each preflight must equal the previous method's complete final state plus exactly this method's allowed seeds. Healthy/stale remain unseeded; missing remains absent. Pending-overlay must still be revision1. Late-parent must have exactly two binders/one placement and **no Collection parent**. Earlier owners, exact fields/timestamps and accounts must remain unchanged.
 
@@ -89,11 +113,11 @@ Raw preflights/readbacks are saved before validation. A server commit alone, inc
 
 ## Fail-closed completion, scope and cleanup
 
-- Exactly eleven START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
+- Exactly twelve START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
 - Each host invocation retains its 180-second bound and the unchanged launcher keeps an overall 18-minute budget. A slow case can exhaust the total budget; no timeout is converted to success.
-- Existing `run.mjs` is unchanged: it already hashes the entire product Kotlin source set (including the new scheduling seam), the existing SDK class/gate, APK inputs and all five host files (including this README). No manifest list entry is needed.
+- Existing `run.mjs` changes only its descriptive cleanup scope: it still hashes the entire product Kotlin source set (including the new scheduling seam), the existing SDK class/gate, APK inputs and all five host files (including this README). No manifest list entry is needed.
 - Original Android bounds: setup60s / test120s / Task20s / held-gate15s. Late-parent adds 45s per real worker pass and control queries limit8. Actual product FULL queries retain limit200 / logical budget1000. This small fixture does not instrument total RPC/read billing or establish scale.
-- Android attempts every owned-resource cleanup: gate cancellation/restoration, named Firestore termination, named Auth sign-out/app deletion and in-memory Room close. PASS includes successful teardown. RED alone does not independently prove cleanup.
+- Android attempts every owned-resource cleanup: gate cancellation/restoration, named Firestore termination, named Auth sign-out/app deletion and Room close. File-backed cases verify the exact run/owner/UUID marker before deleting only their owned fixture and SQLite sidecars. PASS includes successful teardown. RED alone does not independently prove cleanup.
 - Host checks instrumentation idle before/after cases/exit. It never starts a case over uncertain live instrumentation, force-stops packages on timeout, resets a shared emulator or deletes user databases.
 - Only owned unchanged reverse mappings are removed; afterward require free ports, empty mappings, idle instrumentation and unchanged input hashes. Process cleanup remains the reviewed owned child-process mechanism, not name/port killing.
 - Admin cleanup errors fail the proof. No pending-overlay write is released on Android failure merely to make cleanup succeed.
@@ -102,6 +126,23 @@ Raw preflights/readbacks are saved before validation. A server commit alone, inc
 Evidence belongs to `outputs/collection-sync-session-local/<timestamp>-<runId>/`:
 manifest, complete server-proof, per-method logs and emulator log. Source alone is
 not evidence that a later build or environment passed.
+
+## Twelve-case Root verification on 2026-10-02
+
+**12/12 actual SDK cases PASS**, 91.365 s complete harness; new offline case
+4.094 s. All twelve full Admin preflights/readbacks and thirteen nominal accounts
+verify. Exit0, frozen inputs, free ports, empty reverse mappings and idle final
+instrumentation confirm. 16/16 pure validators and focused lint pass separately.
+Evidence: `outputs/collection-sync-session-local/2026-10-01T22-27-50-753Z-8fc2d585e11e4d0881894a53d65a83f2/`.
+
+Root installation and 11/11 real Room controls: Android
+`artifacts/release27-engineering-20261002/collection-session-room-222722-9c8f340d/manifest.json`.
+App `64d40b75180873a339413460b5af1455a32c32ac24096577777d3a725ec822d3` remains
+unchanged; test `ad0bb28f57bc5778cab306b4dfc98a579a1ceb36a5f50d7996c549d39ce1f5e7`.
+Source snapshot `261bda2e3022f6bd7b1bdcfe640b07c41e520afc06772a3e16b10a45716063c2`.
+Only the Android test and this Host contract changed; production policy remains
+FULL. No automatic delivery/process-death/large-cycle or whole-release claim.
+Older evidence below retains its own earlier inputs and counts.
 
 ## Ten-case Root verification on 2026-10-01
 

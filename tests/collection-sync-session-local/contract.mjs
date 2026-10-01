@@ -16,6 +16,7 @@ export const SCENARIOS = Object.freeze([
   { key: 'session-offline', owner: 'sdk-proof-collection-session-offline', method: 'offlineSessionNeedsExplicitRecheckWithinObservedReconnectWindow' },
   { key: 'session-reconnect', owner: 'sdk-proof-collection-session-reconnect', method: 'usableConnectivitySignalRechecksActualEntitlementWithoutManualSync' },
   { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read', method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' },
+  { key: 'private-offline-retry', owner: 'sdk-proof-collection-private-offline-retry', method: 'offlinePrivateMutationSurvivesRoomReopenAndCompletesFullPull' },
 ]);
 const isReadOnlySession = scenario => ['session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key);
 export const OTHER_OWNER = 'sdk-proof-collection-other';
@@ -51,6 +52,23 @@ export function finalEntryFixture(scenario, runId, timestamp) {
   return scenario.key === 'pending-overlay' ? { ...entry, revision: 2,
     lastMutationId: `collection-session-${runId}-pending-overlay-write`, quantity: 3,
     notes: 'isolated collection pending overlay', updatedAtClient: 1700000000001 } : entry;
+}
+export function offlinePrivateBinderFixture(runId, timestamp) {
+  validRunId(runId);
+  const ownerUid = SCENARIOS[11].owner;
+  return { path: `users/${ownerUid}/privateBinders/offline-retry-binder`, data: {
+    binderId: 'offline-retry-binder', ownerUid, name: 'Synthetic offline retry binder',
+    description: null, coverStyle: 'DOMIDEX', minimumPageCount: 1,
+    createdAtClient: 1700000000000, updatedAtClient: 1700000000000,
+    lastOpenedAtClient: null, deleted: false, revision: 1,
+    lastMutationId: `private-offline-${runId}-binder`, updatedAt: timestamp,
+  } };
+}
+export function assertOfflinePrivateBinder(data, runId) {
+  const normalized = normalize(data);
+  assert.deepEqual(normalized, offlinePrivateBinderFixture(runId, confirmedStamp(normalized)).data,
+    'Full worker-created binder payload, exact mutation/revision and real server timestamp');
+  return normalized;
 }
 export function lateParentSeedFixtures(runId, timestamp) {
   validRunId(runId);
@@ -102,6 +120,7 @@ function confirmedStamp(data) {
 }
 export function assertEntry(data, scenario, runId, stage = 'final') {
   assert.notEqual(scenario.key, 'missing', 'Missing owner must have no server document');
+  assert.notEqual(scenario.key, 'private-offline-retry', 'Private-only case must never create a collection entry');
   assert.equal(isReadOnlySession(scenario), false, 'Session-only owners must never create a server entry');
   assert.ok(stage === 'seed' || stage === 'final');
   const normalized = normalize(data); const stamp = confirmedStamp(normalized);
@@ -145,6 +164,8 @@ function expectedDocuments(phaseIndex, before, runId) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
     } else if (scenario.key === 'deferred-point-read') {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
+    } else if (scenario.key === 'private-offline-retry') {
+      records.push({ ...offlinePrivateBinderFixture(runId, null), scenario, privateBinder: true });
     } else if (scenario.key !== 'missing' && !isReadOnlySession(scenario)) {
       if (scenario.key === 'late-parent') records.push(...lateParentSeedFixtures(runId, null).map(item => ({ ...item, scenario, seed: true })));
       records.push({ path: entryPath(scenario), scenario, seed: false });
@@ -155,7 +176,7 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All twelve nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All thirteen nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
@@ -170,6 +191,7 @@ function validateTree(item, phaseIndex, runId, before) {
     const actual = item.entries.find(value => value.path === expectedRow.path);
     assert.deepEqual(Object.keys(actual).sort(lexical), ['data', 'path']);
     if (expectedRow.seed) assertSeed({ method: expectedRow.scenario.method, ...actual }, expectedRow.scenario, runId);
+    else if (expectedRow.privateBinder) assertOfflinePrivateBinder(actual.data, runId);
     else assertEntry(actual.data, expectedRow.scenario, runId);
   }
   return { method: item.method, serverDocuments: expected.length, unrelatedOwnerUntouched: true };
@@ -229,11 +251,12 @@ export function validateServerProof(proof, runId) {
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
   assert.deepEqual(proof.preflights?.map(item => item.method), SCENARIOS.map(item => item.method));
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
-  return { verified: true, androidCases: 11, independentAdminReadbacks: 11, independentAdminPreflights: 11,
+  return { verified: true, androidCases: 12, independentAdminReadbacks: 12, independentAdminPreflights: 12,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
     readOnlySessionCharacterizationCases: 2,
     readOnlyConnectivityRecoveryCases: 1,
     readOnlyDeferredPointReadCases: 1,
+    actualPrivateWorkerOfflineRetryCases: 1,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }
