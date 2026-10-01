@@ -3,6 +3,11 @@ import { privateOperations } from '@/lib/server/private-cloud-operations';
 import { serverFailure } from '@/lib/server/server-failure';
 import { commitDocuments, getDocument, listDocuments, setWrite } from '@/lib/server/firestore-rest';
 import { canTransition, profileStatuses, scannerProductionActionBlockReason, scopeLevels, validateScannerProfile, zoneTypes, type ScannerProfileStatus, type ScannerProfileVersion, type ScannerZone } from '@/lib/scanner-profile';
+import { boundedJson } from '@/lib/bounded-json';
+
+// Preserve 64 zones including full 1,000-character notes and profile metadata,
+// with room for six-byte JSON unicode escapes and the existing action envelope.
+const maximumBodyBytes = 1024 * 1024;
 
 type Action = 'saveDraft' | 'markTesting' | 'createCandidate' | 'publish' | 'rollback';
 
@@ -22,7 +27,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const token = await requireAdminToken(requiredAuthorization(request));
-    const body = await request.json() as { action?: Action; profile?: unknown; sourceDocumentId?: string; confirm?: string; changelog?: string };
+    const body = await boundedJson(request, maximumBodyBytes) as { action?: Action; profile?: unknown; sourceDocumentId?: string; confirm?: string; changelog?: string };
     if (!body.action) throw new Error('INVALID_ACTION');
     const publicationBlock = scannerProductionActionBlockReason(body.action);
     if (publicationBlock) return Response.json({ error: publicationBlock, code: 'SCANNER_BENCHMARK_NOT_CONNECTED' }, { status: 409 });
@@ -136,6 +141,8 @@ function errorResponse(error: unknown) {
   if (message === 'AUTH_REQUIRED') return Response.json({ error: 'Anmeldung erforderlich.' }, { status: 401, headers });
   if (message === 'ADMIN_REQUIRED') return Response.json({ error: 'Administratorrechte erforderlich.' }, { status: 403, headers });
   if (message === 'SCANNER_LAB_REQUIRED') return Response.json({ error: 'Scanner-Lab-Freigabe erforderlich.' }, { status: 403, headers });
+  if (message === 'REQUEST_TOO_LARGE') return Response.json({ error: 'Die Anfrage ist zu groß.' }, { status: 413, headers });
+  if (message === 'INVALID_REQUEST') return Response.json({ error: 'Ungültige JSON-Anfrage.' }, { status: 400, headers });
   if (message.startsWith('PROFILE_INVALID:')) return Response.json({ error: message.slice(16).split('|') }, { status: 400, headers });
   const known: Record<string, string> = { INVALID_ACTION: 'Unbekannte Aktion.', SOURCE_NOT_FOUND: 'Ausgangsversion wurde nicht gefunden.', INVALID_TRANSITION: 'Dieser Statuswechsel ist nicht zulässig.', CONFIRM_REQUIRED: 'Explizite Bestätigung fehlt.' };
   if (known[message]) return Response.json({ error: known[message] }, { status: 400, headers });

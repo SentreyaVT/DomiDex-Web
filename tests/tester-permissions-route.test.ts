@@ -29,6 +29,23 @@ function patch(body: unknown, authorization: string | null = adminBearer) {
 }
 
 describe('admin-only Scanner Lab role delegation', () => {
+  it('preserves a safe 429 budget response and never continues to the Auth lookup', async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    boundary.changeRole.mockRejectedValueOnce(Object.assign(new Error('RATE_LIMITED'), { status: 429, retryAfterSeconds: 60 }));
+    const response = await patch({ uid: 'reviewer-uid', scannerLabAccess: true });
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('60');
+    expect(await response.json()).toEqual({ ok: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a budget infrastructure failure as 503, not a login failure', async () => {
+    boundary.changeRole.mockRejectedValueOnce(Object.assign(new Error('RATE_LIMIT_UNAVAILABLE'), { status: 503 }));
+    const response = await patch({ uid: 'reviewer-uid', scannerLabAccess: true });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false, error: 'SERVER_OPERATION_FAILED' });
+  });
+
   it.each([true, false])('delegates exactly scannerLabAccess=%s through the private role setter', async (enabled) => {
     const claims = { admin: false, appAccess: true, pretester: true, feature: 'preserved', ...(enabled ? { scannerLabAccess: true } : {}) };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -51,7 +68,7 @@ describe('admin-only Scanner Lab role delegation', () => {
       user: { uid: 'reviewer-uid', scannerLabAccess: enabled, admin: false, appAccess: true, pretester: true },
     });
     expect(boundary.authorize).toHaveBeenCalledExactlyOnceWith(adminBearer, 'admin');
-    expect(boundary.changeRole).toHaveBeenCalledExactlyOnceWith('reviewer-uid', 'scannerLabAccess', enabled, 'admin-actor');
+    expect(boundary.changeRole).toHaveBeenCalledExactlyOnceWith('reviewer-uid', 'scannerLabAccess', enabled, adminBearer);
     expect(boundary.authorize.mock.invocationCallOrder[0]).toBeLessThan(boundary.changeRole.mock.invocationCallOrder[0]);
     expect(boundary.changeRole.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
   });

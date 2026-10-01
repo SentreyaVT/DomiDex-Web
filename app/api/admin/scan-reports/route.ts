@@ -5,6 +5,11 @@ import { commitDocuments, countDocuments, getDocumentWithVersion, listDocuments,
 import { loadScannerIndex } from '@/lib/server/scanner-references';
 import { privateOperations } from '@/lib/server/private-cloud-operations';
 import { normalizeRecognitionReference } from '@/lib/scanner-feedback';
+import { boundedJson } from '@/lib/bounded-json';
+
+// Existing 2,000-character note + report/card IDs + variant, including escaped
+// JSON strings, fit below 32 KiB. Images use their separate upload boundary.
+const maximumReviewBodyBytes = 32 * 1024;
 
 export async function GET(request: Request) {
   try {
@@ -36,13 +41,13 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const actor = await requireScannerLabToken(requiredAuthorization(request));
-    const authorization = await (await privateOperations()).serverAuthorization();
-    const body = await request.json() as {
+    const body = await boundedJson(request, maximumReviewBodyBytes) as {
       reportId?: unknown;
       reviewStatus?: unknown;
       reviewNote?: unknown;
       reference?: { id?: unknown; cardKey?: unknown; variant?: unknown } | null;
     };
+    const authorization = await (await privateOperations()).serverAuthorization();
     const reportId = cleanId(body.reportId);
     if (!reportId) throw new Error('INVALID_REPORT');
     const snapshot = await getDocumentWithVersion(`scannerReports/${reportId}`, authorization);
@@ -113,6 +118,8 @@ function errorResponse(error: unknown) {
   if (message === 'AUTH_REQUIRED') return json({ error: 'Anmeldung erforderlich.' }, 401);
   if (message === 'ADMIN_REQUIRED') return json({ error: 'Administratorrechte erforderlich.' }, 403);
   if (message === 'SCANNER_LAB_REQUIRED') return json({ error: 'Scanner-Lab-Freigabe erforderlich.' }, 403);
+  if (message === 'REQUEST_TOO_LARGE') return json({ error: 'Die Anfrage ist zu groß.' }, 413);
+  if (message === 'INVALID_REQUEST') return json({ error: 'Ungültige JSON-Anfrage.' }, 400);
   if (message === 'FIRESTORE_409' || message === 'FIRESTORE_412') return json({ error: 'Dieser Fehlscan wurde zwischenzeitlich geändert. Bitte aktualisieren und erneut prüfen.' }, 409);
   const known: Record<string, string> = {
     INVALID_REPORT: 'Ungültiger Scan-Report.', REPORT_NOT_FOUND: 'Scan-Report wurde nicht gefunden.',

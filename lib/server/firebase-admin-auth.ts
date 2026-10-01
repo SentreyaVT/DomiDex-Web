@@ -77,20 +77,20 @@ export async function listManagedUsers(pageSize: number, pageToken?: string) {
   };
 }
 
-export async function setAppAccessClaim(uid: string, enabled: boolean, actorUid: string) {
-  return setBooleanClaim(uid, 'appAccess', enabled, actorUid);
+export async function setAppAccessClaim(uid: string, enabled: boolean, authorization: string) {
+  return setBooleanClaim(uid, 'appAccess', enabled, authorization);
 }
 
-export async function setPretesterClaim(uid: string, enabled: boolean, actorUid: string) {
-  return setBooleanClaim(uid, 'pretester', enabled, actorUid);
+export async function setPretesterClaim(uid: string, enabled: boolean, authorization: string) {
+  return setBooleanClaim(uid, 'pretester', enabled, authorization);
 }
 
-export async function setScannerLabAccessClaim(uid: string, enabled: boolean, actorUid: string) {
-  return setBooleanClaim(uid, 'scannerLabAccess', enabled, actorUid);
+export async function setScannerLabAccessClaim(uid: string, enabled: boolean, authorization: string) {
+  return setBooleanClaim(uid, 'scannerLabAccess', enabled, authorization);
 }
 
-async function setBooleanClaim(uid: string, claim: 'pretester' | 'appAccess' | 'scannerLabAccess', enabled: boolean, actorUid: string) {
-  await (await privateOperations()).changeRole(uid, claim, enabled, actorUid);
+async function setBooleanClaim(uid: string, claim: 'pretester' | 'appAccess' | 'scannerLabAccess', enabled: boolean, authorization: string) {
+  await (await privateOperations()).changeRole(uid, claim, enabled, authorization);
   const verified = await identityRequest<{ users?: IdentityUser[] }>('accounts:lookup', {
     method: 'POST', body: JSON.stringify({ localId: [uid] }),
   });

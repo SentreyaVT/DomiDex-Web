@@ -11,8 +11,10 @@ Web-Implementierung im Android-Repository pflegen.
 - **In diesem Prüfabschnitt umgesetzt:** ausschließlich typkorrekte Test-Fixtures,
   eine Laufzeit-Typprüfung für den Select-Test und korrekte synchrone Registrierung
   der neun `node:test`-Regeltests. Keine Assertion abgeschwächt, keine Suppression.
-- **Nicht umgesetzt:** der unten vorgeschlagene Rate-Limiter, zusätzliche
-  Preis-/Sharing-Optimierungen und Performance-Telemetrie.
+- **Gate 2 danach lokal implementiert, noch nicht veröffentlicht:** verteilter
+  UID-Schreib-Limiter, serverseitige Revalidierung der Rollenvergabe, zugehöriger
+  exakter Kontolösch-Cleanup und Packaging-Importfix. Zusätzliche
+  Preis-/Sharing-Optimierungen sind weiterhin nicht umgesetzt.
 - Kein Deployment, kein produktiver Firebase-Zugriff, keine Rollenänderung, kein
   Google-Play-Aufruf und kein Android-Build durch diesen Web-Prüfabschnitt.
   Aus vorhandenem Quellcode folgt keine Behauptung über den derzeitigen Live-Stand.
@@ -106,44 +108,140 @@ Deploy-Quellpfad festlegen und Drift technisch prüfen. Bis dahin gilt: Der hier
 geprüfte Web-Guard ist die Sicherheitsreferenz, aber noch keine automatisch
 verliehene Deploy-Freigabe oder abschließend beschlossene Repository-Zuständigkeit.
 
-## Gate 2: minimaler Rate-Limit-Vertrag — ENTWURF
+## Gate 2: minimaler Rate-Limit-Vertrag — implementierter lokaler Quellstand
 
-**Noch nicht implementiert und keine produktiven Quoten festgelegt.** Vor einer
-Implementierung müssen ein gezielt roter Test sowie Grenzwerte/Fehlervertrag
-abgenommen werden. Vorhandene Body-/Mengenlimits sind kein verteiltes Rate-Limit.
+Nach drei gezielt roten Backend-Regressionen wurde `backend/security/rate-limit.mjs`
+implementiert: Upload **5/10 Minuten**, Share-Erstellung **20/Stunde**, Rollenvergabe
+**30/Minute**, jeweils pro verifizierter UID und eigener Policy. Defaults und
+Grenzen sind serverseitig konstant. Der technische Source-Stand ist kein Nachweis
+für produktiv aktives Enforcement. OpenAPI-Teilcontract: `openapi.release27.yaml`.
 
-1. Gemeinsamer Vertrag, beispielsweise
-   `consumeBudget(policyId, verifiedActorUid, context) -> allowed | retryAfterSeconds`.
+**Operative Einschränkung:** Nur der Modus ist per Umgebungsvariable konfigurierbar;
+die drei Zahlenwerte sind derzeit Source-Konfiguration, keine laufzeitveränderbare
+Operator-Konfiguration. Insbesondere darf ein Limit nicht blind unter einen
+bereits gespeicherten Zähler abgesenkt werden: der aktuelle Integritätscheck würde
+das als ungültigen Zustand mit 503 ablehnen. Eine spätere dynamische Konfiguration
+benötigt validierte, versionierte Policies und ein getestetes Migrationsverfahren:
+laufende Fenster mit ihrem bisherigen Limit auswerten, neue Grenzen erst im nächsten
+Fenster aktivieren; kein vorzeitiges Budget-Reset bei Rollout/Rollback. Dieser
+Migrationsvertrag ist ein Vorschlag, **noch nicht implementiert**. Die gegenwärtigen
+Limits während eines laufenden Fensters nicht ändern.
+
+1. Gemeinsamer Vertrag:
+   `consumeWriteQuota(context, policyId, verifiedActorUid)`; Erfolg oder sicherer
+   Fehler mit Status/Retry-After.
    UID ausschließlich aus der bestehenden, aktuellen Server-Autorisierung;
    niemals aus Body, E-Mail oder ungeprüften Headern. Policies serverseitig festlegen.
 2. Firestore-Transaktion pro Policy/UID statt prozesslokalem Zähler oder globalem
-   Hotspot. Zeitfenster atomar prüfen/erneuern; abgelaufene Dokumente bereits in der
-   Logik behandeln. TTL dient nur Aufräumen, nicht korrekter Freischaltung.
+   Hotspot. Ein Dokument `privateWriteRateLimits/{policy}_{sha256(policy + NUL + uid)}`
+   mit gedeckeltem Zähler; keine rohe UID/E-Mail/IP im Dokument. Fensterbeginn kommt
+   aus Firestore-`readTime.toMillis()`, nicht Clientzeit oder lokaler Prozessuhr.
+   Zeitfenster werden atomar geprüft/erneuert. `expiresAt` = Fensterende + 24 Stunden;
+   **keine TTL-Policy wurde eingerichtet**. TTL ist kein Freischaltmechanismus.
    Wiederholte Transaktions-Callbacks dürfen keine externen Nebenwirkungen auslösen.
 3. Zunächst nur teure authentifizierte Mutationen, nicht blind jeden Scanner-,
    Karten- oder Sync-Request mit einem zusätzlichen Firestore-Roundtrip versehen.
-4. Mögliche Integrationspunkte: `images.mjs: uploadReport` nach Tester-Autorisierung
+4. Implementierte Integrationspunkte: `images.mjs: uploadReport` nach Tester-Autorisierung
    und vor Binärverarbeitung; `sharing.mjs: createBinderShare` nach Auth/kleinem
    Body/Ownership und vor Erstellung; Rollenvergabe nach Admin-Prüfung und vor
-   Lease/Claims; `app/api/admin/scan-reports/route.ts: PATCH` nach Lab-Autorisierung
-   und vor Commit. Gemeinsamer Backend-Pfad muss auch direkte Runtime-Aufrufe abdecken.
+   Lease/Claims. Direkte Backend-Aufrufe sind damit ebenfalls abgesichert.
+   Der Review-PATCH des Scanner Labs ist **noch nicht** limitiert.
 5. Widerruf, Kontolöschung und Rechteentzug dürfen nicht an einer ausgeschöpften
-   Upload-/Erstellungsquote hängen; getrennte Priorität/Policies vorsehen.
+   Upload-/Erstellungsquote hängen und rufen den Limiter nicht auf. Auch fehlerhafte
+   Mode-Konfiguration wird erst beim limitierten Write geprüft, nicht beim Revoke.
 6. HTTP 429, ganzzahliger `Retry-After`, `Cache-Control: private, no-store`, kompatible
-   Hülle `{ ok: false, error: "RATE_LIMITED", retryAfterSeconds: 30 }`. Die zentrale
-   Fehler-Allowlist muss den neuen Code bewusst aufnehmen. Infrastrukturfehler
+   Hülle `{ ok: false, error: "RATE_LIMITED", retryAfterSeconds: 30 }`. Der zentrale
+   Fehlerpfad und der Admin-PATCH erhalten diesen Vertrag. Infrastrukturfehler
    bleiben 503, fehlende Rechte 401/403, keine irreführende Neuanmeldung wegen 429.
    Kein automatischer POST-Retry bei ungewissem Erstellungsergebnis.
+
+`DOMIDEX_WRITE_RATE_LIMIT_MODE`: **monitor** ist der Default; verbraucht Budgets und
+meldet Überschreitungen ohne Ablehnung. **enforce** gibt bei Überschreitung 429
+zurück. **off** führt keine Budget-DB-Anfrage aus. Unbekannte Werte schlagen bei
+limitierten Writes sicher mit 503 fehl. Monitor erlaubt keine grenzenlose
+Umgehung bei Infrastrukturfehlern: auch dort 503. Produktionsaktivierung dieser
+Stufen ist ausdrücklich noch nicht erfolgt.
+
+Monitor/Enforce verursachen pro zugelassenem Versuch üblicherweise zwei
+transaktionale Dokumentreads (Budget und Löschsperre) plus einen Write; bei
+erschöpftem Fenster keinen zusätzlichen Budget-Write. SDK-Retries können Reads
+wiederholen und Latenz/Kosten erhöhen. Beobachtungsereignisse werden erst nach
+der Transaktion ausgegeben und enthalten ausschließlich Event, Policy und Mode,
+keine UID-/Hash-/Token-/IP-Labels. Eine operative TTL-/Retention-Entscheidung für
+inaktive Nutzer bleibt erforderlich; ohne TTL bleiben maximal drei Dokumente pro
+UID erhalten. Die bestehende Kontolöschung entfernt exakt diese drei Hash-Refs,
+nicht fremde Budgets. Der Löschlock wird innerhalb derselben Quota-Transaktion
+gelesen, damit laufende Quota-Writer gelöschte Datensätze nicht neu anlegen.
+
+Rollenänderungen nehmen intern nun die Bearer-Autorisierung statt einer bloßen
+Actor-UID entgegen. `actorFor(..., 'admin')` im Backend liefert die Audit-UID.
+Öffentliche PATCH-Payload und bestehende Lease-/Claim-/Widerrufslogik bleiben gleich.
+Alle Source-Aufrufer inklusive Helfer/Tests wurden gesucht; kein CLI-Aufrufer
+dieser internen Funktion gefunden. Tokens werden nicht protokolliert.
+
+Der aktuelle `scripts/package-private-operations.mjs` paketiert nun auch
+`rate-limit.mjs` sowie den zuvor fehlenden `cardmarket-identity`-Import des Domain-
+Moduls. Ein sauberer Temp-Package-Test importiert alle privaten Routen ohne alte
+dist-Dateien, private Env oder Cloud-Verbindung. Der historische
+`scripts/prepare-sharing-release.mjs` bleibt **unverändert und nicht freigegeben**:
+sein enger Kopierpfad enthält das neue Rate-Modul nicht und nutzt eine archivierte
+Löschimplementierung/Containerbasis von September. Keine package.json-/Source-
+Aufrufkette auf diesen Alt-Packer gefunden; manuelle Nutzung ist nicht ausgeschlossen.
+Vor Nutzung ist eine eigene Migrations-/Paketierungsentscheidung erforderlich.
 
 **IP-Trust-Risiko:** Hosting-Rewrite auf Cloud Run beweist noch keine vertrauenswürdige
 Client-IP-Kette. Niemals den ersten `X-Forwarded-For`-Eintrag ungeprüft übernehmen;
 vorgelagerte Proxys können vom Client gesendete Werte enthalten. Vor anonymem
 Rate-Limiting zuerst tatsächliche Ingress-/Proxygrenze prüfen. Kein unbeschränkter
 Firestore-Eintrag pro anonymer Anfrage/IP als neue Kosten-/DoS-Fläche.
+Damit ist nur der enge Vertrag für die drei authentifizierten Schreib-Policies
+implementiert; **keine vollständige Rate-Limit-Abdeckung** aller öffentlichen
+Reads, Scanner-Review-Mutationen, IPs oder Tokens. Diese verbleibt in Gate 6.
 
 Grundlagen: [Firestore-Transaktionen](https://firebase.google.com/docs/firestore/manage-data/transactions),
 [TTL-Verzögerung](https://firebase.google.com/docs/firestore/ttl),
 [Google-Load-Balancer und X-Forwarded-For](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header).
+
+### Gate-2-Nachweise auf dem kombinierten lokalen Stand
+
+Zusätzlich zur Quota-Implementierung begrenzt der Security-Prüfabschnitt sechs
+bisher unbegrenzte JSON-Leser: Tester POST/PATCH 4 KiB, Report-DELETE 4 KiB,
+Review-PATCH 32 KiB, Scanner-Profil-POST 1 MiB, Site-Content-PUT 4 MiB.
+Autorisierung bleibt vor dem Einlesen; maximale gültige Feldwerte bleiben erlaubt.
+Die zugehörigen 58 Tests enthalten echte Streams ohne bzw. mit falschem
+Content-Length, UTF-8-/Escape-Grenzen, Auth-Reihenfolge und gültige Maximalpayloads.
+
+| Nachweis am 01.10.2026 | Ergebnis |
+| --- | --- |
+| Paket-Testauswahl + Quota/Package + JSON-Grenzen | 52 Dateien, **690/690**; 16,61 s |
+| Zusätzliche Vitest-Auswahl | 7 Dateien, **76/76**; 1,03 s |
+| Zusätzliche Node-Tests | **7/7**; 0,10 s |
+| Typecheck / Lint | beide Exit 0 |
+| Auth/Firestore/Storage-Emulator | **30/30**, keine Skips; 40,09 s |
+| Frischer isolierter Vinext-Build | 295 Dateien; Exit 0; 37,125 s |
+| OpenAPI-Teilcontract | YAML geparst; alle 24 lokalen Referenzen aufgelöst |
+
+Das sind **773 unterschiedliche Nicht-Emulator-Tests**. Die 30 Emulator-Tests sind
+separat: 27 bestehende private Operationen und drei neue echte Firestore-Tests.
+Zwei unabhängige Admin-SDK-Instanzen erhalten bei zwölf parallelen Upload-Versuchen
+zusammen exakt fünf Budgets; sieben Versuche werden begrenzt. Zusätzlich sind
+Fensterablauf und Löschlock-Rennen gegen wieder entstehende Quota-Daten geprüft.
+Die Quota-Dokumente werden bei Kontolöschung einschließlich Wiederholung nach
+Teilfehlern entfernt, fremde UID-Dokumente bleiben bestehen.
+
+Transparenz zum ersten kombinierten Lauf: Während gleichzeitig Build und
+Typecheck liefen, bestanden 688/690 Tests; zwei bestehende UI-`waitFor`-Assertions
+(Sharing-Link und Sammlungspreis-Retry) überschritten ihre kurze Wartegrenze.
+Der unmittelbar folgende vollständige Lauf ohne konkurrierenden Build bestand
+690/690 **ohne** Test-/Timeout-/Produktcodeänderung. Lastabhängige Testinstabilität
+bleibt ein CI-Hinweis, nicht als verschwundener Produktfehler dargestellt.
+
+Nachweise im oben genannten ignorierten Baseline-Ordner:
+`unit-gate2-combined.log` (erster Lauf), `unit-gate2-combined-repeat-results.json`,
+`extra-gate2-combined.log`, `node-gate2-combined.log`,
+`typecheck-gate2-combined.log`, `lint-gate2-combined.log`,
+`gate2-emulators.log`, `build-gate2-result.json` und `build-gate2.log`.
+Keine dieser synthetischen Build-Ausgaben ist zur Veröffentlichung bestimmt.
 
 ## Sharing, Domains und Preiswahl: bestehender Vertrag
 

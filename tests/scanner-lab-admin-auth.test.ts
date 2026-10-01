@@ -51,8 +51,8 @@ describe('Scanner Lab role administration summary and setter', () => {
   it.each([true, false])('delegates scannerLabAccess=%s to the leased role setter and returns the verified account', async (enabled) => {
     const fetchMock = stubIdentity([{ localId: 'reviewer', customAttributes: JSON.stringify({ scannerLabAccess: enabled, pretester: true }) }]);
     const { setScannerLabAccessClaim } = await import('@/lib/server/firebase-admin-auth');
-    await expect(setScannerLabAccessClaim('reviewer', enabled, 'operator')).resolves.toMatchObject({ uid: 'reviewer', scannerLabAccess: enabled, pretester: true, admin: false, appAccess: false });
-    expect(privateAuth.changeRole).toHaveBeenCalledExactlyOnceWith('reviewer', 'scannerLabAccess', enabled, 'operator');
+    await expect(setScannerLabAccessClaim('reviewer', enabled, 'Bearer admin-session')).resolves.toMatchObject({ uid: 'reviewer', scannerLabAccess: enabled, pretester: true, admin: false, appAccess: false });
+    expect(privateAuth.changeRole).toHaveBeenCalledExactlyOnceWith('reviewer', 'scannerLabAccess', enabled, 'Bearer admin-session');
     expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(JSON.stringify({ localId: ['reviewer'] }));
     expect(privateAuth.changeRole.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
   });
@@ -60,7 +60,7 @@ describe('Scanner Lab role administration summary and setter', () => {
   it('propagates grant failures without pretending the role changed', async () => {
     const fetchMock = stubIdentity([]); privateAuth.changeRole.mockRejectedValueOnce(new Error('ACCESS_CHANGE_BUSY'));
     const { setScannerLabAccessClaim } = await import('@/lib/server/firebase-admin-auth');
-    await expect(setScannerLabAccessClaim('reviewer', true, 'operator')).rejects.toThrow('ACCESS_CHANGE_BUSY');
+    await expect(setScannerLabAccessClaim('reviewer', true, 'Bearer admin-session')).rejects.toThrow('ACCESS_CHANGE_BUSY');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

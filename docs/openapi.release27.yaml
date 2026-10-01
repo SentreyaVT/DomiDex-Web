@@ -1,0 +1,215 @@
+openapi: 3.1.0
+info:
+  title: DomiDex Release 27 — authenticated write boundaries
+  version: 27-gate2-draft
+  description: >-
+    Source contract for the existing upload, binder-sharing and tester-grant APIs.
+    This is a scoped subset, not a complete API catalogue or proof of deployment.
+    Rate limiting defaults to monitor; HTTP 429 is enforced only after the server
+    operator explicitly configures DOMIDEX_WRITE_RATE_LIMIT_MODE=enforce.
+servers:
+  - url: https://domidex.web.app
+security:
+  - firebaseBearer: []
+paths:
+  /api/pretester/scan-reports:
+    post:
+      operationId: uploadManualScannerReport
+      summary: Upload one explicitly selected manual ScanLab report
+      description: >-
+        Requires current pretester or admin access, revocation-checked Firebase
+        authentication and no account-deletion lock. Upload remains voluntary;
+        no automatic image release. Quota is 5 attempts per UID per 600-second
+        server-time window after authorization, before reading binary data.
+        Failed/malformed authenticated uploads also consume an attempt.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image, report]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: JPEG, PNG or WebP; 10 MiB maximum. Entire multipart body at most 11 MiB.
+                report:
+                  type: string
+                  description: JSON scanner report with captureType MANUAL_CAPTURE; caller cannot self-approve recognition.
+      responses:
+        '201':
+          description: Report and image safely stored; explicit receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, reportId, reviewStatus]
+                properties:
+                  ok: { const: true }
+                  reportId: { type: string }
+                  reviewStatus: { const: NEW }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { description: Image or multipart body exceeds the existing size limit }
+        '415': { description: Unsupported image media type }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/binder-shares:
+    post:
+      operationId: createBinderShare
+      summary: Create an explicit read-only private-binder link
+      description: >-
+        Requires current app/admin access and ownership of the non-deleted binder;
+        activation gate must be enabled. Quota is 20 creations per calling UID
+        per 3600-second server-time window, after body/ownership validation.
+        The raw link token is returned only once; uncertain POSTs must not be
+        automatically retried. Public GET viewer needs no recipient login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [binderId, confirm]
+              properties:
+                binderId: { type: string, pattern: '^[A-Za-z0-9_-]{1,128}$' }
+                confirm: { const: true }
+                showPrices: { type: boolean, default: false }
+                showTotal: { type: boolean, default: false }
+                showDisplayName: { type: boolean, default: false }
+                displayName: { type: string, maxLength: 60, description: Explicit non-email public name; no newlines }
+      responses:
+        '201':
+          description: New secret link, with options; never stored as a raw token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [shareId, path, createdAt, options]
+                properties:
+                  shareId: { type: string, pattern: '^[a-f0-9]{64}$' }
+                  path: { type: string, pattern: '^/share/[A-Za-z0-9_-]{43}$' }
+                  createdAt: { type: integer }
+                  options: { type: object }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Disabled sharing, missing binder or foreign ownership }
+        '413': { description: JSON body exceeds 2048 bytes }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+    delete:
+      operationId: revokeBinderShare
+      summary: Revoke an owned link independently of the create quota
+      description: >-
+        Requires current owner app/admin access. Does not consume or depend on the
+        share-creation budget, including when exhausted or misconfigured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shareId, confirm]
+              properties:
+                shareId: { type: string, pattern: '^[a-f0-9]{64}$' }
+                confirm: { const: true }
+      responses:
+        '200': { description: Link revoked }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Share missing, not owned or sharing disabled }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/admin/testers:
+    patch:
+      operationId: changeTesterCapability
+      summary: Grant or revoke exactly one existing capability
+      description: >-
+        Current admin Firebase authorization is verified in both framework and
+        backend; body UID is the target, never the actor. Grants (true) share a
+        quota of 30 per calling admin per 60-second server-time window. Revocations
+        (false) retain the leased audited flow and are independent of this quota.
+        The JSON body is limited to 4096 bytes after authorization.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [uid]
+              properties:
+                uid: { type: string, pattern: '^[A-Za-z0-9._-]{1,128}$' }
+                appAccess: { type: boolean }
+                pretester: { type: boolean }
+                scannerLabAccess: { type: boolean }
+              oneOf:
+                - required: [appAccess]
+                - required: [pretester]
+                - required: [scannerLabAccess]
+      responses:
+        '200': { description: Updated verified user summary; tokenRefreshRequired true }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Another role-change lease owns the target }
+        '413': { description: JSON body exceeds 4096 bytes }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { description: Existing generic Auth administration failure }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    firebaseBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Firebase ID token
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        ok: { const: false }
+        error: { type: string, description: Existing safe code or localized message; no raw provider error }
+    RateLimitError:
+      type: object
+      required: [ok, error, retryAfterSeconds]
+      additionalProperties: false
+      properties:
+        ok: { const: false }
+        error: { const: RATE_LIMITED }
+        retryAfterSeconds: { type: integer, minimum: 1, maximum: 3600 }
+  responses:
+    InvalidRequest:
+      description: Request/confirmation/role change is invalid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthenticated:
+      description: Firebase sign-in missing, invalid or revoked; no quota consumed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Current entitlement denied, disabled account or deletion fence; no quota granted
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Only enforce mode blocks; wait before an explicit retry, do not log the user out
+      headers:
+        Retry-After:
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 3600 }
+        Cache-Control:
+          required: true
+          schema: { const: 'private, no-store' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RateLimitError' }
+    Unavailable:
+      description: Safe generic infrastructure/configuration failure; not an unlimited quota fallback
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

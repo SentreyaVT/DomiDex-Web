@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { actorFor, fail, failure, services } from './firebase.mjs';
 import { publicCardId, sharedCardDto, sharedVisualId } from '../../lib/shared-binder.ts';
 import { boundedJson } from '../../lib/bounded-json.ts';
+import { consumeWriteQuota } from './rate-limit.mjs';
 
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const safeId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -41,6 +42,7 @@ export async function createBinderShare(request, context = services()) {
     const flags = options(body);
     const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : '';
     if (flags.showDisplayName && (!displayName || displayName.length > 60 || /[@\r\n]/.test(displayName))) fail('INVALID_REQUEST', 400);
+    await consumeWriteQuota(context, 'shareCreate', actor.uid);
     const token = randomBytes(32).toString('base64url');
     const shareId = digest(token);
     const now = Date.now();

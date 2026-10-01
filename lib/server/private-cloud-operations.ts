@@ -9,7 +9,7 @@ interface PrivateOperations {
   readBinderShare(request: Request, context: { params: Promise<{ token: string }> }): Promise<Response>;
   authorize(authorization: string | null, role: 'admin' | 'tester' | 'app' | 'scannerLab'): Promise<{ sub: string; admin: boolean; appAccess: boolean; pretester: boolean; scannerLabAccess: boolean }>;
   serverAuthorization(): Promise<string>;
-  changeRole(uid: string, role: 'appAccess' | 'pretester' | 'scannerLabAccess', enabled: boolean, actorUid: string): Promise<void>;
+  changeRole(uid: string, role: 'appAccess' | 'pretester' | 'scannerLabAccess', enabled: boolean, authorization: string): Promise<void>;
   uploadReport(request: Request): Promise<Response>;
   readReviewedKnowledge(request: Request): Promise<Response>;
   readReportImage(request: Request, context: { params: Promise<{ reportId: string }> }): Promise<Response>;

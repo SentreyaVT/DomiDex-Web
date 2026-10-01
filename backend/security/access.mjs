@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { actorFor, fail, services } from './firebase.mjs';
+import { consumeWriteQuota } from './rate-limit.mjs';
 
 // Invoked only by authenticated server routes, never exposed as a general API.
 export async function authorize(authorization, role, context = services()) {
@@ -16,9 +17,14 @@ export async function serverAuthorization(context = services()) {
   return `Bearer ${token.access_token}`;
 }
 
-export async function changeRole(uid, role, enabled, actorUid, context = services()) {
+export async function changeRole(uid, role, enabled, authorization, context = services()) {
   if (!/^[A-Za-z0-9._-]{1,128}$/.test(uid) || !['appAccess', 'pretester', 'scannerLabAccess'].includes(role)
-    || typeof enabled !== 'boolean' || !actorUid) fail('INVALID_CHANGE', 400);
+    || typeof enabled !== 'boolean') fail('INVALID_CHANGE', 400);
+  const actor = await actorFor(new Request('https://domidex.web.app/', {
+    headers: authorization ? { authorization } : {},
+  }), context, 'admin');
+  if (enabled) await consumeWriteQuota(context, 'roleGrant', actor.uid);
+  const actorUid = actor.uid;
   const lease = randomUUID();
   const ref = context.db.doc(`accountAccess/${uid}`);
   // Serialize changes across Cloud Run instances and deny the affected role before

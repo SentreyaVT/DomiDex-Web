@@ -18,9 +18,14 @@ function fixture(claims = { scannerLabAccess: true }, tokenClaims = claims) {
     async delete() { documents.delete(path); },
   });
   const context = {
+    rateLimitMode: 'off', // Quotas are exercised in the dedicated distributed limiter suite.
     auth: {
-      verifyIdToken: vi.fn(async () => ({ uid, ...tokenClaims, auth_time: Date.now()/1000 })),
-      getUser: vi.fn(async () => ({ disabled: false, customClaims: { ...currentClaims } })),
+      verifyIdToken: vi.fn(async token => token === 'admin-session'
+        ? { uid: 'admin-test', admin: true, auth_time: Date.now()/1000 }
+        : { uid, ...tokenClaims, auth_time: Date.now()/1000 }),
+      getUser: vi.fn(async requestedUid => requestedUid === 'admin-test'
+        ? { disabled: false, customClaims: { admin: true } }
+        : { disabled: false, customClaims: { ...currentClaims } }),
       setCustomUserClaims: vi.fn(async (_uid, value) => { currentClaims = { ...value }; }),
       revokeRefreshTokens: vi.fn(async () => {}),
     },
@@ -152,7 +157,7 @@ describe('Scanner Lab grant and revocation use the existing leased audited flow'
   it('grants only scannerLabAccess and preserves unrelated claims and overrides', async () => {
     const { context, documents } = fixture({ pretester: true, appAccess: true, feature: 'keep' });
     documents.set(`accountAccess/${uid}`, { pretester: true, appAccess: false });
-    await changeRole(uid, 'scannerLabAccess', true, 'admin-test', context);
+    await changeRole(uid, 'scannerLabAccess', true, 'Bearer admin-session', context);
     expect(context.auth.setCustomUserClaims).toHaveBeenCalledWith(uid, { pretester: true, appAccess: true, feature: 'keep', scannerLabAccess: true });
     expect(documents.get(`accountAccess/${uid}`)).toMatchObject({ pretester: true, appAccess: false, scannerLabAccess: true, lease: null, leaseUntil: 0 });
     expect(documents.get('accessAudit/audit-1')).toMatchObject({ actorUid: 'admin-test', targetUid: uid, role: 'scannerLabAccess', enabled: true });
@@ -161,7 +166,7 @@ describe('Scanner Lab grant and revocation use the existing leased audited flow'
 
   it('revokes only the lab claim, revokes tokens and audits the change', async () => {
     const { context, documents } = fixture({ scannerLabAccess: true, pretester: true, appAccess: true, feature: 'keep' });
-    await changeRole(uid, 'scannerLabAccess', false, 'admin-test', context);
+    await changeRole(uid, 'scannerLabAccess', false, 'Bearer admin-session', context);
     expect(context.auth.setCustomUserClaims).toHaveBeenCalledWith(uid, { pretester: true, appAccess: true, feature: 'keep' });
     expect(context.auth.revokeRefreshTokens).toHaveBeenCalledExactlyOnceWith(uid);
     expect(documents.get(`accountAccess/${uid}`)).toMatchObject({ scannerLabAccess: false, lease: null });
@@ -171,7 +176,7 @@ describe('Scanner Lab grant and revocation use the existing leased audited flow'
 
   it('leaves lab access denied without a success audit if the auth update fails', async () => {
     const { context, documents } = fixture(); context.auth.setCustomUserClaims.mockRejectedValueOnce(new Error('TEST_AUTH_FAILURE'));
-    await expect(changeRole(uid, 'scannerLabAccess', true, 'admin-test', context)).rejects.toThrow('TEST_AUTH_FAILURE');
+    await expect(changeRole(uid, 'scannerLabAccess', true, 'Bearer admin-session', context)).rejects.toThrow('TEST_AUTH_FAILURE');
     expect(documents.get(`accountAccess/${uid}`)).toMatchObject({ scannerLabAccess: false, lease: null });
     expect([...documents.keys()].filter(key=>key.startsWith('accessAudit/'))).toHaveLength(0);
     await expect(actorFor(request(), context, 'scannerLab')).rejects.toMatchObject({ status: 403 });
@@ -179,11 +184,11 @@ describe('Scanner Lab grant and revocation use the existing leased audited flow'
 
   it('does not change claims while another lease owns the account', async () => {
     const { context, documents } = fixture(); documents.set(`accountAccess/${uid}`, { leaseUntil: Date.now()+120_000 });
-    await expect(changeRole(uid, 'scannerLabAccess', true, 'admin-test', context)).rejects.toMatchObject({ message: 'ACCESS_CHANGE_BUSY', status: 409 });
+    await expect(changeRole(uid, 'scannerLabAccess', true, 'Bearer admin-session', context)).rejects.toMatchObject({ message: 'ACCESS_CHANGE_BUSY', status: 409 });
     expect(context.auth.setCustomUserClaims).not.toHaveBeenCalled();
   });
 
   it.each(['admin', 'scannerLab', 'unknown'])('cannot grant the forbidden claim %s', async (role) => {
-    const { context } = fixture(); await expect(changeRole(uid, role, true, 'admin-test', context)).rejects.toMatchObject({ message: 'INVALID_CHANGE', status: 400 }); expect(context.db.runTransaction).not.toHaveBeenCalled();
+    const { context } = fixture(); await expect(changeRole(uid, role, true, 'Bearer admin-session', context)).rejects.toMatchObject({ message: 'INVALID_CHANGE', status: 400 }); expect(context.db.runTransaction).not.toHaveBeenCalled();
   });
 });

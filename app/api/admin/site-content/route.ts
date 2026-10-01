@@ -1,5 +1,10 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
 import { defaultSiteContent, type SiteContent } from '@/lib/domain';
+import { boundedJson } from '@/lib/bounded-json';
+
+// Existing 50 updates + 80 roadmap entries and all field maxima fit below
+// 4 MiB even at six wire bytes per escaped UTF-16 code unit. No field is reduced.
+const maximumBodyBytes = 4 * 1024 * 1024;
 
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'cardvault-715ac';
 const documentUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/siteContent/public`;
@@ -8,7 +13,7 @@ export async function PUT(request: Request) {
   try {
     const authorization = request.headers.get('authorization');
     await requireAdminToken(authorization);
-    const content = validateContent(await request.json());
+    const content = validateContent(await boundedJson(request, maximumBodyBytes));
     const response = await fetch(documentUrl, {
       method: 'PATCH',
       headers: { Authorization: authorization!, 'Content-Type': 'application/json' },
@@ -20,6 +25,11 @@ export async function PUT(request: Request) {
     const message = error instanceof Error ? error.message : 'UNKNOWN';
     if (message === 'AUTH_REQUIRED') return Response.json({ error: 'Anmeldung erforderlich.' }, { status: 401 });
     if (message === 'ADMIN_REQUIRED') return Response.json({ error: 'Administratorrechte erforderlich.' }, { status: 403 });
+    if (message === 'REQUEST_TOO_LARGE' || message === 'INVALID_REQUEST') {
+      return Response.json({ error: message === 'REQUEST_TOO_LARGE' ? 'Die Anfrage ist zu groß.' : 'Ungültige JSON-Anfrage.' }, {
+        status: message === 'REQUEST_TOO_LARGE' ? 413 : 400, headers: { 'Cache-Control': 'private, no-store' },
+      });
+    }
     return Response.json({ error: 'Ungültige Website-Daten.' }, { status: 400 });
   }
 }

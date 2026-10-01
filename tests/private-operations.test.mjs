@@ -10,6 +10,7 @@ import { uploadReport, readReportImage, deleteReport } from '../backend/security
 import { deletionRequest, advanceDeletion } from '../backend/security/deletion.mjs';
 import { authorize, changeRole } from '../backend/security/access.mjs';
 import { createBinderShare, listBinderShares, readBinderShare, revokeBinderShare } from '../backend/security/sharing.mjs';
+import { rateLimitDocumentId, writePolicies } from '../backend/security/rate-limit.mjs';
 
 const projectId = 'demo-domidex-privacy';
 let app, context, tokens;
@@ -56,7 +57,7 @@ beforeAll(() => {
   }
   app = initializeApp({ projectId, storageBucket: `${projectId}.appspot.com`, credential: applicationDefault() }, 'privacy-tests');
   const bucket = getStorage(app).bucket();
-  context = { auth: getAuth(app), db: getFirestore(app), bucket, deletionEnabled: true };
+  context = { auth: getAuth(app), db: getFirestore(app), bucket, deletionEnabled: true, rateLimitMode: 'off' };
   // Storage emulator has no bucket soft-delete policy; policy behavior is tested separately.
   bucket.getMetadata = async () => [{ softDeletePolicy: { retentionDurationSeconds: '0' } }];
 });
@@ -178,7 +179,7 @@ describe('Private image server boundary', () => {
   });
   it('fences stale role tokens, preserves unrelated claims and records an attribution-only access audit', async () => {
     await context.auth.setCustomUserClaims('owner-a', { appAccess: true, pretester: true, feature: 'keep' });
-    await changeRole('owner-a', 'appAccess', false, 'operator', context);
+    await changeRole('owner-a', 'appAccess', false, `Bearer ${tokens.admin}`, context);
     expect((await context.auth.getUser('owner-a')).customClaims).toEqual({ pretester: true, feature: 'keep' });
     expect((await context.db.doc('accountAccess/owner-a').get()).get('appAccess')).toBe(false);
     await expect(authorize(`Bearer ${tokens.a}`, 'app', context)).rejects.toThrow();
@@ -187,13 +188,13 @@ describe('Private image server boundary', () => {
     expect(audit.email).toBeUndefined();
     // pretester is an independent entitlement. Auth revocation timestamps have second
     // precision, so assert its authoritative override, not incidental token expiry.
-    await changeRole('owner-a', 'pretester', false, 'operator', context);
+    await changeRole('owner-a', 'pretester', false, `Bearer ${tokens.admin}`, context);
     expect((await upload(tokens.a)).status).not.toBe(201);
   });
 
   it('leaves the affected role denied if the Auth update fails', async () => {
-    const broken = { ...context, auth: { getUser: context.auth.getUser.bind(context.auth), setCustomUserClaims: async () => { throw new Error('INJECTED_FAILURE'); } } };
-    await expect(changeRole('owner-a', 'pretester', false, 'operator', broken)).rejects.toThrow('INJECTED_FAILURE');
+    const broken = { ...context, auth: { verifyIdToken: context.auth.verifyIdToken.bind(context.auth), getUser: context.auth.getUser.bind(context.auth), setCustomUserClaims: async () => { throw new Error('INJECTED_FAILURE'); } } };
+    await expect(changeRole('owner-a', 'pretester', false, `Bearer ${tokens.admin}`, broken)).rejects.toThrow('INJECTED_FAILURE');
     expect((await context.db.doc('accountAccess/owner-a').get()).get('pretester')).toBe(false);
     expect((await upload(tokens.a)).status).toBe(403);
   });
@@ -305,6 +306,9 @@ describe('Private image server boundary', () => {
 });
 
 async function seedAccount() {
+  for (const policy of Object.keys(writePolicies)) {
+    for (const uid of ['owner-a', 'owner-b']) await context.db.doc(`privateWriteRateLimits/${rateLimitDocumentId(policy, uid)}`).set({ schemaVersion: 1, policy, count: 1, windowStartedAt: Date.now(), expiresAt: new Date(Date.now() + 86400000) });
+  }
   await context.db.doc('users/owner-a').set({ preference: 'test' });
   await context.db.doc('users/owner-a/collectionEntries/one').set({ ownerUid: 'owner-a', deleted: true, acquisitionPriceMinor: 100, binderId: 'set' });
   await context.db.doc('users/owner-a/preferences/nested/history/one').set({ setting: true });
@@ -346,6 +350,10 @@ describe('Account deletion: isolated real Firebase emulators', () => {
     await expect(context.auth.getUser('owner-a')).rejects.toMatchObject({ code: 'auth/user-not-found' });
     expect((await context.db.doc('users/owner-a/preferences/nested/history/one').get()).exists).toBe(false);
     expect((await context.db.collection('scannerReports').get()).size).toBe(0);
+    for (const policy of Object.keys(writePolicies)) {
+      expect((await context.db.doc(`privateWriteRateLimits/${rateLimitDocumentId(policy, 'owner-a')}`).get()).exists).toBe(false);
+      expect((await context.db.doc(`privateWriteRateLimits/${rateLimitDocumentId(policy, 'owner-b')}`).get()).exists).toBe(true);
+    }
     expect((await context.db.doc('supportRequests/own').get()).exists).toBe(false);
     expect((await context.db.doc('communitySubmissions/own').get()).exists).toBe(false);
     expect((await context.bucket.getFiles())[0].map((file) => file.name)).toEqual(['users/owner-b/keep.png']);

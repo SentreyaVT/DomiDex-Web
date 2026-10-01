@@ -1,6 +1,11 @@
 import { requireAdminToken } from '@/lib/server/firebase-token';
 import { privateOperations } from '@/lib/server/private-cloud-operations';
 import { boundedPageSize, findAuthUserByEmail, listManagedUsers, setAppAccessClaim, setPretesterClaim, setScannerLabAccessClaim } from '@/lib/server/firebase-admin-auth';
+import { boundedJson } from '@/lib/bounded-json';
+
+// Existing contracts: email <=254 characters or UID <=128 plus one boolean.
+// 4 KiB also accommodates JSON unicode escapes without narrowing those fields.
+const maximumBodyBytes = 4 * 1024;
 
 export async function GET(request: Request) {
   if (new URL(request.url).searchParams.get('action') === 'delete-account') return (await privateOperations()).deletionStatus(request);
@@ -16,7 +21,7 @@ export async function POST(request: Request) {
   if (new URL(request.url).searchParams.get('action') === 'delete-account') return (await privateOperations()).deletionRequest(request);
   try {
     await requireAdminToken(request.headers.get('authorization'));
-    const body = await request.json() as { email?: unknown };
+    const body = await boundedJson(request, maximumBodyBytes) as { email?: unknown };
     const email = cleanEmail(body.email);
     if (!email) throw new Error('INVALID_EMAIL');
     return json({ configured: true, user: await findAuthUserByEmail(email) });
@@ -25,16 +30,18 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const actor = await requireAdminToken(request.headers.get('authorization'));
-    const body = await request.json() as { uid?: unknown; pretester?: unknown; appAccess?: unknown; scannerLabAccess?: unknown };
+    const authorization = request.headers.get('authorization');
+    await requireAdminToken(authorization);
+    const body = await boundedJson(request, maximumBodyBytes) as { uid?: unknown; pretester?: unknown; appAccess?: unknown; scannerLabAccess?: unknown };
     const uid = cleanUid(body.uid);
     const pretesterChange = typeof body.pretester === 'boolean';
     const appAccessChange = typeof body.appAccess === 'boolean';
     const scannerLabChange = typeof body.scannerLabAccess === 'boolean';
     if (!uid || [pretesterChange, appAccessChange, scannerLabChange].filter(Boolean).length !== 1) throw new Error('INVALID_CHANGE');
-    const updated = pretesterChange ? await setPretesterClaim(uid, body.pretester as boolean, String(actor.sub))
-      : appAccessChange ? await setAppAccessClaim(uid, body.appAccess as boolean, String(actor.sub))
-      : await setScannerLabAccessClaim(uid, body.scannerLabAccess as boolean, String(actor.sub));
+    // The backend revalidates this session; a plain actor UID is not authority.
+    const updated = pretesterChange ? await setPretesterClaim(uid, body.pretester as boolean, authorization!)
+      : appAccessChange ? await setAppAccessClaim(uid, body.appAccess as boolean, authorization!)
+      : await setScannerLabAccessClaim(uid, body.scannerLabAccess as boolean, authorization!);
     return json({ configured: true, user: updated, tokenRefreshRequired: true });
   } catch (error) { return errorResponse(error); }
 }
@@ -47,10 +54,21 @@ function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : 'UNKNOWN';
   if (message === 'AUTH_REQUIRED') return json({ error: 'Anmeldung erforderlich.' }, 401);
   if (message === 'ADMIN_REQUIRED') return json({ error: 'Administratorrechte erforderlich.' }, 403);
+  if (message === 'REQUEST_TOO_LARGE') return json({ error: 'Die Anfrage ist zu groß.' }, 413);
+  if (message === 'INVALID_REQUEST') return json({ error: 'Ungültige JSON-Anfrage.' }, 400);
   if (message === 'FIREBASE_ADMIN_NOT_CONFIGURED') return json({ configured: false, error: 'Die geschützte Firebase-Admin-Identität ist noch nicht verbunden.' }, 503);
   if (message === 'AUTH_USER_NOT_FOUND') return json({ error: 'Kein Firebase-Nutzer mit diesen Daten gefunden.' }, 404);
   if (message === 'INVALID_EMAIL') return json({ error: 'Bitte eine gültige E-Mail-Adresse eingeben.' }, 400);
   if (message === 'INVALID_CHANGE') return json({ error: 'Ungültige Rollenänderung.' }, 400);
   if (message === 'ACCESS_CHANGE_BUSY') return json({ error: 'Die Freigabe wird gerade geändert. Bitte erneut versuchen.' }, 409);
+  if (message === 'RATE_LIMIT_UNAVAILABLE') return json({ ok: false, error: 'SERVER_OPERATION_FAILED' }, 503);
+  if (message === 'ACCESS_DENIED' || message === 'ACCOUNT_DELETING') return json({ error: 'Administratorrechte erforderlich.' }, 403);
+  if (message === 'RATE_LIMITED' && typeof error === 'object' && error !== null
+    && 'retryAfterSeconds' in error && Number.isSafeInteger(error.retryAfterSeconds)
+    && typeof error.retryAfterSeconds === 'number' && error.retryAfterSeconds >= 1 && error.retryAfterSeconds <= 3600) {
+    return Response.json({ ok: false, error: 'RATE_LIMITED', retryAfterSeconds: error.retryAfterSeconds }, {
+      status: 429, headers: { 'Retry-After': String(error.retryAfterSeconds), 'Cache-Control': 'private, no-store' },
+    });
+  }
   return json({ error: 'Firebase Auth konnte die Anfrage nicht sicher verarbeiten.' }, 502);
 }

@@ -1,9 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { normalizeScannerReport } from '../../lib/scanner-report.ts';
 import { actorFor, fail, failure, json, services } from './firebase.mjs';
+import { consumeWriteQuota } from './rate-limit.mjs';
+import { boundedJson } from '../../lib/bounded-json.ts';
 
 const types = new Map([['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp']]);
 const maxBody = 11 * 1024 * 1024;
+// Two copies of the <=128-character report ID plus the confirmation prefix,
+// including JSON unicode escapes. This is separate from binary upload limits.
+const maxDeleteBody = 4 * 1024;
 
 async function assertUploadAccess(transaction, context, actor) {
   const [lock, status] = await Promise.all([
@@ -36,6 +41,7 @@ async function boundedForm(request) {
 export async function uploadReport(request, context = services()) {
   try {
     const actor = await actorFor(request, context, 'tester');
+    await consumeWriteQuota(context, 'reportUpload', actor.uid);
     const form = await boundedForm(request);
     const image = form.get('image');
     const payload = form.get('report');
@@ -118,8 +124,7 @@ export async function readReportImage(request, route, context = services()) {
 export async function deleteReport(request, context = services()) {
   try {
     const actor = await actorFor(request, context, 'admin');
-    let input;
-    try { input = await request.json(); } catch { fail('INVALID_REQUEST', 400); }
+    const input = await boundedJson(request, maxDeleteBody);
     const reportId = typeof input?.reportId === 'string' ? input.reportId : '';
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(reportId)) fail('INVALID_REQUEST', 400);
     if (input?.confirm !== `DELETE_SCAN_REPORT:${reportId}`) fail('CONFIRMATION_REQUIRED', 400);

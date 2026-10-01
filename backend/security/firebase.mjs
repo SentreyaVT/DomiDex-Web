@@ -2,6 +2,7 @@ import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { createWriteRateLimiter, rateLimitResponse } from './rate-limit.mjs';
 
 export function services() {
   const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
@@ -10,7 +11,12 @@ export function services() {
   const app = getApps().find((item) => item.name === 'private-operations') || initializeApp({
     projectId, storageBucket, credential: applicationDefault(),
   }, 'private-operations');
-  return { auth: getAuth(app), db: getFirestore(app), bucket: getStorage(app).bucket() };
+  const db = getFirestore(app);
+  return { auth: getAuth(app), db, bucket: getStorage(app).bucket(),
+    // Lazy validation only for limited writes: misconfiguration must not disable
+    // revocation, deletion, normal reads or authentication itself.
+    consumeWriteQuota: (policy, uid) => createWriteRateLimiter(db)(policy, uid),
+  };
 }
 
 export function fail(code, status = 409) { throw Object.assign(new Error(code), { status }); }
@@ -18,6 +24,8 @@ export function json(value, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
 }
 export function failure(error) {
+  const limited = rateLimitResponse(error);
+  if (limited) return limited;
   const known = new Set(['AUTH_REQUIRED', 'ACCESS_DENIED', 'RECENT_LOGIN_REQUIRED', 'ACCOUNT_DELETING', 'INVALID_REQUEST', 'REQUEST_TOO_LARGE', 'INVALID_REPORT', 'IMAGE_TOO_LARGE', 'INVALID_IMAGE_TYPE', 'NOT_FOUND', 'DELETION_DISABLED', 'CONFIRMATION_REQUIRED', 'REPORT_IMAGE_RELATION_UNSAFE']);
   return json({ ok: false, error: known.has(error?.message) ? error.message : 'SERVER_OPERATION_FAILED' }, error?.status || 503);
 }
