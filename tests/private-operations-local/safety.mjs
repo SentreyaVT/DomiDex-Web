@@ -5,9 +5,15 @@ import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 export const PROJECT = 'demo-domidex-privacy';
+const SUITE_PROJECTS = Object.freeze({ 'private-operations': PROJECT, rules: 'demo-domidex-firestore' });
 export const PORTS = Object.freeze({ auth: 9097, firestore: 8187, storage: 9297, hub: 4407, logging: 4507, websocket: 9150 });
 export const REVIEWED_CLI = '15.28.2';
 const REVIEWED_JARS = Object.freeze({ firestore: '1.22.0', storage: '1.1.3' });
+
+export function projectForSuite(suite = 'private-operations') {
+  if (typeof suite !== 'string' || !Object.hasOwn(SUITE_PROJECTS, suite)) throw Error('Unknown fixed local test suite.');
+  return SUITE_PROJECTS[suite];
+}
 
 export function parseOptions(args) {
   const result = {};
@@ -85,7 +91,8 @@ export async function assertPortsFree(ports = Object.values(PORTS)) {
   }
 }
 
-export function isolatedEnvironment(source, { directory, root, java, cache, preload, node = process.execPath }) {
+export function isolatedEnvironment(source, { directory, root, java, cache, preload, node = process.execPath, suite = 'private-operations' }) {
+  const project = projectForSuite(suite);
   const env = {};
   for (const key of ['SystemRoot', 'WINDIR', 'PATHEXT', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE']) {
     if (source[key]) env[key] = source[key];
@@ -101,7 +108,7 @@ export function isolatedEnvironment(source, { directory, root, java, cache, prel
   env.CLOUDSDK_CONFIG = path.join(directory, 'cloudsdk');
   env.JAVA_HOME = path.dirname(path.dirname(java));
   env.FIREBASE_EMULATORS_PATH = cache;
-  env.GCLOUD_PROJECT = env.GOOGLE_CLOUD_PROJECT = PROJECT;
+  env.GCLOUD_PROJECT = env.GOOGLE_CLOUD_PROJECT = project;
   env.FIRESTORE_EMULATOR_HOST = `127.0.0.1:${PORTS.firestore}`;
   env.FIREBASE_STORAGE_EMULATOR_HOST = `127.0.0.1:${PORTS.storage}`;
   env.FIREBASE_AUTH_EMULATOR_HOST = `127.0.0.1:${PORTS.auth}`;
@@ -116,8 +123,9 @@ export function isolatedEnvironment(source, { directory, root, java, cache, prel
   return env;
 }
 
-export function assertTestEnvironment(env) {
-  if (env.GCLOUD_PROJECT !== PROJECT || env.GOOGLE_CLOUD_PROJECT !== PROJECT ||
+export function assertTestEnvironment(env, suite = 'private-operations') {
+  const project = projectForSuite(suite);
+  if (env.GCLOUD_PROJECT !== project || env.GOOGLE_CLOUD_PROJECT !== project ||
       env.FIRESTORE_EMULATOR_HOST !== `127.0.0.1:${PORTS.firestore}` ||
       env.FIREBASE_STORAGE_EMULATOR_HOST !== `127.0.0.1:${PORTS.storage}` ||
       env.FIREBASE_AUTH_EMULATOR_HOST !== `127.0.0.1:${PORTS.auth}`) throw Error('Exact local demo environment required.');

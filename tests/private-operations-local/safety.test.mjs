@@ -6,8 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { spawnSync } from 'node:child_process';
-import { PROJECT, PORTS, REVIEWED_CLI, parseOptions, validateMetadata, verifyCache, sha256,
+import { PROJECT, PORTS, REVIEWED_CLI, projectForSuite, parseOptions, validateMetadata, verifyCache, sha256,
   firebaseConfiguration, assertPortsFree, isolatedEnvironment, assertTestEnvironment, runChild } from './safety.mjs';
+import { RULE_TESTS, parseRulesOptions, validateRulesTap } from '../rules-local/run.mjs';
 
 const preload = fileURLToPath(new URL('./network-preload.cjs', import.meta.url));
 function fixture(t) {
@@ -29,6 +30,67 @@ void test('arguments never accept project overrides, unknown keys, duplicates or
   assert.equal(parseOptions(['--java-home', '.'])['--java-home'], path.resolve('.'));
   for (const args of [['--project', 'production'], ['--java-home'], ['--java-home', '.', '--java-home', '.'], ['--download', 'yes']]) {
     assert.throws(() => parseOptions(args));
+  }
+});
+void test('fixed suite selection preserves the old default and rejects arbitrary projects or inherited keys', (t) => {
+  const directory = fixture(t);
+  const options = { directory, root: directory, java: process.execPath, cache: directory, preload };
+  assert.equal(projectForSuite(), PROJECT);
+  assert.equal(projectForSuite('private-operations'), PROJECT);
+  assert.equal(projectForSuite('rules'), 'demo-domidex-firestore');
+  assert.deepEqual(isolatedEnvironment(process.env, options), isolatedEnvironment(process.env, { ...options, suite: 'private-operations' }));
+  for (const suite of ['production', 'demo-domidex-firestore', '__proto__', 'toString', '', null, {}, []]) {
+    assert.throws(() => projectForSuite(suite));
+    assert.throws(() => isolatedEnvironment(process.env, { ...options, suite }));
+    assert.throws(() => assertTestEnvironment(environment(directory), suite));
+  }
+});
+void test('Rules environment has one fixed demo identity and retains the complete clean-environment boundary', (t) => {
+  const directory = fixture(t);
+  const env = isolatedEnvironment({ ...process.env, GOOGLE_APPLICATION_CREDENTIALS: 'DO_NOT_READ', FIREBASE_TOKEN: 'DO_NOT_READ',
+    APPDATA: 'DO_NOT_READ', HOME: 'DO_NOT_READ', HTTPS_PROXY: 'DO_NOT_CONNECT', NODE_OPTIONS: '--require=untrusted',
+    JAVA_TOOL_OPTIONS: '-javaagent:untrusted', FIREBASE_CONFIG: 'production' },
+  { directory, root: directory, java: process.execPath, cache: directory, preload, suite: 'rules' });
+  assertTestEnvironment(env, 'rules');
+  assert.equal(env.GCLOUD_PROJECT, 'demo-domidex-firestore');
+  assert.equal(env.GOOGLE_CLOUD_PROJECT, 'demo-domidex-firestore');
+  for (const key of ['GOOGLE_APPLICATION_CREDENTIALS', 'FIREBASE_TOKEN', 'HTTPS_PROXY', 'JAVA_TOOL_OPTIONS', 'FIREBASE_CONFIG']) assert.equal(env[key], undefined);
+  for (const key of ['APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'CLOUDSDK_CONFIG', 'HOME', 'USERPROFILE', 'TEMP']) assert.ok(env[key].startsWith(directory + path.sep));
+  assert.throws(() => assertTestEnvironment(env));
+  assert.throws(() => assertTestEnvironment(environment(directory), 'rules'));
+  for (const change of [{ GCLOUD_PROJECT: 'production' }, { GOOGLE_CLOUD_PROJECT: PROJECT },
+    { FIRESTORE_EMULATOR_HOST: 'example.invalid:8187' }, { FIREBASE_CONFIG: '{}' }, { GOOGLE_APPLICATION_CREDENTIALS: 'bad' }]) {
+    assert.throws(() => assertTestEnvironment({ ...env, ...change }, 'rules'));
+  }
+});
+void test('Rules runner only accepts explicit Android and preinstalled-tool paths, never a project, suite, config or command override', () => {
+  assert.deepEqual(RULE_TESTS, ['firebase-tests/firestore.rules.test.mjs', 'firebase-tests/storage.rules.test.mjs', 'firebase-tests/release27-security.rules.test.mjs']);
+  assert.equal(Object.isFrozen(RULE_TESTS), true);
+  assert.deepEqual(parseRulesOptions(['--android-root', '.']), { '--android-root': path.resolve('.') });
+  assert.equal(parseRulesOptions(['--android-root', '.', '--java-home', '.'])['--java-home'], path.resolve('.'));
+  for (const args of [[], ['--android-root'], ['--android-root', '.', '--android-root', '.'],
+    ['--android-root', '--java-home'], ['--android-root', '.', '--suite', 'rules'],
+    ['--android-root', '.', '--project', 'production'], ['--android-root', '.', '--config', '.'],
+    ['--android-root', '.', '--command', 'anything'], ['--android-root', '.', '--download', 'yes']]) {
+    assert.throws(() => parseRulesOptions(args));
+  }
+});
+void test('Rules TAP proof requires the entire 84-case matrix and all four actual quota roles, with no skips or partial report', () => {
+  // Synthetic reporter strings test the verifier, not Firebase authorization.
+  const roles = ['quota owner', 'foreign app user', 'client admin', 'anonymous']
+    .map(role => `deny: private read-quota create/get/list/update/delete stay server-only for ${role}`);
+  const names = [...Array.from({ length: 80 }, (_, index) => `existing synthetic case ${index + 1}`), ...roles];
+  const valid = ['TAP version 13', ...names.map((name, index) => `ok ${index + 1} - ${name}`),
+    '1..84', '# tests 84', '# suites 0', '# pass 84', '# fail 0', '# cancelled 0', '# skipped 0', '# todo 0', '# duration_ms 1'].join('\n');
+  assert.deepEqual(validateRulesTap(valid), { tests: 84, pass: 84, fail: 0, cancelled: 0, skipped: 0, todo: 0, quotaRoles: roles });
+  assert.equal(validateRulesTap(valid.replaceAll('\n', '\r\n')).tests, 84);
+  for (const broken of [valid.replace('# tests 84', '# tests 83'), valid.replace('# pass 84', '# pass 83'),
+    valid.replace('# fail 0', '# fail 1'), valid.replace('# cancelled 0', '# cancelled 1'),
+    valid.replace('# skipped 0', '# skipped 1'), valid.replace('# todo 0', '# todo 1'),
+    valid.replace('1..84', '1..83'), valid.replace('# tests 84', ''), `${valid}\n# tests 84`,
+    valid.replace(roles[3], 'unrelated replacement'), valid.replace(roles[3], roles[0]),
+    valid.replace(`ok 84 - ${roles[3]}`, `ok 84 - ${roles[3]} # SKIP`), valid.replace('ok 1 -', 'not ok 1 -')]) {
+    assert.throws(() => validateRulesTap(broken));
   }
 });
 void test('configuration binds every emulator to 127.0.0.1, disables UI and uses fixed ports', () => {

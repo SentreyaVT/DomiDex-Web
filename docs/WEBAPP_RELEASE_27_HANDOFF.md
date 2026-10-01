@@ -1043,3 +1043,35 @@ Rootnachweise (alle lokal, keine echten Konten/Produktionszugriffe):
 administrativ zurückdatierte `updatedAt`-Werte, fairer persistenter Nachlauf und
 vollständige geräteübergreifende Konvergenz. Der Zeitanker beweist weder einen
 Collection-Snapshot noch Dokumentexistenz. Kein Deployment oder Live-Speedup.
+
+### Technische Read-Quota: explizite Client-Rules-Sperre (2026-10-01)
+
+Das bestehende Catch-all-Deny bleibt unverändert. Vier additive Fälle in Android
+`firebase-tests/release27-security.rules.test.mjs` prüfen den echten aktuellen
+`privateReadRateLimits/syncTimeAnchor_<Hash>`-Datensatz für Owner, Fremdnutzer,
+Client-Admin und anonym: Create, Get, Listen einschließlich exakter Dokument-ID,
+Update/Overwrite und Delete werden verweigert; Serverkontrollen bestätigen keine
+erfolgte Mutation. Bisherige Fälle und sämtliche Rules bleiben unangetastet.
+
+Der versionierte Web-Starter `tests/rules-local/run.mjs` führt die drei aktuellen
+Android-Rules-Suiten aus, ohne historische Web-Snapshots. Aufruf/Voraussetzungen:
+[`tests/rules-local/README.md`](../tests/rules-local/README.md). Er verwendet die
+bestehenden geprüften CLI-/JAR-, Clean-Environment-, Loopback- und Prozessbaum-
+Hilfen; zwei fest zugeordnete Demo-Suites, keine freie Projekt-/Befehlswahl.
+Node 24+, Java 21+, CLI 15.28.2 und vorhandene geprüfte JARs sind erforderlich.
+Frische APPDATA-/Home-Verzeichnisse und Node-Netzschutz ersetzen keine OS-/
+Java-/Native-Sandbox. Der bisherige Private-Operations-Default und seine eigene
+30-Fälle-Auswahl bleiben getrennt.
+
+Rootnachweis: **17/17 Safety** (1,600 s), **84/84 Rules**, null Skips/Fehler
+(TAP 35,604 s), anschließend kompletter Web-Lint und Typecheck PASS. Die 84 sind
+11 Firestore + 7 Storage + 62 bestehende Security- + 4 neue Quota-Fälle; TAP-Prüfung
+verlangt zusätzlich jeden der vier neuen Titel genau einmal. Zähländerungen
+erfordern erneuten Quellreview, nicht das Absenken einer Erfolgsschwelle.
+Manifest: `outputs/rules-local/2026-10-01T05-23-40-780Z-a9b6f6b4/manifest.json`:
+Exit 0, Ports vorher/nachher frei, Inputs unverändert. Keine Rules-, Backend-,
+Produktions- oder Deploymentänderung in diesem Testblock. Reale lokale Client-
+SDK-/Rules-Prüfung, kein Android-/Google-Account-/Produktions-Ende-zu-Ende-Beweis.
+Die anschließende Root-Regression des unveränderten Private-Operations-Aufrufs
+bestand ebenfalls **30/30**, 33,487 s Testdauer (35,04 s Vitest gesamt);
+`outputs/private-operations-local/2026-10-01T05-24-48-401Z-2ebfe9c5/manifest.json`.
