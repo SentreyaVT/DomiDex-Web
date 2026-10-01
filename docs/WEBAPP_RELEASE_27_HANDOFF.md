@@ -448,6 +448,16 @@ Dies behebt weder sämtliche Preisabdeckung noch die separat untersuchte
 Root-Produktvererbung oder gemeinsame zentrale Preisversorgung. Keine
 Veröffentlichung oder Registry-Neuzuordnung durch diesen Snapshotfix.
 
+Separater Classic-Nachzug: Die am 25.09.2026 bereits im Android-Projekt belegten
+Zuordnungen `30th-c-002/005/018/019/020/023/025` wurden unverändert in die Web-
+Registry übernommen. Dadurch sind dort 30 statt 23 Classic-Identitäten hinterlegt;
+insgesamt 205 gepflegte Bridges. Die Quelle ist die bestehende Android-Dokumentation
+`docs/catalog-30th-classic-cardmarket-20260925.md` mit Collectorlabel- und
+Produktbild-ID-Prüfung. Dies ist kein neuer Live-Preisnachweis. Beide LEGEND-Hälften
+bleiben getrennt; Sonderdrucke und fremde explizite Produkte werden nicht ersetzt.
+Vorher 9/91 RED; nachher 152/152 in Guide-/Katalog-/Routentests bestanden, außerdem
+Typecheck/Lint/Diffprüfung. Andere Zuordnungen wurden nicht geändert.
+
 ## Sharing, Domains und Preiswahl: bestehender Vertrag
 
 - Kanonische öffentliche Domain: `https://domidex.web.app`; Sharing:

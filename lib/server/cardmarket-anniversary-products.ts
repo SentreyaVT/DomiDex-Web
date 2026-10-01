@@ -2,7 +2,10 @@
  * Reviewed 2026-09-23 against printed collector labels, including distinct base/SAR/FUR
  * and RGB identities. Product order, translated names and rarity never infer a link.
  * Android evidence: docs/catalog-30th-sar-prices-20260923.md and
- * docs/catalog-30th-cardmarket-prices-20260922.md. */
+ * docs/catalog-30th-cardmarket-prices-20260922.md.
+ * The seven remaining Classic bridges follow the dated Android collector-label/
+ * product-image-ID audit in docs/catalog-30th-classic-cardmarket-20260925.md;
+ * this synchronization does not claim a new live source or price check. */
 export const anniversaryProducts: Readonly<Record<string, number>> = Object.freeze({
   '30th-001': 907607,
   '30th-002': 907608,
@@ -163,8 +166,10 @@ export const anniversaryProducts: Readonly<Record<string, number>> = Object.free
   '30th-157': 907761,
   '30th-158': 907762,
   '30th-c-001': 907940,
+  '30th-c-002': 907946,
   '30th-c-003': 907949,
   '30th-c-004': 907958,
+  '30th-c-005': 907941,
   '30th-c-006': 907947,
   '30th-c-007': 907943,
   '30th-c-008': 907963,
@@ -177,9 +182,14 @@ export const anniversaryProducts: Readonly<Record<string, number>> = Object.free
   '30th-c-015': 907942,
   '30th-c-016': 907957,
   '30th-c-017': 907961,
+  '30th-c-018': 907953,
+  '30th-c-019': 907954,
+  '30th-c-020': 907955,
   '30th-c-021': 907956,
   '30th-c-022': 907950,
+  '30th-c-023': 907959,
   '30th-c-024': 907944,
+  '30th-c-025': 907948,
   '30th-c-026': 907966,
   '30th-c-027': 907967,
   '30th-c-028': 907964,
@@ -203,4 +213,3 @@ export const anniversaryProducts: Readonly<Record<string, number>> = Object.free
   'mep-109': 895617,
   'mep-110': 895618,
 });
-

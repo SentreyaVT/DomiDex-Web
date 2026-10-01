@@ -4,6 +4,12 @@ import { anniversaryProducts } from '@/lib/server/cardmarket-anniversary-product
 import { alternativePriceCandidates } from '@/lib/price-alternatives';
 
 const GUIDE = 'https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json';
+// Dated Android collector-label/product-image evidence, not a new live provider check:
+// CardVault/docs/catalog-30th-classic-cardmarket-20260925.md.
+const remainingClassic = [
+  ['30th-c-002', 907946], ['30th-c-005', 907941], ['30th-c-018', 907953],
+  ['30th-c-019', 907954], ['30th-c-020', 907955], ['30th-c-023', 907959], ['30th-c-025', 907948],
+] as const;
 type Fields = Record<string, unknown>;
 let enrich: typeof import('@/lib/server/cardmarket-anniversary-prices').enrichAnniversaryPrices;
 const requestedUrl = (input: string | URL | Request) => typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -34,15 +40,57 @@ async function valued(source: ReturnType<typeof card>) {
 }
 
 describe('reviewed anniversary product identities', () => {
-  it('mirrors 158 main, 23 Classic, 3 RGB and 14 existing MEP exact bridges', () => {
-    expect(Object.keys(anniversaryProducts)).toHaveLength(198);
+  it('mirrors 158 main, 30 Classic, 3 RGB and 14 existing MEP exact bridges', () => {
+    expect(Object.keys(anniversaryProducts)).toHaveLength(205);
     for (let number = 1; number <= 158; number++) expect(anniversaryProducts[`30th-${String(number).padStart(3, '0')}`]).toBeGreaterThan(0);
-    expect(new Set(Object.values(anniversaryProducts)).size).toBe(198);
+    for (let number = 1; number <= 30; number++) expect(anniversaryProducts[`30th-c-${String(number).padStart(3, '0')}`]).toBeGreaterThan(0);
+    for (const [id, productId] of remainingClassic) expect(anniversaryProducts[id]).toBe(productId);
+    expect(new Set(Object.values(anniversaryProducts)).size).toBe(205);
     expect(anniversaryProducts['30th-010']).toBe(907736);
     expect(anniversaryProducts['30th-143']).toBe(908352);
     expect(anniversaryProducts['30th-151']).toBe(908353);
     expect(anniversaryProducts['30th-c-014']).toBe(907939);
     expect(anniversaryProducts['mep-101']).toBeUndefined();
+  });
+
+  it.each(remainingClassic)('enriches dated verified Classic identity %s with product %s', async (id, productId) => {
+    // Synthetic amount only proves the exact guide row is selected, not current availability.
+    const fetch = mockGuide([{ idProduct: productId, trend: 12.34 }]);
+    for (const size of ['Standard', 'standard']) {
+      const source = card(id, { type: 'normal', size });
+      const saved = structuredClone(source);
+      const result = await valued(source);
+      expect(result.id).toBe(id);
+      expect(result.localId).toBe(id.substring(id.lastIndexOf('-') + 1));
+      expect(result.set.id).toBe('30th-c');
+      expect(result.variants_detailed![0].size).toBe(size);
+      expect(exactCardmarketProductId(result, result.variants_detailed![0])).toBe(productId);
+      expect(exactTrendPrice(result, result.variants_detailed![0])).toBe(12.34);
+      expect(source).toEqual(saved);
+    }
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(remainingClassic)('does not lend %s to special printings or replace an explicit different product', async (id, productId) => {
+    const fetch = mockGuide([{ idProduct: productId, trend: 12.34 }]);
+    for (const variant of [
+      { stamp: ['Pokémon-Center'] }, { foil: 'Cosmos' }, { subtype: 'special' }, { size: 'Jumbo' },
+      { pricing: { cardmarket: { idProduct: 123456, trend: 56.78, unit: 'EUR' } } },
+    ]) {
+      const source = card(id, variant);
+      expect(await enrich(source, id)).toBe(source);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps both verified Classic LEGEND halves separate even when their names match', async () => {
+    mockGuide([{ idProduct: 907954, trend: 12.34 }, { idProduct: 907955, trend: 56.78 }]);
+    const top = await valued(card('30th-c-019', {}, { name: 'Darkrai & Cresselia-LEGENDE' }));
+    const bottom = await valued(card('30th-c-020', {}, { name: 'Darkrai & Cresselia-LEGENDE' }));
+    expect(exactCardmarketProductId(top, top.variants_detailed![0])).toBe(907954);
+    expect(exactCardmarketProductId(bottom, bottom.variants_detailed![0])).toBe(907955);
+    expect(exactTrendPrice(top, top.variants_detailed![0])).toBe(12.34);
+    expect(exactTrendPrice(bottom, bottom.variants_detailed![0])).toBe(56.78);
   });
 
   it('keeps base, SAR and FUR products and their guide values distinct', async () => {
