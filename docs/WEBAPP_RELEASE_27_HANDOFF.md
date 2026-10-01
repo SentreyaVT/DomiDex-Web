@@ -1130,3 +1130,37 @@ neun Konfigurationsdateien bleiben unverändert (Integritätshash wie zuvor).
 Belege: `outputs/release27-engineering-20261001/baseline/build-sharing-body-ui-oct01*`.
 Kein Deployment, Firebase-/Signing-/Release-Eingriff. O(N)-Reads, Gesamtkosten,
 globale Fan-out-Grenzen und vertrauenswürdige Ingresslimits bleiben offen.
+
+## Echte Android/Web-Preiskonflikte, lokaler Nachweis 2026-10-01
+
+Der separate Harness `tests/android-web-price-conflict-local/` prüft die bestehenden
+Produktfunktionen, ohne deren Verhalten oder den älteren ACK/Pull/Clear-Harness zu
+ändern. Zwei frische Demo-Läufe bestehen: explizit Cloud behalten und explizit
+Lokal behalten. Jeweils drei Android- und zwei Web-Phasen sowie fünf unabhängige
+vollständige Admin-Readbacks; Bereinigung zählt nicht als fachlicher Erfolgsfall.
+
+Nach Android-ACK 532/rev1 speichert Web 450/rev2. Eine lokale Android-Auswahl
+500 mit veralteter Basis 1 wird in zwei echten Worker-Pässen als Konflikt gehalten;
+Payload, ursprüngliche Mutation und Basis bleiben erhalten, Server-rev2 ebenfalls.
+Cloud-Entscheidung übernimmt rev2 ohne Serverwrite. Lokale Entscheidung erzeugt
+erst nach explizitem Rebase mit neuer Mutation rev3/500; sourceAt 1000 und
+selectedAt 3000 bleiben erhalten. Die abschließende echte Web-Subscription schreibt
+nichts. Parent, alleiniger Google-Owner mit nur appAccess, Accountzustand und die
+genau eine Sidecar-Zeile bleiben in jeder Phase separat geprüft.
+
+PASS-Belege unter `outputs/android-web-price-conflict-local/`:
+
+- `2026-10-01T14-28-51-954Z-cloud-46dbb61bb54245eaac5f5a7744799fb2/`
+- `2026-10-01T14-30-05-496Z-local-d938e2045fde4aae8fdc7542e01d12a2/`
+
+Beide Manifeste: Exit 0, Servernachweis und eigene Room-Bereinigung bestätigt,
+Quell-/APK-Hashes unverändert, Ports frei, Reverse-Mappings leer, keine laufende
+Instrumentation. Sieben reine Negativvalidatorfälle, Typecheck und fokussierter
+Lint bestehen ebenfalls. Androids genaue Installationsbelege und der vollständige
+371/371-Emulatorlauf in 270,701 s stehen im Schwesterrepository unter
+`artifacts/android-regression/20261001T142307Z-3a9a405f/manifest.json`.
+
+Dies beweist nicht Settings-UI/WorkManager-Scheduling, alle Auflösungsrennen,
+große Sammlungen oder Produktionslatenz. Gate 4 bleibt offen. Keine Produkt-,
+Rules-, Dependency-, Firebase-Produktions- oder Deploymentänderung durch diesen
+Testblock; kein Xiaomi, Signing oder Release-AAB.
