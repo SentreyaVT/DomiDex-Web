@@ -159,6 +159,10 @@ async function runBatch({ handler, data, providerStats, concurrency, pages, labe
     scope: 'SYNTHETIC LOCAL: in-process doubles + assertions + fake provider 2ms scheduling + JSON; not cloud/users/billing; memory includes fixtures/cache/GC; sampled peak is not exact' };
   console.info(`SHARING_CONCURRENCY_SIMULATION ${JSON.stringify(stats)}`);
   expect(providerStats.unexpected).toBe(0); expect(providerStats.aborted).toBe(0); expect(providerStats.inFlight).toBe(0);
+  // The historical fixture exposed 480 simultaneous fetches. The shared loader
+  // pool now bounds this exact synthetic one-fetch-per-loader workload to 32.
+  // This is not a claim about physical sockets or additional Cloud Run replicas.
+  expect(stats.providerMaxInFlight).toBeLessThanOrEqual(32);
   for (const result of results) {
     expect(result.status).toBe(expectStatus); expect(result.noStore).toBe(true);
     const body = JSON.parse(result.text);
@@ -202,7 +206,7 @@ describe('actual readBinderShare local concurrent-request simulation', () => {
           // With 64 tracked jobs, overflow may complete uncached. Warm is honestly measured,
           // not assumed zero. Each distinct card is requested once in this scenario.
           expect(results[1].providerCalls).toBeLessThanOrEqual(distinct);
-          if (concurrency === 80) expect(results[0].providerMaxInFlight).toBeGreaterThan(64);
+          if (concurrency === 80) expect(results[0].providerMaxInFlight).toBe(32);
         }
         expect(data.dataHash()).toBe(before);
       }

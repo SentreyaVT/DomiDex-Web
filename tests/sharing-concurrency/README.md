@@ -79,13 +79,59 @@ must not be compared as a performance improvement or regression. No production
 code, limits, Rules, dependencies, network or deployment were changed by this
 test-only correction.
 
+## Bounded actual loader follow-up, 2026-10-01
+
+The historical 64-job limit only tracked deduplication. The cache now adds a FIFO
+pool covering **all actual loader promises**, including uncached overflow and both
+`raw`/`prices` modes: **32 active / 512 queued per cache instance**. Queue time counts
+against the original 12-second job deadline. An active abort-ignoring loader keeps
+its permit until its original promise settles; a queued abort is removed immediately.
+Overflow returns transient, uncached unavailability, never an invented price.
+Cache hits, the 64 tracked jobs, TTL, byte budgets and private authorization stay
+unchanged. This bounds loader promises, not physical sockets, total heap, all HTTP
+requests or a deployment containing multiple replicas.
+
+Root tested 16, 32 and 64 active slots sequentially with the same actual-handler
+fixture, synthetic 2-ms provider and three repetitions. All configurations pass
+12/12 cases, all expected cards/prices, revocation and owner-isolation assertions.
+The 55 measured batches retain 2,350 requests, 5,028,810 logical document reads and
+8,063 fake provider calls. Forty separate owner-test calls remain outside the metrics.
+
+| Active slots | 80 disjoint readers: cold wall ms, three repetitions | Warm wall ms | Peak fake provider calls |
+| --- | --- | --- | ---: |
+| 16 (rejected initial setting) | 775.78 / 773.97 / 772.51 | 623.44 / 638.79 / 657.20 | 16 |
+| 32 (selected local default) | 383.78 / 428.33 / 416.26 | 330.86 / 359.12 / 359.30 | 32 |
+| 64 (comparison only) | 226.29 / 259.52 / 260.42 | 239.17 / 235.19 / 232.72 | 64 |
+
+Reports in `outputs/sharing-concurrency/`:
+
+- `2026-10-01T14-36-39-796Z-12672.{log,metrics.json}` (16; 19.10 s)
+- `2026-10-01T14-43-17-373Z-21232.{log,metrics.json}` (32; 15.94 s)
+- `2026-10-01T14-44-20-993Z-9348.{log,metrics.json}` (64; 14.85 s)
+
+The conservative 32 setting halves the potential active body/parse load relative
+to 64 and avoids the much longer synthetic queue at 16. It is **not** a measured
+provider/Cloud Run optimum. Limiting work deliberately increases burst latency
+relative to some historical unbounded runs; do not market this as a universal
+speedup or declare a production 500-ms target met. In particular, many anniversary
+requests can occupy all slots while awaiting the shared guide's separate six-second
+deadline. Process RSS includes all fixtures/module loads/GC and does not establish
+a memory improvement or a hard memory limit.
+
+The separate 20-case pool suite exercises default capacity, tracked/uncached FIFO,
+both modes, queue overload/retry, consumer cancellation, ignored aborts, late results
+and rejections, unchanged deadlines and exact-once release after loader/projection
+errors. First RED: 87 PASS / 16 FAIL across the full selection. Final default-32
+GREEN: **103/103 in eight files**, 4.38 s, including provider-body and package tests:
+`outputs/public-catalog-cache/2026-10-01T14-46-01-452Z-20044.log`.
+
 ## Outstanding scaling limits exposed by the test
 
-The 64-job cache limit bounds **tracked deduplication**, not total upstream requests.
-Overflow performs uncached work: 80 disjoint readers reached 480 simultaneous fake
-provider calls and needed 592 further calls in a warm batch. Do not present this as
-a global limiter. A future queue/overload policy needs separate cancellation,
-fairness, latency and real-provider validation before changing runtime behavior.
+The 64-job cache limit still bounds **tracked deduplication**, while the new pool
+also bounds actual loads per process. Disjoint warm batches still need 592 further
+provider calls. Real-provider latency, multi-replica behavior and trusted ingress
+admission are unmeasured. A permanently uncooperative loader can retain a slot;
+releasing it before settlement would invalidate the capacity protection.
 
 Every call still reads all placements, even for a nine-card page. Authorization and
 revocation checks deliberately remain per request. Safe indexed pagination needs to

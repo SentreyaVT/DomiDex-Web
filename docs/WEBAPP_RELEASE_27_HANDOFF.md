@@ -1164,3 +1164,35 @@ Dies beweist nicht Settings-UI/WorkManager-Scheduling, alle Auflösungsrennen,
 große Sammlungen oder Produktionslatenz. Gate 4 bleibt offen. Keine Produkt-,
 Rules-, Dependency-, Firebase-Produktions- oder Deploymentänderung durch diesen
 Testblock; kein Xiaomi, Signing oder Release-AAB.
+
+## Öffentliche Katalogabrufe: echte Parallelitätsgrenze, 2026-10-01
+
+Der bestehende öffentliche Metadaten-Cache begrenzt jetzt zusätzlich alle tatsächlichen
+Loader-Promises, auch ungetrackten Overflow: 32 aktiv, 512 wartend, FIFO pro Instanz.
+Beide Resolvermodi teilen diese Grenze. Warme Cachetreffer benötigen keinen Platz.
+Die bisherigen 64 Deduplizierungsplätze, TTL-/Bytebudgets, Preisidentitäten und
+privaten Auth-/Widerrufsprüfungen sind unverändert. Queuezeit verbraucht die bestehende
+Deadline; voller Puffer wird vorübergehend als nicht verfügbar beantwortet und nicht
+negativ gecacht. Aktive Abrufe geben ihren Platz erst bei tatsächlichem Abschluss frei,
+auch wenn sie Abort ignorieren. Keine Behauptung über physische Sockets oder Cloud-
+Replikate, kein Umgehen fehlender vertrauenswürdiger Ingresslimits.
+
+20 neue isolierte Fälle reproduzierten 16 Fehler vor der Änderung. Die vollständige
+gezielte Auswahl besteht mit 103/103. Die echte Sharing-Handler-Simulation besteht
+mit 12/12 bei 10/40/80 gleichzeitigen Lesern, je drei Wiederholungen. Alle Kartendaten,
+Preise und privaten Prüfungen bleiben enthalten. 16/32/64-Slot-Messungen und deren
+Latenz-/Kapazitätskompromiss sind in `tests/sharing-concurrency/README.md` dokumentiert;
+32 ist eine konservative lokale Vorgabe, kein bewiesenes Produktionsoptimum oder
+genereller Speedup. O(N)-Placement-Reads und globale Limits bleiben offen.
+
+Typecheck/fokussierter Lint bestehen. Isolierter Produktionsmodus-Build: 13,058 s,
+303 Quelldateien, synthetische Umgebung/Netzschutz, kein Deployment. Root-dist und
+neun Build-/Deploydateien behalten Hash
+`fbc3b489d56287d0dd84b2a4bedcbf0b17113621f5d3e74872fcc76e95fdf95f`.
+Beleg: `outputs/release27-engineering-20261001/baseline/build-loader-pool-final*`.
+
+Abschließende vollständige Web-Regression am finalen 32er-Stand: **1.199/1.199**,
+keine Fehler/Skips, zusätzlich zur 103er-Cacheauswahl. Beleg:
+`outputs/release-local/2026-10-01T14-47-32-920Z-13920.{json,log}`.
+Die bestehenden React-act-/JSDOM-Canvas-Warnungen bleiben offen als Harnessgrenze;
+dies ersetzt keinen Browser-Visualtest. Keine Signierung oder Veröffentlichung.

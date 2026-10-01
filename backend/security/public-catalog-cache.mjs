@@ -54,14 +54,53 @@ function projectPublicCard(id, source) {
   return { bytes: Buffer.from(JSON.stringify(card), 'utf8'), cacheable: true };
 }
 
-/** Process-local public metadata only. Limits are serialized bytes, not total JS heap or network concurrency. */
+/** Bounds actual load promises, including untracked overflow, not sockets or other replicas. */
+function createLoaderPool(maxActive, maxQueued) {
+  let active = 0;
+  const queue = [];
+  function drain() {
+    while (active < maxActive && queue.length) start(queue.shift());
+  }
+  function start(item) {
+    item.signal.removeEventListener('abort', item.aborted);
+    if (item.signal.aborted) { item.resolve(null); return; }
+    active++;
+    const release = () => { active--; drain(); };
+    // A consumer timeout ends its cache job immediately, but never releases this
+    // permit before the original loader settles (even if it ignores abort).
+    Promise.resolve().then(() => item.signal.aborted ? null : item.task()).then(
+      value => { release(); item.resolve(value); },
+      error => { release(); item.reject(error); },
+    );
+  }
+  return (task, signal) => new Promise((resolve, reject) => {
+    if (signal.aborted) { resolve(null); return; }
+    const item = { task, signal, resolve, reject, aborted: null };
+    item.aborted = () => {
+      const index = queue.indexOf(item);
+      if (index < 0) return;
+      queue.splice(index, 1);
+      signal.removeEventListener('abort', item.aborted);
+      resolve(null);
+    };
+    if (active < maxActive) start(item);
+    else if (queue.length < maxQueued) {
+      queue.push(item);
+      signal.addEventListener('abort', item.aborted, { once: true });
+    } else resolve(null); // Transient overload, never a negative cache entry.
+  });
+}
+
+/** Process-local public metadata only. Byte/load bounds are not a total heap or socket bound. */
 export function createPublicCatalogCache({ load, now = () => performance.now(), ttlMs = 60_000,
   maxEntries = 8_192, maxBytes = 32 * 1024 * 1024, maxEntryBytes = 128 * 1024,
-  maxInFlight = 64, jobTimeoutMs = 12_000 }) {
+  maxInFlight = 64, jobTimeoutMs = 12_000, maxActiveLoads = 32, maxQueuedLoads = 512 }) {
   if (typeof load !== 'function' || typeof now !== 'function' ||
-    [ttlMs, maxEntries, maxBytes, maxEntryBytes, maxInFlight, jobTimeoutMs].some((n) => !Number.isSafeInteger(n) || n < 1)) {
+    [ttlMs, maxEntries, maxBytes, maxEntryBytes, maxInFlight, jobTimeoutMs, maxActiveLoads, maxQueuedLoads]
+      .some((n) => !Number.isSafeInteger(n) || n < 1)) {
     throw Error('INVALID_PUBLIC_CACHE_CONFIGURATION');
   }
+  const pooledLoad = createLoaderPool(maxActiveLoads, maxQueuedLoads);
   const entries = new Map(), inFlight = new Map();
   let totalBytes = 0;
   function remove(key) {
@@ -95,7 +134,8 @@ export function createPublicCatalogCache({ load, now = () => performance.now(), 
     if (tracked) inFlight.set(key, job);
     const timer = setTimeout(() => job.cancel(), jobTimeoutMs);
     timer.unref?.();
-    Promise.resolve().then(() => job.settled ? null : mode === 'raw' ? load(id, controller.signal) : load(id, controller.signal, mode))
+    Promise.resolve().then(() => job.settled ? null : pooledLoad(
+      () => mode === 'raw' ? load(id, controller.signal) : load(id, controller.signal, mode), controller.signal))
       .then((value) => {
         // Late provider completion after timeout/last-consumer cancellation cannot warm a new generation.
         if (!job.settled) job.finish(projectPublicCard(id, value), true);
@@ -134,8 +174,8 @@ export function createPublicCatalogCache({ load, now = () => performance.now(), 
       remove(key);
     }
     let job = inFlight.get(key);
-    // No unbounded pending map/queue and no new missing-card result merely because it is full.
-    // Overflow uses uncached work, still subject to its consumer and own provider deadlines.
+    // Dedup overflow stays uncached but shares the bounded loader pool. Queue time
+    // consumes the original job deadline; actual pool overflow returns uncached null.
     if (!job) job = createJob(key, id, inFlight.size < maxInFlight, mode);
     return join(job, signal);
   }
