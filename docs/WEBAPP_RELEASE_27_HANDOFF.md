@@ -1,8 +1,22 @@
 # Web-App: Übergabe für Release 27
 
-Stand: 01.10.2026. Dieses Dokument gehört ausschließlich zum separaten Repository
+Stand: 02.10.2026. Dieses Dokument gehört ausschließlich zum separaten Repository
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
+
+### R27-Entscheidung: vollständigen Sync beibehalten (02.10.2026)
+
+Der Betreiber hat ausdrücklich den aktuell abgesicherten vollständigen Abgleich
+für Release 27 bestätigt. Bestehende Web-Listener und Android-FULL-Pull bleiben;
+Delta wird nicht aktiviert, kein neuer Lesepfad, keine Cursor-/Datenmigration und
+kein unnötiger Architekturumbau für R27. Die vorhandene inaktive Delta-Grundlage
+ist eine spätere Optimierung und setzt belastbare Vollständigkeits-, Overlay-,
+Wiederaufnahme- und Konfliktnachweise voraus.
+
+Ältere Delta-Gates in diesem Dokument beziehen sich ab jetzt auf diese spätere
+Optimierung, nicht auf die R27-Freigabe. Bestehende Owner-, Preiswahl-, Outbox-,
+Offline-/Multi-Client- und Regressionstests bleiben erforderlich. Dieser Beschluss
+ist kein Beleg für verzögerungsfreien Sync und keine Signing-/Deploymentfreigabe.
 
 ### Aktueller lokaler Zwischenstand: Hinzufügen mit echten lokalen SDK-Transaktionen
 
