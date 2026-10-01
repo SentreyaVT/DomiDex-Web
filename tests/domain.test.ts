@@ -33,27 +33,38 @@ describe('exactTrendPrice', () => {
   it.each([
     ['swsh11-201', 670816, 1.38], ['sv03-062', 781858, 0.23],
   ])('quarantines the reviewed incorrect source/product pair %s without persisting a replacement', (id, idProduct, trend) => {
-    const detail = { ...card, id: String(id), pricing: { cardmarket: { idProduct: Number(idProduct), trend: Number(trend) } } };
+    const detail = { ...card, id: String(id) };
+    const variant = { type: 'Holo', pricing: { cardmarket: { idProduct: Number(idProduct), trend: Number(trend) } } };
+    expect(exactTrendPrice(detail, variant)).toBeNull();
+    expect(exactCardmarketProductId(detail, variant)).toBeNull();
+  });
+
+  // Contract change: these three old fixtures supplied only card-wide prices.
+  // A known sibling/product pair does not itself prove a requested printing. Keep
+  // the positive control with explicit variant evidence, plus the root-only denial.
+  it.each([['swsh11-130', 670816], ['sv03-057', 781858], ['sv03-062', 725142]])('retains an explicitly declared sibling/base printing %s', (id, idProduct) => {
+    const detail = { ...card, id: String(id) };
+    const variant = { type: 'Holo', pricing: { cardmarket: { idProduct: Number(idProduct), trend: 0.23 } } };
+    expect(exactTrendPrice(detail, variant)).toBe(0.23);
+    expect(exactCardmarketProductId(detail, variant)).toBe(idProduct);
+  });
+
+  it.each([['swsh11-130', 670816], ['sv03-057', 781858], ['sv03-062', 725142]])('no longer treats old root-only fixture %s as printing evidence', (id, idProduct) => {
+    const detail = { ...card, id: String(id), pricing: { cardmarket: { idProduct: Number(idProduct), trend: 0.23 } } };
     expect(exactTrendPrice(detail, { type: 'Holo' })).toBeNull();
     expect(exactCardmarketProductId(detail, { type: 'Holo' })).toBeNull();
   });
 
-  it.each([['swsh11-130', 670816], ['sv03-057', 781858], ['sv03-062', 725142]])('retains the verified sibling/base printing %s', (id, idProduct) => {
-    const detail = { ...card, id: String(id), pricing: { cardmarket: { idProduct: Number(idProduct), trend: 0.23 } } };
-    expect(exactTrendPrice(detail, { type: 'Holo' })).toBe(0.23);
-    expect(exactCardmarketProductId(detail, { type: 'Holo' })).toBe(idProduct);
-  });
-
   it('never substitutes zero or a different price field', () => {
-    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { trend: 0, 'trend-holo': 0 } } }, { type: 'Normal' })).toBeNull();
-    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { trend: null, 'trend-holo': 2 } } }, { type: 'Normal' })).toBeNull();
+    expect(exactTrendPrice(card, { type: 'Normal', pricing: { cardmarket: { idProduct: 733596, trend: 0, 'trend-holo': 0 } } })).toBeNull();
+    expect(exactTrendPrice(card, { type: 'Normal', pricing: { cardmarket: { idProduct: 733596, trend: null, 'trend-holo': 2 } } })).toBeNull();
   });
   it.each([undefined, 0, -1, 1.2, Infinity, NaN])('does not display a price without a valid exact product ID (%s)', (idProduct) => {
-    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { idProduct, trend: 99 } } }, { type: 'Normal' })).toBeNull();
+    expect(exactTrendPrice(card, { type: 'Normal', pricing: { cardmarket: { idProduct, trend: 99 } } })).toBeNull();
   });
   it('does not render non-finite amounts or label foreign currency as EUR', () => {
-    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { idProduct: 1, trend: Infinity } } }, { type: 'Normal' })).toBeNull();
-    expect(exactTrendPrice({ ...card, pricing: { cardmarket: { idProduct: 1, trend: 10, unit: 'USD' } } }, { type: 'Normal' })).toBeNull();
+    expect(exactTrendPrice(card, { type: 'Normal', pricing: { cardmarket: { idProduct: 1, trend: Infinity } } })).toBeNull();
+    expect(exactTrendPrice(card, { type: 'Normal', pricing: { cardmarket: { idProduct: 1, trend: 10, unit: 'USD' } } })).toBeNull();
   });
 
   it.each([

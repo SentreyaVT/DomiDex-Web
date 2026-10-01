@@ -499,6 +499,34 @@ Typecheck/Lint/Diffprüfung. Andere Zuordnungen wurden nicht geändert.
 
 ## Offene Abnahmekriterien vor produktiver Freigabe
 
+### Lokaler Gate-5-Nachtrag: genaue Variantenidentität (2026-10-01)
+
+Die Web-App erbt keine Cardmarket-Produkt-ID und keinen Preis mehr ungeprüft vom
+Kartenwurzelobjekt. Auch eine einzige Variante ist kein Beleg: die lokal belegten
+Paare `bw1-1`/`bw1-2` und `sm1-162`/`sm1-168` teilen jeweils eine problematische
+Root-ID. Variantenpreis-ID und explizite `variant.thirdParty.cardmarket` müssen,
+sofern vorhanden, gültig sein und übereinstimmen. Die bereits geprüften Anniversary-
+Zuordnungen bleiben unverändert nutzbar. Suche und Binder bieten weiterhin eine
+hinzufügbare Normal-Variante ohne erfundenen Preis an.
+
+Collection und geteilte Binder zeigen weder unbelegte Root-Preise noch deren Datum.
+Gespeicherte Preiswahlen werden nicht umgeschrieben; eine bisher nur durch Root
+belegte Zuordnung kann nun ausdrücklich unbepreist sein. Bei einer belegten
+Variantenidentität bleibt die vorhandene Auswahl nutzbar, bis ein echter Trendpreis
+wieder Vorrang hat. Dies verbessert die Preisidentität, behauptet aber keine
+vollständige Preisabdeckung oder aktuelle Anbieterpreise.
+
+Vor dem Fix waren 38/50 gezielte neue/erweiterte Assertions rot. Danach 297/297
+gezielte Tests, Typecheck, Oxlint und Diffprüfung bestanden. Der anschließende
+isolierte Gesamt-Web-Testlauf bestand 912/912 Tests in 58 Dateien. Drei bisherige
+Root-positive Tests wurden bewusst in belegte Varianten-Positive mit separaten
+Root-Ablehnungsfällen überführt; Preisvalidierungen bleiben unabhängig geprüft.
+Unabhängiger Code-Review ohne verbleibenden konkreten Befund. Beleg:
+`outputs/release27-engineering-20261001/baseline/gate5-root-identity-final-results.json`.
+Keine API-Abfrage, Provider-Downloads, Regeln oder Deployments durch diesen Fix.
+
+### Weiter offene Abnahme
+
 - Security-Emulatorergebnisse einschließlich der neun erneut registrierten
   Sharing-Regeltests separat grün belegen; keine Testzahlen doppelt zählen.
 - Vollständige Karten-/Set-Preisabdeckung mit begründeten Restlücken, Varianten,

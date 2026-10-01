@@ -57,6 +57,8 @@ export interface TcgVariant {
   stamp?: string[];
   foil?: string;
   variantId?: string;
+  /** Identity declared for this printing, never inherited from the card-wide root. */
+  thirdParty?: { cardmarket?: number | null };
   pricing?: { cardmarket?: CardmarketPricing | null };
 }
 
@@ -160,19 +162,22 @@ export const defaultSiteContent: SiteContent = {
   ],
 };
 
-export function cardmarketPricingForVariant(card: TcgCardDetail, variant: TcgVariant) {
-  const ownPricing = variant.pricing?.cardmarket;
-  return ownPricing ?? (card.variants_detailed && card.variants_detailed.length > 1 ? null : card.pricing?.cardmarket);
+export function cardmarketPricingForVariant(_card: TcgCardDetail, variant: TcgVariant) {
+  // One generated printing is not evidence that card-wide prices belong to it.
+  // Reviewed supplements/anniversary bridges already attach printing-level pricing.
+  return variant.pricing?.cardmarket ?? null;
 }
 
 export function exactCardmarketProductId(card: TcgCardDetail, variant: TcgVariant): number | null {
-  const id = cardmarketPricingForVariant(card, variant)?.idProduct;
-  return Number.isSafeInteger(id) && id! > 0 && !isQuarantinedCardmarketIdentity(canonicalTcgCardId(card.id), id) ? id! : null;
+  const ids = [variant.pricing?.cardmarket?.idProduct, variant.thirdParty?.cardmarket].filter((id) => id != null);
+  if (!ids.length || ids.some((id) => !Number.isSafeInteger(id) || id! <= 0 || id !== ids[0])) return null;
+  const id = ids[0]!;
+  return isQuarantinedCardmarketIdentity(canonicalTcgCardId(card.id), id) ? null : id;
 }
 
 export function exactTrendPrice(card: TcgCardDetail, variant: TcgVariant): number | null {
   const pricing = cardmarketPricingForVariant(card, variant);
-  if (!pricing || !Number.isSafeInteger(pricing.idProduct) || pricing.idProduct! <= 0 || (pricing.unit && pricing.unit !== 'EUR')) return null;
+  if (!pricing || (pricing.unit && pricing.unit !== 'EUR')) return null;
   if (exactCardmarketProductId(card, variant) === null) return null;
   // Cardmarket's Pokemon guide calls the Reverse Holo field "trend-holo".
   // Regular Holo cards use "trend"; a missing Reverse price must never borrow it.
@@ -193,14 +198,17 @@ export function collectionPriceIdentity(entry: CollectionEntry) {
   return [canonicalTcgCardId(entry.sourceCardId ?? ''), entry.externalProductId ?? '', normalizedFinish(entry.finish), normalizedVariant(entry.variant)].join('|');
 }
 
-export function variantForCollectionEntry(card: TcgCardDetail, entry: CollectionEntry) {
-  let variants = card.variants_detailed?.length
+export function cardVariantsForSelection(card: TcgCardDetail): TcgVariant[] {
+  return card.variants_detailed?.length
     ? card.variants_detailed
-    : [{ type: 'Normal', size: 'Standard', pricing: card.pricing }];
+    : [{ type: 'Normal', size: 'Standard' }];
+}
+
+export function variantForCollectionEntry(card: TcgCardDetail, entry: CollectionEntry) {
+  let variants = cardVariantsForSelection(card);
   if (entry.externalProductId != null) {
     if (!Number.isSafeInteger(entry.externalProductId) || entry.externalProductId <= 0) return null;
-    const allowCardPricing = variants.length === 1;
-    variants = variants.filter((item) => (item.pricing?.cardmarket?.idProduct ?? (allowCardPricing ? card.pricing?.cardmarket?.idProduct : undefined)) === entry.externalProductId);
+    variants = variants.filter((item) => exactCardmarketProductId(card, item) === entry.externalProductId);
     // A known product must never fall back to a similarly labelled different product.
     if (variants.length === 0) return null;
     if (variants.length === 1) return normalizedFinish(variants[0].type) === normalizedFinish(entry.finish) ? variants[0] : null;

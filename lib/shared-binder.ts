@@ -1,4 +1,4 @@
-import { canonicalTcgCardId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail } from './domain';
+import { canonicalTcgCardId, cardmarketPricingForVariant, exactCardmarketProductId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail } from './domain';
 
 export interface ShareOptions { showPrices: boolean; showTotal: boolean; showDisplayName: boolean }
 export interface SharedCard {
@@ -42,11 +42,11 @@ export function sharedCardDto(entry: CollectionEntry, placement: { slotPosition:
     || localNumber(card.localId) !== localNumber(entry.collectorNumber)) return null;
   const variant = variantForCollectionEntry(card, entry);
   // Do not substitute another Cardmarket product when the stored exact product is known.
-  const productId = variant?.pricing?.cardmarket?.idProduct ?? (card.variants_detailed?.length ? null : card.pricing?.cardmarket?.idProduct);
+  const productId = variant ? exactCardmarketProductId(card, variant) : null;
   const finish = (value: string) => /reverse/i.test(value) ? 'reverse' : /holo/i.test(value) ? 'holo' : 'normal';
   const exactVariant = variant && finish(variant.type) === finish(entry.finish)
     && (entry.externalProductId == null || entry.externalProductId === productId) ? variant : null;
-  const pricing = exactVariant?.pricing?.cardmarket ?? card.pricing?.cardmarket;
+  const pricing = exactVariant && productId !== null ? cardmarketPricingForVariant(card, exactVariant) : null;
   const amount = exactVariant && (!pricing?.unit || pricing.unit === 'EUR') ? exactTrendPrice(card, exactVariant) : null;
   return {
     slot: placement.slotPosition, cardId, name: card.name, setName: card.set.name, collectorNumber: card.localId,

@@ -89,6 +89,43 @@ async function openBinderPocket(finish: 'Normal' | 'Reverse Holo') {
 }
 
 describe('card showcase integration without changing collection identity', () => {
+  it('keeps a search result without printing evidence addable but does not copy its root prices', async () => {
+    const rootOnly = { ...detail, variants_detailed: undefined, pricing: { cardmarket: {
+      idProduct: 101, trend: 123.45, avg: 67.89, unit: 'EUR', updated: '2026-09-25T08:00:00Z',
+    } } };
+    vi.mocked(loadCard).mockResolvedValue(rootOnly);
+    render(<WebApp />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Web-App Navigation' })).getByRole('button', { name: 'Karte hinzufügen' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Kartenname suchen' }), { target: { value: 'Testkarte' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Suchen' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Testkarte.*#025.*fixture-025/ }));
+    await screen.findByRole('combobox', { name: 'Variante' });
+    expect(screen.getByText('Preis nicht verfügbar')).toBeTruthy();
+    expect(screen.queryByText(/123,45|67,89/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Zur Sammlung hinzufügen' }));
+    await waitFor(() => expect(addExactCard).toHaveBeenCalledOnce());
+    expect(vi.mocked(addExactCard).mock.calls[0][2]).toEqual({ type: 'Normal', size: 'Standard' });
+    expect(changeQuantity).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unowned binder card without printing evidence unpriced without copying root fields', async () => {
+    const rootOnly = { ...detail, variants_detailed: undefined, pricing: { cardmarket: {
+      idProduct: 101, trend: 123.45, avg: 67.89, unit: 'EUR', updated: '2026-09-25T08:00:00Z',
+    } } };
+    vi.mocked(loadCard).mockResolvedValue(rootOnly);
+    vi.mocked(loadSet).mockResolvedValue({ id: 'fixture', name: 'Testset', cards: [{ ...summary, printVariants: ['normal'] }] });
+    render(<BinderView binders={[{ id: 'fixture', name: 'Testbinder', sourceSetId: 'fixture', entries: [] }]} prices={{}} user={user} onError={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /DOMIDEX BINDER/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Testkarte.*Normal.*fehlt/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Testkarte' });
+    expect(await within(dialog).findByText('Preis nicht verfügbar')).toBeTruthy();
+    expect(within(dialog).queryByText(/123,45|67,89/)).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Zur Sammlung hinzufügen' }));
+    await waitFor(() => expect(addExactCard).toHaveBeenCalledOnce());
+    expect(vi.mocked(addExactCard).mock.calls[0][2]).toEqual({ type: 'Normal', size: 'Standard' });
+    expect(changeQuantity).not.toHaveBeenCalled();
+  });
+
   it('opens the Overview artwork read-only, expands in one dialog and restores focus after Escape', async () => {
     render(<WebApp />);
     const opener = (await screen.findAllByRole('button', { name: 'Karte groß ansehen: Testkarte' }))[0];
