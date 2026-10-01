@@ -20,6 +20,7 @@ vi.stubGlobal('WebSocket', block('WebSocket'));
 vi.spyOn(net.Socket.prototype, 'connect').mockImplementation(block('net.Socket.connect'));
 vi.spyOn(tls, 'connect').mockImplementation(block('tls.connect'));
 for (const [name, module] of [['http', http], ['https', https]]) {
+  if (typeof name !== 'string') throw Error('INVALID_NETWORK_GUARD_NAME');
   for (const method of ['get', 'request']) vi.spyOn(module, method).mockImplementation(block(`${name}.${method}`));
 }
 vi.spyOn(http2, 'connect').mockImplementation(block('http2.connect'));
