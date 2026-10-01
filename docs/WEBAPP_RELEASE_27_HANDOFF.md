@@ -4,7 +4,28 @@ Stand: 01.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
-### Aktueller lokaler Zwischenstand: widersprüchliche Produkte und Hinzufügen
+### Aktueller lokaler Zwischenstand: echte SDK-Synchronisationsgrenzen
+
+Der bestehende lokale Teststarter prüft jetzt sieben Android-SDK-Fälle mit acht
+rein künstlichen Google-Testkonten. Neu abgesichert: Ein echter noch unbestätigter
+SDK-Schreibstand darf den Wiederaufnahme-Eintrag nicht entfernen; nach Bestätigung
+muss er korrekt konvergieren. Außerdem übernimmt der echte private Binder-Worker
+eine unveränderte Platzierung in einem späteren Durchlauf, sobald deren zuvor
+fehlende Karte durch einen zweiten berechtigten SDK-Client angelegt wurde.
+
+**7/7 SDK-Fälle bestanden**, zusätzlich sieben vollständige Admin-Vorher- und
+Nachher-Prüfungen, zehn reine Prüfprogramm-Tests und gezielte Lintprüfung. Lauf:
+`outputs/collection-sync-session-local/2026-10-01T18-53-04-230Z-52fcb2bc3e124af5be3ea075fe3cd920/`.
+Alle Ports wieder frei, Weiterleitungen leer, Android-Testlauf beendet, Eingaben
+unverändert. Der fehlende Parent ist bewusst ein lokal administrativ vorbereiteter
+Altzustand; normale Client-Regeln erlauben kein solches Anlegen einer verwaisten
+Platzierung. Keine Behauptung über automatische Planung, UI-Latenz oder Produktion.
+
+Nur Teststarter und Dokumentation erweitert, keine Web-Funktion, Firebase-Regel
+oder Produktkonfiguration geändert. Kein Deployment. Gesamtrelease weiterhin
+**NOT READY**. Details und APK-Nachweis im README des Teststarters.
+
+### Vorheriger lokaler Zwischenstand: widersprüchliche Produkte und Hinzufügen
 
 Gleiche rohe Varianten-ID, gleicher normalisierter Finish und exakt gleiche volle
 Druckbeschreibung dürfen nicht abhängig von der Quellreihenfolge verschiedene
