@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SharedBinder, SharedCard } from '@/lib/shared-binder';
 import { sharedTilt } from '@/lib/shared-binder-visual';
 import { SharedBinderMaterial } from './shared-binder-material';
@@ -20,7 +20,9 @@ export function SharedBinderViewer({ token }: { token: string }) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const dialog = useRef<HTMLDialogElement>(null);
   const requestVersion = useRef(0);
-  useEffect(() => {
+  // Content is already derived from the new DTO; close its now-empty native modal
+  // in the same layout commit instead of leaving it open until a passive effect.
+  useLayoutEffect(() => {
     if (selection && !selected) { setSelection(null); setTilt({ x: 0, y: 0 }); dialog.current?.close(); }
   }, [selection, selected]);
   useEffect(() => {

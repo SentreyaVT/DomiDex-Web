@@ -116,6 +116,24 @@ describe('shared binder successful refresh and open large-card view', () => {
     expect(screen.queryByAltText('Testkarte')).toBeNull();
   });
 
+  it('closes an invalidated native modal in the commit phase before it can paint empty', async () => {
+    const committedOpen: boolean[] = [];
+    const title = 'Commit mit ersetzter Karte';
+    render(<React.Profiler id="shared-viewer" onRender={() => {
+      // Profiler observes the real commit after child layout effects, before passive
+      // effects. Do not replace hooks or wait away an already-painted empty modal.
+      const dialog = document.querySelector('dialog');
+      if (document.querySelector('h1')?.textContent === title && dialog instanceof HTMLDialogElement) {
+        committedOpen.push(dialog.open);
+      }
+    }}><SharedBinderViewer token={token} /></React.Profiler>);
+    fireEvent.click(await screen.findByRole('button', { name: /Testkarte.*groß ansehen/ }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    await publish(binder(title, [{ ...originalCard, cardId: 'synthetic-002', name: 'Andere Karte' }]));
+    expect(committedOpen.length).toBeGreaterThan(0);
+    expect(committedOpen.every(open => open === false)).toBe(true);
+  });
+
   it('refreshes the selected card price and visual data from the latest successful DTO', async () => {
     await openViewer();
     await publish(binder('Daten aktualisiert', [{
