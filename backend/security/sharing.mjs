@@ -5,6 +5,7 @@ import { decodeCollectionPriceSelection } from '../../lib/collection-price-selec
 import { boundedJson } from '../../lib/bounded-json.ts';
 import { consumeWriteQuota } from './rate-limit.mjs';
 import { createPublicCatalogCache } from './public-catalog-cache.mjs';
+import { readPublicCatalogResponse } from './public-catalog-response.mjs';
 import { supplementalCard } from '../../lib/catalog-supplement.ts';
 import { enrichAnniversaryPrices } from '../../lib/server/cardmarket-anniversary-prices.ts';
 
@@ -101,7 +102,7 @@ async function catalogCard(id, signal, mode = 'raw') {
   let card;
   try {
     const response = await fetch(`https://api.tcgdex.net/v2/de/cards/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' }, signal });
-    card = response.ok ? await response.json() : supplement;
+    card = await readPublicCatalogResponse(response, signal);
   } catch { card = supplement; }
   if (!card || signal.aborted) return null;
   try {
@@ -109,10 +110,8 @@ async function catalogCard(id, signal, mode = 'raw') {
     if (!card.image) {
       try {
         const english = await fetch(`https://api.tcgdex.net/v2/en/cards/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' }, signal });
-        if (english.ok) {
-          const fallback = await english.json();
-          if (fallback.id === card.id && fallback.set?.id === card.set?.id && fallback.localId === card.localId) card.image = fallback.image;
-        }
+        const fallback = await readPublicCatalogResponse(english, signal);
+        if (fallback.id === card.id && fallback.set?.id === card.set?.id && fallback.localId === card.localId) card.image = fallback.image;
       } catch { /* Image-only exact-ID fallback; never borrow names, variants or prices. */ }
     }
     // Enrich before the allowlist projection: its exact-printing checks also inspect

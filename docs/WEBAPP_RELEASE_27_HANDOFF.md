@@ -1075,3 +1075,58 @@ SDK-/Rules-Prüfung, kein Android-/Google-Account-/Produktions-Ende-zu-Ende-Bewe
 Die anschließende Root-Regression des unveränderten Private-Operations-Aufrufs
 bestand ebenfalls **30/30**, 33,487 s Testdauer (35,04 s Vitest gesamt);
 `outputs/private-operations-local/2026-10-01T05-24-48-401Z-2ebfe9c5/manifest.json`.
+
+### Gate 6: Karten-Großansicht und begrenzte Providerantworten (2026-10-01)
+
+Bei einem erfolgreichen Refresh, der die ausgewählte Karte ersetzt oder entfernt,
+war der native Dialog bereits inhaltlich leer, aber erst nach dem Commit geschlossen.
+Nur dieser Invalidierungs-Effekt läuft jetzt als Layout-Effect. Gültige Auswahlen,
+Freigabeoptionen, Request-Generationen und Datenzugriffe bleiben unverändert. Ein
+neuer Profiler-Test beobachtet alle passenden Commits: zunächst **15 PASS / 1 FAIL**,
+danach **16/16 PASS**. Das belegt den JSDOM-Dialogzustand zur Commit-Zeit, keinen
+gemessenen Browser-Paint, Fokus oder GPU-Effekt. RED/GREEN bleiben erhalten:
+`outputs/release-local/shared-viewer-commit-{red,green}-20261001.{log,json}`.
+
+Der vollständige Folgelauf deckte zusätzlich eine Bereitschaftslücke im Owner-UI-
+Test auf: Das Formular erscheint vor dem zweiten GET der aktiven Freigaben. Der
+Test klickte auf den noch deaktivierten Button. Die Tests warten nun auf echte
+Bereitschaft; die E-Mail-Sperre wird getrennt vom Ladezustand bewiesen. Ein neuer
+zurückgehaltener GET zeigt: kein POST während des Ladens, kein automatischer POST
+nach dessen Ende, exakt ein korrekter POST erst nach ausdrücklichem Klick.
+Keine Produktänderung am Owner-Formular. Beide UI-Dateien bestehen **22/22**:
+`outputs/release-local/sharing-ui-green-20261001.{log,json}`.
+
+Der tatsächliche DE-/EN-Einzelkartenabruf in `backend/security/sharing.mjs` liest
+jetzt höchstens **1 MiB dekodierte Antwortbytes** vor JSON-Parsing. Ein zu großer
+Content-Length wird früh abgewiesen; fehlende oder falsche Header umgehen die
+gezählte Bytegrenze nicht. Nicht erfolgreiche, zu große oder abgebrochene Bodies
+werden bestmöglich gecancelt, ohne auf einen hängenden Cancel-Hook zu warten.
+Auch ein festhängender Read endet beim bestehenden Abort; Listener und Reader
+werden freigegeben. Der neue lokale Helper ist in der Standalone-Copyliste.
+
+Das ist eine technische Grenze je Einzelkarte, **keine Anbieter-SLA, Gesamt-Heap-
+oder globale Parallelitätsgrenze**. Preisguide-Downloads, private Request-JSON-
+Verarbeitung, 12-Sekunden-Deadline, Cachebudget, Queuepolitik, Auth und DTO bleiben
+unverändert. DE-Supplement und EN-Bildfallback erhalten ihre Identitätsregeln;
+fehlende oder abgewiesene Antworten erzeugen keinen erfundenen Preis.
+
+Root-RED: **73 PASS / 10 FAIL**; die vier gültigen Kontrollen der 14 neuen Fälle
+bestanden bereits. GREEN: **83/83** einschließlich sauberem Standalone-Paketimport,
+Freigaberechten, UTF-8, exakter Grenzgröße, hängendem Cancel und verhindertem spätem
+Cache-Warming. Belege unter `outputs/public-catalog-cache/`:
+`2026-10-01T13-44-21-785Z-4180.log` und `2026-10-01T13-48-01-868Z-19060.log`.
+Keine echte Providerantwort, Cloud-Latenz oder vollständige Preisabdeckung gemessen.
+
+Vollständige lokale Web-Regression **1.199/1.199 in 73 Dateien** (21,66 s):
+`outputs/release-local/2026-10-01T13-48-02-237Z-19188.{json,log}`. Bekannte JSDOM-
+Canvas-/React-act-Warnungen bleiben sichtbar; sie sind kein Browser-Visualtest.
+Typecheck und fokussierter Lint bestehen nach einer reinen URL-Typkorrektur in der
+neuen GET-Fixture. Danach besteht auch der vollständige erneute Lauf **1.199/1.199**
+in 54,61 s (`outputs/release-local/2026-10-01T13-50-31-363Z-19396.{json,log}`,
+parallel zum Android-Build; keine Performancevergleichsmessung).
+Der isolierte Produktionsmodus-Build besteht in **13,973 s**,
+303 Quelldateien, synthetische Umgebung und Netzschutz. Root-`dist` und dieselben
+neun Konfigurationsdateien bleiben unverändert (Integritätshash wie zuvor).
+Belege: `outputs/release27-engineering-20261001/baseline/build-sharing-body-ui-oct01*`.
+Kein Deployment, Firebase-/Signing-/Release-Eingriff. O(N)-Reads, Gesamtkosten,
+globale Fan-out-Grenzen und vertrauenswürdige Ingresslimits bleiben offen.
