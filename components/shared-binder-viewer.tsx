@@ -21,6 +21,7 @@ export function SharedBinderViewer({ token }: { token: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const requestVersion = useRef(0);
   const requestLifetime = useRef<AbortController | null>(null);
+  const activeRequest = useRef<{ cancel: () => void } | null>(null);
   // Content is already derived from the new DTO; close its now-empty native modal
   // in the same layout commit instead of leaving it open until a passive effect.
   useLayoutEffect(() => {
@@ -31,17 +32,46 @@ export function SharedBinderViewer({ token }: { token: string }) {
     const reset = () => { if (media.matches) setTilt({ x: 0, y: 0 }); };
     media.addEventListener('change', reset); return () => media.removeEventListener('change', reset);
   }, []);
-  const refresh = useCallback(async (signal: AbortSignal) => {
+  const refresh = useCallback(async (signal: AbortSignal, periodic = false) => {
+    if (signal.aborted || (periodic && activeRequest.current)) return;
+    // A timer never supersedes an unfinished read. Explicit retries/visibility
+    // checks retain latest-request priority and cancel their predecessor.
+    activeRequest.current?.cancel();
+    if (signal.aborted) return;
     const version = ++requestVersion.current;
+    const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      if (deadline !== undefined) { clearTimeout(deadline); deadline = undefined; }
+      signal.removeEventListener('abort', cancel);
+      // An abort-ignoring older fetch/body must not release a newer request's slot.
+      if (activeRequest.current === request) activeRequest.current = null;
+    };
+    const cancel = () => { controller.abort(); cleanup(); };
+    const request = { cancel };
+    activeRequest.current = request;
+    signal.addEventListener('abort', cancel, { once: true });
+    const isCurrent = () => version === requestVersion.current && !signal.aborted && !controller.signal.aborted;
+    const fail = (message: string) => {
+      setBinder(null); setSelection(null); dialog.current?.close(); setError(message);
+    };
+    // Bound headers AND JSON consumption. Releasing on timeout must not depend
+    // on a transport honoring abort; the next normal polling tick can recover.
+    deadline = setTimeout(() => {
+      if (isCurrent()) fail('Das Laden dauert zu lange. Bitte erneut versuchen.');
+      cancel();
+    }, 30_000);
     try {
-      const response = await fetch(`/api/shared-binders/${encodeURIComponent(token)}?page=${page}`, { cache: 'no-store', signal, referrerPolicy: 'no-referrer' });
+      const response = await fetch(`/api/shared-binders/${encodeURIComponent(token)}?page=${page}`, { cache: 'no-store', signal: controller.signal, referrerPolicy: 'no-referrer' });
+      if (!isCurrent()) return;
       if (!response.ok) throw new Error(response.status === 404 ? 'Diese Freigabe ist nicht verfügbar oder wurde beendet.' : 'Der Binder konnte nicht geladen werden. Bitte erneut versuchen.');
       const data = await response.json() as SharedBinder;
-      if (version === requestVersion.current && !signal.aborted) { setBinder(data); setError(''); }
+      if (isCurrent()) { setBinder(data); setError(''); }
     } catch (failure) {
-      if (version !== requestVersion.current || signal.aborted) return;
-      setBinder(null); setSelection(null); dialog.current?.close();
-      setError(failure instanceof Error ? failure.message : 'Freigabe nicht verfügbar.');
+      if (!isCurrent()) return;
+      fail(failure instanceof Error ? failure.message : 'Freigabe nicht verfügbar.');
+    } finally {
+      cleanup();
     }
   }, [page, token]);
   useEffect(() => {
@@ -50,7 +80,7 @@ export function SharedBinderViewer({ token }: { token: string }) {
     setBinder(null); setSelection(null); dialog.current?.close(); setError('');
     void refresh(controller.signal);
     // Revocation is enforced on every API request; an open view is also cleared promptly.
-    const timer = setInterval(() => { if (!document.hidden) void refresh(controller.signal); }, 15000);
+    const timer = setInterval(() => { if (!document.hidden) void refresh(controller.signal, true); }, 15000);
     const visible = () => { if (!document.hidden) void refresh(controller.signal); };
     document.addEventListener('visibilitychange', visible);
     return () => {

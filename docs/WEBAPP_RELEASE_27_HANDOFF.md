@@ -1196,3 +1196,36 @@ keine Fehler/Skips, zusätzlich zur 103er-Cacheauswahl. Beleg:
 `outputs/release-local/2026-10-01T14-47-32-920Z-13920.{json,log}`.
 Die bestehenden React-act-/JSDOM-Canvas-Warnungen bleiben offen als Harnessgrenze;
 dies ersetzt keinen Browser-Visualtest. Keine Signierung oder Veröffentlichung.
+
+## Langsame öffentliche Binder-Antworten und begrenztes Warten (2026-10-01)
+
+Der tatsächliche Viewer startete alle 15 Sekunden eine neue Anfrage und erklärte
+dadurch noch laufende Antworten für veraltet. Im reproduzierten 20-Sekunden-Fall
+kam trotz erfolgreicher Antworten kein Binder zur Anzeige. Ein hängender Fetch
+oder JSON-Body hatte außerdem keine eigene Frist.
+
+Periodische Ticks überspringen jetzt eine laufende Anfrage einschließlich ihres
+JSON-Bodys, ohne die Antwortversion zu verändern. Expliziter Retry und erneute
+Tab-Sichtbarkeit behalten ihre Priorität und brechen den Vorgänger ab. Eine
+30-Sekunden-Frist pro Anfrage entfernt alte Binder-/Modalinhalte bei fehlendem
+Abschluss und gibt den lokalen Anfrageslot frei. Der nächste reguläre Tick oder
+ein manueller Retry kann erneut laden. Share-/Seitenwechsel und Unmount brechen
+die zugehörige Anfrage ab und entfernen Frist/Listener. Verspätete alte Antworten
+oder finally-Blöcke dürfen weder Inhalte wiederbeleben noch neuere Anfragen freigeben.
+
+Vorher: 1.204 PASS / vier gezielte Fehler; nachher **1.208/1.208 PASS**, keine Skips.
+Sieben neue Fälle decken langsame Header/JSON, beide Fristabläufe mit Wiederanlauf
+und Token-/Seiten-/Unmount-Wechsel ab. Typecheck und fokussierter Lint bestehen.
+Belege: `outputs/release-local/2026-10-01T16-00-29-476Z-20668.{json,log}` (RED)
+und `outputs/release-local/2026-10-01T16-07-05-543Z-18044.{json,log}` (GREEN).
+Isolierter Produktionsmodus-Build: 13,181 s, 303 Quelldateien, synthetische
+Umgebung und Netzsperre, Exit 0. Root-dist und neun Konfigurationsdateien behalten
+Integritätshash `fbc3b489d56287d0dd84b2a4bedcbf0b17113621f5d3e74872fcc76e95fdf95f`.
+Beleg: `outputs/release27-engineering-20261001/baseline/build-viewer-deadline-green*`.
+
+Die Frist ist lokal, kein Server-SLA und keine Garantie über das Ende bereits
+laufender Serverarbeit oder deren Kosten. Unter ignoriertem Abort wird nur der
+logische Slot freigegeben. Widerruf bleibt requestbasiert, nicht Push; 15-Sekunden-
+Ticks garantieren bei langsamen Antworten keine exakt 15-sekündige Sichtbarkeit.
+Die API bleibt no-store mit ihren bestehenden Berechtigungsprüfungen. Bestehende
+React-act-/JSDOM-Canvas-Warnungen bleiben Harnessgrenzen. Kein Deployment.

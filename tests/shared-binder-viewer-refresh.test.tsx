@@ -280,3 +280,182 @@ describe('shared binder successful refresh and open large-card view', () => {
     }
   });
 });
+
+describe('shared binder slow automatic refresh lifetime', () => {
+  it('publishes 20-second initial and periodic responses instead of invalidating every answer', async () => {
+    vi.useFakeTimers();
+    const pending: ReturnType<typeof deferred<Response>>[] = [];
+    const startedAt: number[] = [];
+    vi.mocked(fetch).mockReset().mockImplementation(() => {
+      startedAt.push(Date.now());
+      const request = deferred<Response>(); pending.push(request); return request.promise;
+    });
+    const view = render(<SharedBinderViewer token={token} />);
+    try {
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('status').textContent).toContain('Binder wird geladen');
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+      await act(async () => { pending[0].resolve(response(binder('Erste Antwort nach 20 Sekunden'))); });
+      // A 15-second tick must not make the first successful answer permanently stale.
+      expect(screen.getByRole('heading', { level: 1, name: 'Erste Antwort nach 20 Sekunden' })).toBeTruthy();
+      expect(screen.queryByRole('status')).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole('button', { name: /Testkarte.*groß ansehen/ }));
+
+      // Allow the next normal polling opportunity, without prescribing whether its
+      // cadence is interval-based or measured from the previous completed request.
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('heading', { name: 'Erste Antwort nach 20 Sekunden' })).toBeTruthy();
+      const remainingResponseTime = 20_000 - (Date.now() - startedAt[1]);
+      expect(remainingResponseTime).toBeGreaterThan(0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(remainingResponseTime); });
+      await act(async () => { pending[1].resolve(response(binder('Aktualisierung nach weiteren 20 Sekunden', [{
+        ...originalCard, price: { ...originalCard.price!, amount: 3.21 },
+      }]))); });
+      expect(screen.getByRole('heading', { level: 1, name: 'Aktualisierung nach weiteren 20 Sekunden' })).toBeTruthy();
+      expect(within(screen.getByRole('dialog')).getByText(/Cardmarket:.*3,21/)).toBeTruthy();
+      expect(within(screen.getByRole('dialog')).queryByText(/Cardmarket:.*12,34/)).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      view.unmount();
+      // Deliberately abort-ignoring transport: settle every captured request, even on RED.
+      await act(async () => { pending.forEach(request => request.resolve(response(binder('Abgebrochene Antwort')))); });
+      vi.clearAllTimers(); vi.useRealTimers();
+    }
+  });
+
+  it('does not start a parallel periodic request while the current JSON body is still pending', async () => {
+    vi.useFakeTimers();
+    const body = deferred<SharedBinder>();
+    const readBody = vi.fn(() => body.promise);
+    vi.mocked(fetch).mockReset().mockImplementation(async () => ({ ok: true, json: readBody }) as unknown as Response);
+    const view = render(<SharedBinderViewer token={token} />);
+    try {
+      await act(async () => {});
+      expect(readBody).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(readBody).toHaveBeenCalledTimes(1);
+      await act(async () => { body.resolve(binder('Langsamer JSON-Body vollständig')); });
+      expect(screen.getByRole('heading', { level: 1, name: 'Langsamer JSON-Body vollständig' })).toBeTruthy();
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      view.unmount();
+      await act(async () => { body.resolve(binder('Abgebrochener JSON-Body')); });
+      vi.clearAllTimers(); vi.useRealTimers();
+    }
+  });
+
+  it.each(['fetch', 'json'] as const)('clears stale content after a 30-second %s deadline and recovers without reviving the timed-out answer', async (stage) => {
+    vi.useFakeTimers();
+    const oldFetch = deferred<Response>();
+    const oldBody = deferred<SharedBinder>();
+    const readOldBody = vi.fn(() => oldBody.promise);
+    const subsequent: ReturnType<typeof deferred<Response>>[] = [];
+    vi.mocked(fetch).mockReset().mockResolvedValueOnce(response(binder('Binder vor hängender Antwort')))
+      .mockImplementationOnce(() => stage === 'fetch' ? oldFetch.promise
+        : Promise.resolve({ ok: true, json: readOldBody } as unknown as Response))
+      .mockImplementation(() => { const request = deferred<Response>(); subsequent.push(request); return request.promise; });
+    const view = render(<SharedBinderViewer token={token} />);
+    try {
+      await act(async () => {});
+      fireEvent.click(screen.getByRole('button', { name: /Testkarte.*groß ansehen/ }));
+      expect(screen.getByRole('dialog')).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      if (stage === 'json') expect(readOldBody).toHaveBeenCalledTimes(1);
+      const oldSignal = vi.mocked(fetch).mock.calls[1][1]?.signal;
+      expect(oldSignal).toBeInstanceOf(AbortSignal);
+
+      // This is an explicit local 30-second request policy, not a server SLA.
+      // It covers both awaiting headers and awaiting the full JSON body, while
+      // allowing the separate 20-second successful-response regression above.
+      await act(async () => { await vi.advanceTimersByTimeAsync(29_999); });
+      expect(oldSignal?.aborted).toBe(false);
+      expect(screen.getByRole('heading', { name: 'Binder vor hängender Antwort' })).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(oldSignal?.aborted).toBe(true);
+      expect(screen.queryByRole('heading', { name: 'Binder vor hängender Antwort' })).toBeNull();
+      expect(screen.queryByAltText('Testkarte')).toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('alert')).toBeTruthy();
+
+      // A deadline must release the in-flight slot even when transport ignores
+      // abort. A fresh attempt must start no later than the next polling chance.
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(fetch).toHaveBeenCalledTimes(3);
+      const newSignal = vi.mocked(fetch).mock.calls[2][1]?.signal;
+      expect(newSignal).toBeInstanceOf(AbortSignal);
+      expect(newSignal?.aborted).toBe(false);
+      await act(async () => { subsequent[0].resolve(response(binder('Nach Zeitlimit wieder geladen', [{
+        ...originalCard, price: { ...originalCard.price!, amount: 3.21 },
+      }]))); });
+      expect(screen.getByRole('heading', { name: 'Nach Zeitlimit wieder geladen' })).toBeTruthy();
+      expect(screen.queryByRole('alert')).toBeNull();
+
+      // Neither a fetch nor a body that completes after its ignored abort may
+      // restore stale prices, the old binder, or the previously open modal.
+      await act(async () => {
+        oldFetch.resolve(response(binder('Verspätete Antwort nach Zeitlimit')));
+        oldBody.resolve(binder('Verspätete Antwort nach Zeitlimit'));
+      });
+      expect(screen.getByRole('heading', { name: 'Nach Zeitlimit wieder geladen' })).toBeTruthy();
+      expect(screen.queryByRole('heading', { name: 'Verspätete Antwort nach Zeitlimit' })).toBeNull();
+      expect(screen.queryByText(/12,34/)).toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      view.unmount();
+      await act(async () => {
+        oldFetch.resolve(response(binder('Abgebrochene Antwort')));
+        oldBody.resolve(binder('Abgebrochener JSON-Body'));
+        subsequent.forEach(request => request.resolve(response(binder('Abgebrochener Folgeversuch'))));
+      });
+      vi.clearAllTimers(); vi.useRealTimers();
+    }
+  });
+
+  it.each(['token', 'page', 'unmount'] as const)('still aborts a slow scheduled refresh on %s and never publishes its late data', async (change) => {
+    vi.useFakeTimers();
+    const pending: ReturnType<typeof deferred<Response>>[] = [];
+    vi.mocked(fetch).mockReset().mockResolvedValueOnce(response(binder('Binder vor langsamem Refresh')))
+      .mockImplementation(() => { const request = deferred<Response>(); pending.push(request); return request.promise; });
+    const view = render(<SharedBinderViewer token={token} />);
+    try {
+      await act(async () => {});
+      expect(screen.getByRole('heading', { name: 'Binder vor langsamem Refresh' })).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const oldSignal = vi.mocked(fetch).mock.calls[1][1]?.signal;
+      expect(oldSignal).toBeInstanceOf(AbortSignal);
+      expect(oldSignal?.aborted).toBe(false);
+
+      if (change === 'unmount') {
+        view.unmount();
+        expect(oldSignal?.aborted).toBe(true);
+        await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+        expect(fetch).toHaveBeenCalledTimes(2);
+      } else {
+        vi.mocked(fetch).mockResolvedValueOnce(response({ ...binder('Neuer Kontext sofort geladen', []), page: change === 'page' ? 1 : 0 }));
+        await act(async () => {
+          if (change === 'token') view.rerender(<SharedBinderViewer token={'y'.repeat(43)} />);
+          else fireEvent.click(screen.getByRole('button', { name: 'Weiter' }));
+        });
+        expect(oldSignal?.aborted).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(3);
+        expect(vi.mocked(fetch).mock.calls[2][0]).toBe(change === 'token'
+          ? `/api/shared-binders/${'y'.repeat(43)}?page=0` : `/api/shared-binders/${token}?page=1`);
+        expect(screen.getByRole('heading', { name: 'Neuer Kontext sofort geladen' })).toBeTruthy();
+        await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      }
+      await act(async () => { pending[0].resolve(response(binder('Verspäteter alter periodischer Refresh'))); });
+      expect(screen.queryByRole('heading', { name: 'Verspäteter alter periodischer Refresh' })).toBeNull();
+      if (change !== 'unmount') expect(screen.getByRole('heading', { name: 'Neuer Kontext sofort geladen' })).toBeTruthy();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      view.unmount();
+      await act(async () => { pending.forEach(request => request.resolve(response(binder('Abgebrochene Antwort')))); });
+      vi.clearAllTimers(); vi.useRealTimers();
+    }
+  });
+});
