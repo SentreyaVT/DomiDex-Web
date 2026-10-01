@@ -17,6 +17,9 @@ Web-Implementierung im Android-Repository pflegen.
   Preis-/Sharing-Optimierungen sind weiterhin nicht umgesetzt.
 - **Gate 3 danach lokal implementiert, noch nicht aktiviert:** optionale
   App-Check-Beobachtung, Default-off; keine neue Zugangssperre oder Enforcement.
+- **Gate 4: isolierter Listener-Lifecycle-Fix lokal implementiert:** Preiswahl-
+  Abonnement erst nach App-Freigabe, veraltete Callbacks abgefangen und expliziter
+  Wiederverbindungsbutton. Noch keine allgemeine Initial-/Delta-Sync-Optimierung.
 - Kein Deployment, kein produktiver Firebase-Zugriff, keine Rollenänderung, kein
   Google-Play-Aufruf und kein Android-Build durch diesen Web-Prüfabschnitt.
   Aus vorhandenem Quellcode folgt keine Behauptung über den derzeitigen Live-Stand.
@@ -336,6 +339,55 @@ Nachweise: `unit-gate3-final-results.json`, `extra-gate3.log`, `node-gate3.log`,
 `typecheck-gate3.log`, `lint-gate3.log`, `app-check-contract-green.log`,
 `app-check-latency.json`, `build-gate3-result.json`, `build-gate3.log` im ignorierten
 Baseline-Ordner. Keine produktive Aktivierung, kein Deploy und keine Signierung.
+
+## Gate 4: isolierter Preiswahl-Listener-Lifecycle-Fix
+
+Der Web-Preiswahl-Listener startete bisher bereits für eine bekannte UID, noch
+bevor `hasAppAccess` bestätigt war. Ein terminaler Listener-/Registrierungsfehler
+konnte für dieselbe UID bestehen bleiben: der bisherige Preis-Retry wiederholte
+nur die Kartenpreisauflösung. Ein verspäteter Erfolgs-Callback einer alten
+asynchronen Registrierung konnte außerdem den aktuellen Owner-State verdrängen.
+
+Eng begrenzte Änderungen in `components/web-app.tsx` und
+`components/use-collection-prices.ts`:
+
+- Owner-UID erst bei bestätigtem App-Zugang an den Preiswahl-Hook übergeben.
+- Erfolg, Fehler und Registrierungs-Cleanup an die aktive Effect-Generation
+  binden, auch nach Entzug und erneuter Freigabe derselben UID.
+- Eigener Retry-Zähler startet einen fehlgeschlagenen Preiswahl-Listener neu.
+  Ein gesunder Listener bleibt bei reinen Kartenpreis-Retries bestehen.
+- Sichtbarer Button „Preisauswahl erneut synchronisieren“, auch wenn die
+  Marktpreisabrufe selbst erfolgreich waren.
+
+**RED → GREEN:** Vor dem Produktfix am 01.10.2026, 03:56:10, bestanden im
+gezielten 37-Test-Lauf 31 Tests; sechs neue Regressionen waren rot. Betroffen
+waren Zugangsgating, fehlender UI-Retry, derselbe Owner nach Fehler/Freigabe,
+verspätete alte Erfolge und fehlgeschlagene asynchrone Registrierung. Nach dem
+Fix bestanden 37/37; der abschließende erweiterte Lauf bestand **88/88 in neun
+Dateien**. Sieben neue Tests ergänzen die bestehende Auswahl; keine früheren
+Testzahlen mit diesen überlappenden Läufen addieren.
+
+Nachweisquellen: `tests/collection-prices.test.ts` und
+`tests/web-app-polish.test.tsx` enthalten die neuen Regressionen. Die erweiterte
+Auswahl umfasst außerdem `collection-price-selections.test.ts`,
+`price-alternative-picker.test.tsx`, `auth-provider.test.tsx`,
+`web-connection-state.test.tsx`, `web-collection-layouts.test.tsx`,
+`private-binder-gallery.test.tsx` und `binder-sharing-owner.test.tsx`, jeweils
+unter `tests/`. Maschinenlesbarer GREEN-Nachweis:
+`outputs/release27-engineering-20261001/baseline/gate4-lifecycle-green-results.json`.
+Der ursprüngliche RED-Lauf ist im Arbeitsprotokoll dokumentiert, nicht als
+nachträglich erzeugtes Maschinenprotokoll ausgegeben.
+
+TypeScript `tsc --noEmit --incremental false`, Oxlint und `git diff --check`
+bestanden ebenfalls. Eine zunächst zu eng inferierte Owner-Prop im neuen Test
+wurde explizit optional typisiert; keine Assertion oder Wartegrenze abgeschwächt.
+Vitest nutzte weiterhin `envDir: false` und die Netzsperre.
+
+**Grenze:** Dies sind lokale Hook-/Komponenten-Regressionsprüfungen, kein neuer
+Full-Sync-, Firebase-Emulator-, echter Android/Web-Roundtrip- oder Live-Test.
+Keine neue Persistenz, Pagination, Schema-/Regeländerung, allgemeine
+Preisresolver-Optimierung, Signierung, Build oder Veröffentlichung. Der größere
+Initial-/Delta-Sync-Vertrag bleibt ein separater Gate-4-Arbeitsschritt.
 
 ## Sharing, Domains und Preiswahl: bestehender Vertrag
 

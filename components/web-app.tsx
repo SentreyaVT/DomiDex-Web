@@ -45,7 +45,7 @@ export function WebApp() {
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
-  const { prices, priceSources, selections, selectionSyncFailed, failed: failedPrices, pending: pendingPrices, retry: retryPrices } = useCollectionPrices(entries, user?.uid);
+  const { prices, priceSources, selections, selectionSyncFailed, failed: failedPrices, pending: pendingPrices, retry: retryPrices } = useCollectionPrices(entries, hasAppAccess ? user?.uid : undefined);
   const { visibility: setBinderVisibility, failed: layoutFailed } = useCollectionLayouts(hasAppAccess ? user?.uid : undefined);
   const syncInterrupted = offline || layoutFailed || selectionSyncFailed;
 
@@ -87,6 +87,7 @@ export function WebApp() {
           <div className="sync-pill" role="status">{syncInterrupted ? <><CloudOff /> Synchronisierung unterbrochen · letzte Ansicht</> : <><span /> {loading ? 'Sammlung wird geladen' : 'Sammlung geladen'}</>}</div>
         </header>
         {error && <div className="app-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Fehler schließen"><X /></button></div>}
+        {selectionSyncFailed && <div className="app-error" role="status">Deine gespeicherte Preisauswahl konnte nicht synchronisiert werden.<button onClick={retryPrices}>Preisauswahl erneut synchronisieren</button></div>}
         {failedPrices.size > 0 && <div className="app-error" role="status">Preise für {failedPrices.size} Einträge konnten nicht geladen werden.<button onClick={retryPrices} disabled={pendingPrices > 0}>Erneut versuchen</button></div>}
         {loading ? <AppLoading compact /> : (
           <>

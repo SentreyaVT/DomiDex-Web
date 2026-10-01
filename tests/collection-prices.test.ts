@@ -1,13 +1,24 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi, afterEach } from 'vitest';
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { formatKnownValuation, resolveCollectionPrice, sumKnownPrices } from '@/lib/collection-prices';
 import { useCollectionPrices } from '@/components/use-collection-prices';
 import { loadCard } from '@/lib/tcgdex';
 import type { CollectionEntry, TcgCardDetail } from '@/lib/domain';
 import { alternativePriceCandidates, type CollectionPriceSelection } from '@/lib/price-alternatives';
 
+type SelectionListener = {
+  owner: string;
+  next: (values: Record<string, CollectionPriceSelection>) => void;
+  fail: (error: Error) => void;
+  stop: ReturnType<typeof vi.fn>;
+};
+const selectionMock = vi.hoisted(() => ({ subscribe: vi.fn() }));
 vi.mock('@/lib/tcgdex', () => ({ loadCard: vi.fn() }));
+vi.mock('@/lib/collection-price-selections', () => ({ subscribeCollectionPriceSelections: selectionMock.subscribe }));
+beforeEach(() => {
+  selectionMock.subscribe.mockImplementation(async (_owner: string, next: SelectionListener['next']) => { next({}); return vi.fn(); });
+});
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 const entry = { syncId: 'a', sourceCardId: 'sv-test-137', sourceSetId: 'sv-test', collectorNumber: '137/088', finish: 'Holo', variant: 'Standard', quantity: 2, externalProductId: 77 } as CollectionEntry;
 const card = { id: 'sv-test-137', localId: '137', name: 'Sonderkarte', set: { id: 'sv-test', name: 'Test', cardCount: { official: 88 } }, variants_detailed: [{ type: 'Holo', size: 'Standard', pricing: { cardmarket: { idProduct: 77, trend: 12.34, 'trend-holo': 98.76 } } }] } as TcgCardDetail;
@@ -119,5 +130,122 @@ describe('honest bounded collection price states', () => {
     expect(await resolveCollectionPrice(exactEntry, async () => card, selection)).toMatchObject({ price: 12.34, source: 'trend', failed: false });
     expect(await resolveCollectionPrice(exactEntry, async () => missingTrend, { ...selection, finish: 'Reverse Holo' })).toMatchObject({ price: null, source: null });
     expect(await resolveCollectionPrice(exactEntry, async () => missingTrend, { ...selection, productId: 88 })).toMatchObject({ price: null, source: null });
+  });
+});
+
+describe('price selection listener lifecycle', () => {
+  const emptyEntries: CollectionEntry[] = [];
+  const marker = (owner: string, id: string) => ({ [id]: { ownerUid: owner, entrySyncId: id, cleared: true } as CollectionPriceSelection });
+  function captureListeners() {
+    const listeners: SelectionListener[] = [];
+    selectionMock.subscribe.mockImplementation(async (owner: string, next: SelectionListener['next'], fail: SelectionListener['fail']) => {
+      const listener = { owner, next, fail, stop: vi.fn() };
+      listeners.push(listener);
+      return listener.stop;
+    });
+    return listeners;
+  }
+
+  it('restarts a failed listener for the same owner and ignores callbacks from its previous generation', async () => {
+    const listeners = captureListeners();
+    const { result } = renderHook(() => useCollectionPrices(emptyEntries, 'owner-a'));
+    await waitFor(() => expect(listeners).toHaveLength(1));
+    act(() => listeners[0].fail(new Error('permission-denied')));
+    expect(result.current.selectionSyncFailed).toBe(true);
+
+    act(() => result.current.retry());
+    await waitFor(() => expect(listeners).toHaveLength(2));
+    expect(listeners[1].owner).toBe('owner-a');
+    expect(listeners[0].stop).toHaveBeenCalledOnce();
+    act(() => listeners[1].next(marker('owner-a', 'current')));
+    expect(result.current.selections).toEqual(marker('owner-a', 'current'));
+    act(() => { listeners[0].next(marker('owner-a', 'stale')); listeners[0].fail(new Error('late')); });
+    expect(result.current.selections).toEqual(marker('owner-a', 'current'));
+    expect(result.current.selectionSyncFailed).toBe(false);
+  });
+
+  it('ignores late success and error after losing access and returning to the same owner', async () => {
+    const listeners = captureListeners();
+    const initialProps: { owner?: string } = { owner: 'owner-a' };
+    const { result, rerender } = renderHook(({ owner }) => useCollectionPrices(emptyEntries, owner), { initialProps });
+    await waitFor(() => expect(listeners).toHaveLength(1));
+    act(() => listeners[0].next(marker('owner-a', 'before')));
+    rerender({ owner: undefined });
+    expect(result.current.selections).toEqual({});
+    expect(listeners[0].stop).toHaveBeenCalledOnce();
+    rerender({ owner: 'owner-a' });
+    await waitFor(() => expect(listeners).toHaveLength(2));
+    act(() => listeners[1].next(marker('owner-a', 'current')));
+    act(() => listeners[0].next(marker('owner-a', 'stale')));
+    expect(result.current.selections).toEqual(marker('owner-a', 'current'));
+    act(() => listeners[0].fail(new Error('late')));
+    expect(result.current.selectionSyncFailed).toBe(false);
+  });
+
+  it('ignores late snapshots while an old asynchronous registration is still completing', async () => {
+    const listeners = captureListeners();
+    let finishOld!: (stop: () => void) => void;
+    let oldNext!: SelectionListener['next'];
+    let oldFail!: SelectionListener['fail'];
+    selectionMock.subscribe.mockImplementationOnce((_owner: string, next: SelectionListener['next'], fail: SelectionListener['fail']) => {
+      oldNext = next; oldFail = fail;
+      return new Promise<() => void>((resolve) => { finishOld = resolve; });
+    });
+    const { result, rerender } = renderHook(({ owner }) => useCollectionPrices(emptyEntries, owner), { initialProps: { owner: 'owner-a' } });
+    rerender({ owner: 'owner-b' });
+    await waitFor(() => expect(listeners).toHaveLength(1));
+    act(() => listeners[0].next(marker('owner-b', 'current')));
+    act(() => { oldNext(marker('owner-a', 'stale')); oldFail(new Error('late')); });
+    expect(result.current.selections).toEqual(marker('owner-b', 'current'));
+    expect(result.current.selectionSyncFailed).toBe(false);
+    const stopOld = vi.fn();
+    await act(async () => finishOld(stopOld));
+    expect(stopOld).toHaveBeenCalledOnce();
+    expect(listeners[0].stop).not.toHaveBeenCalled();
+  });
+
+  it('ignores a rejected old registration and cleans up a registration completed after unmount', async () => {
+    const listeners = captureListeners();
+    let rejectOld!: (error: Error) => void;
+    selectionMock.subscribe.mockImplementationOnce(() => new Promise<() => void>((_resolve, reject) => { rejectOld = reject; }));
+    const { result, rerender, unmount } = renderHook(({ owner }) => useCollectionPrices(emptyEntries, owner), { initialProps: { owner: 'owner-a' } });
+    rerender({ owner: 'owner-b' });
+    await waitFor(() => expect(listeners).toHaveLength(1));
+    act(() => listeners[0].next(marker('owner-b', 'current')));
+    await act(async () => rejectOld(new Error('late import failure')));
+    expect(result.current.selections).toEqual(marker('owner-b', 'current'));
+    expect(result.current.selectionSyncFailed).toBe(false);
+    unmount();
+    expect(listeners[0].stop).toHaveBeenCalledOnce();
+
+    let finish!: (stop: () => void) => void;
+    selectionMock.subscribe.mockImplementationOnce(() => new Promise<() => void>((resolve) => { finish = resolve; }));
+    const delayed = renderHook(() => useCollectionPrices(emptyEntries, 'owner-a'));
+    delayed.unmount();
+    const stop = vi.fn();
+    await act(async () => finish(stop));
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it('retries a failed registration but does not restart a healthy listener for a card-price retry', async () => {
+    const listeners = captureListeners();
+    selectionMock.subscribe.mockRejectedValueOnce(new Error('registration failed'));
+    const entries = [entry];
+    vi.mocked(loadCard).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(card);
+    const { result } = renderHook(() => useCollectionPrices(entries, 'owner-a'));
+    await waitFor(() => expect(result.current.selectionSyncFailed).toBe(true));
+    act(() => result.current.retry());
+    await waitFor(() => expect(listeners).toHaveLength(1));
+    act(() => listeners[0].next({}));
+    await waitFor(() => expect(result.current.prices.a).toBe(12.34));
+    expect(result.current.selectionSyncFailed).toBe(false);
+    vi.mocked(loadCard).mockRejectedValueOnce(new Error('card transport offline'));
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.failed.has('a')).toBe(true));
+    expect(selectionMock.subscribe).toHaveBeenCalledTimes(2);
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.prices.a).toBe(12.34));
+    expect(selectionMock.subscribe).toHaveBeenCalledTimes(2);
+    expect(listeners[0].stop).not.toHaveBeenCalled();
   });
 });

@@ -11,10 +11,10 @@ const state = vi.hoisted(() => ({
   scannerLabAccess: false,
   entries: [] as CollectionEntry[],
   prices: {} as Record<string, number | null>,
-  add: vi.fn(), mutate: vi.fn(), subscribe: vi.fn(),
+  add: vi.fn(), mutate: vi.fn(), subscribe: vi.fn(), priceOwner: vi.fn(), retryPrices: vi.fn(), selectionSyncFailed: false,
 }));
 vi.mock('@/components/auth-provider', () => ({ useAuth: () => ({ user: state.user, loading: false, hasAppAccess: state.access, isAdmin: state.admin, hasScannerLabAccess: state.scannerLabAccess, logout: vi.fn(), signIn: vi.fn(), refreshClaims: vi.fn() }) }));
-vi.mock('@/components/use-collection-prices', () => ({ useCollectionPrices: () => ({ prices: state.prices, priceSources: {}, selections: {}, selectionSyncFailed: false, failed: new Set(), pending: 0, retry: vi.fn() }) }));
+vi.mock('@/components/use-collection-prices', () => ({ useCollectionPrices: (_entries: CollectionEntry[], owner?: string) => { state.priceOwner(owner); return { prices: state.prices, priceSources: {}, selections: {}, selectionSyncFailed: state.selectionSyncFailed, failed: new Set(), pending: 0, retry: state.retryPrices }; } }));
 vi.mock('@/components/use-collection-layouts', () => ({ useCollectionLayouts: () => ({ visibility: new Map(), failed: false }) }));
 vi.mock('@/lib/collection', () => ({
   addExactCard: state.add, changeQuantity: state.mutate,
@@ -31,11 +31,34 @@ const entry = (syncId: string, fields: Partial<CollectionEntry> = {}) => ({
 
 afterEach(() => {
   cleanup(); state.entries = []; state.prices = {}; state.access = true; state.admin = false; state.scannerLabAccess = false;
+  state.selectionSyncFailed = false;
   state.user = { uid: 'visual-test', displayName: 'Testsammlung', email: 'test@example.invalid' };
   vi.clearAllMocks();
 });
 
 describe('authenticated collector presentation', () => {
+  it('gates the price selection owner by confirmed app access, including revoke and regrant', () => {
+    state.access = false;
+    const { rerender } = render(<WebApp />);
+    expect(state.priceOwner).toHaveBeenLastCalledWith(undefined);
+    state.access = true; rerender(<WebApp />);
+    expect(state.priceOwner).toHaveBeenLastCalledWith('visual-test');
+    state.access = false; rerender(<WebApp />);
+    expect(state.priceOwner).toHaveBeenLastCalledWith(undefined);
+    state.access = true; rerender(<WebApp />);
+    expect(state.priceOwner).toHaveBeenLastCalledWith('visual-test');
+    state.user = null; rerender(<WebApp />);
+    expect(state.priceOwner).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('exposes a real selection-sync retry even when all card prices loaded successfully', () => {
+    state.selectionSyncFailed = true;
+    render(<WebApp />);
+    expect(screen.getByText('Deine gespeicherte Preisauswahl konnte nicht synchronisiert werden.')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Preisauswahl erneut synchronisieren' }));
+    expect(state.retryPrices).toHaveBeenCalledOnce();
+  });
+
   it('limits the new presentation to users with confirmed app access', () => {
     state.user = null;
     const { container, rerender } = render(<WebApp />);
