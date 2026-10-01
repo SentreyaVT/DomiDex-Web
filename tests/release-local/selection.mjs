@@ -14,6 +14,8 @@ const extraFiles = [
   'tests/shared-binder-request-abort.test.mjs',
   'tests/printing-descriptor-parity.test.mjs',
   'tests/composed-printing-markers.test.mjs',
+  'tests/collection-add-transaction-identity.test.mjs',
+  'tests/sibling-printing-product-agreement.test.mjs',
   'tests/private-sync-time-anchor.test.mjs',
   'tests/private-sync-time-anchor-route.test.ts',
   'tests/read-rate-limit.test.mjs',

@@ -4,7 +4,47 @@ Stand: 01.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
-### Aktueller lokaler Zwischenstand: vollständige Druckbeschreibungen
+### Aktueller lokaler Zwischenstand: widersprüchliche Produkte und Hinzufügen
+
+Gleiche rohe Varianten-ID, gleicher normalisierter Finish und exakt gleiche volle
+Druckbeschreibung dürfen nicht abhängig von der Quellreihenfolge verschiedene
+Cardmarket-Produkte liefern. Die Auflösung prüft deshalb sämtliche positiven
+Rohdeklarationen dieser Gruppe. Ein bereits intern widersprüchlicher Nachbar darf
+seine widersprechende ID nicht verstecken. Andere Oberflächen, Größen, Untertypen,
+Stempel, Folien und rohe IDs bleiben getrennt. Keine Root-/Geschwisterpreis-Vererbung;
+fehlende Metadaten werden nicht durch einen Nachbarpreis ersetzt.
+
+Beim Hinzufügen wird der tatsächlich innerhalb der Transaktion gelesene Eintrag
+nochmals mit `samePrinting` geprüft. Die vorhandene deterministische UUID enthält
+keine Produkt-ID; ein kollidierender Schlüssel darf deshalb nicht ungeprüft eine
+andere Druckvariante hochzählen. Bei Konflikt keine Schreiboperation und keine
+Erfolgsmeldung. Eindeutige Legacy-/Nullprodukt-Regeln bleiben unverändert; keine
+Migration, UUID-, Schema- oder Regeländerung.
+
+Nachgewiesene Quellgruppen: `sv10-096`, `sv03-125`, `sv10.5b-034`, jeweils beide
+Reihenfolgen und gesunde Geschwister. 18 neue Produkt-Tests plus acht Tests über die
+echte `addExactCard`-Transaktionsfunktion mit mechanischem SDK-Double. Das Double
+ist **kein** zusätzlicher echter Firebase-Transaktionstest. RED: acht gezielte
+Produktfehler und drei Transaktionsfehler; nachher **1.285/1.285 PASS**, 78 Dateien:
+`outputs/release-local/2026-10-01T18-14-34-916Z-2444.{json,log}`.
+RED-Belege: `2026-10-01T18-13-32-469Z-21664` und
+`2026-10-01T18-05-47-423Z-22848` im selben Ordner.
+
+Typecheck, gezielter Oxlint und zehn Auswahlverträge PASS; Katalog-/Runtime-Suite
+**103/103** (`outputs/public-catalog-cache/2026-10-01T18-17-56-238Z-7244.log`).
+Bestehende lokale SDK-Regression **31/31**, 34,58 s, alle eigenen Ports danach frei:
+`outputs/release27-engineering-20261001/security-gate10-deletion/run-20261001-201918-8e5d6ac7/`.
+Der zuvor abgebrochene Windows-PowerShell-5-Start scheiterte vor Testbeginn an einer
+CLI-Deprecation auf stderr; Wiederholung mit bestehendem PowerShell 7 erfolgreich.
+
+Isolierter Produktionsmodus-Build: **37,711 s**, 303 Quelldateien, keine privaten
+Env-Dateien, keine Veröffentlichung. Root-dist und neun Build-/Deploymentdateien
+unverändert (`fbc3b489d56287d0dd84b2a4bedcbf0b17113621f5d3e74872fcc76e95fdf95f`);
+Belege `outputs/release27-engineering-20261001/baseline/build-cross-row-identity-final*`.
+Bestehende Test-/SDK-Deprecations bleiben; kein Produktions-/Signing-/Rules-Zugriff.
+Gesamtrelease weiterhin **NOT READY**.
+
+### Vorheriger lokaler Zwischenstand: vollständige Druckbeschreibungen
 
 Die Web-Identität übernimmt jetzt die vorhandenen Rohfelder `subtype`, `stamp`
 und `foil` in fester Reihenfolge, statt unterschiedliche Drucke allein auf

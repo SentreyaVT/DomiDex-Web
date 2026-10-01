@@ -173,6 +173,19 @@ export function exactCardmarketProductId(card: TcgCardDetail, variant: TcgVarian
   const ids = [variant.pricing?.cardmarket?.idProduct, variant.thirdParty?.cardmarket].filter((id) => id != null);
   if (!ids.length || ids.some((id) => !Number.isSafeInteger(id) || id! <= 0 || id !== ids[0])) return null;
   const id = ids[0]!;
+  if (typeof variant.variantId === 'string' && variant.variantId.trim()) {
+    const finish = normalizedFinish(variant.type);
+    const description = collectionVariantLabel(variant);
+    for (const sibling of card.variants_detailed ?? []) {
+      if (sibling.variantId !== variant.variantId || normalizedFinish(sibling.type) !== finish
+        || collectionVariantLabel(sibling) !== description) continue;
+      // Compare raw declarations: resolving a contradictory sibling first would
+      // erase its evidence. Do not inherit a sibling's product or price.
+      const declared = [sibling.pricing?.cardmarket?.idProduct, sibling.thirdParty?.cardmarket];
+      if (declared.some((candidate) => candidate != null && Number.isSafeInteger(candidate)
+        && candidate > 0 && candidate !== id)) return null;
+    }
+  }
   return isQuarantinedCardmarketIdentity(canonicalTcgCardId(card.id), id) ? null : id;
 }
 

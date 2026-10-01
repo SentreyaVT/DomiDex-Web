@@ -56,6 +56,11 @@ export async function addExactCard(
       const remote = decodeEntry(snapshot.data(), syncId, user.uid);
       if (!remote) throw new Error('Der vorhandene Collection-Eintrag ist ungültig.');
       if (remote.deleted) throw new Error('Diese Kartengeneration wurde bereits entfernt. Bitte erneut suchen.');
+      // The source UUID deliberately predates product IDs. A stale caller or a
+      // colliding source key must never increment a different remote printing.
+      if (!samePrinting(card, selectedVariant, remote, finish, variant)) {
+        throw new Error('Die gespeicherte Karte gehört zu einer anderen Druckvariante. Bitte prüfe die Variante vor dem erneuten Hinzufügen.');
+      }
       transaction.update(reference, {
         quantity: Math.min(10_000, remote.quantity + safeQuantity),
         revision: remote.revision + 1,
