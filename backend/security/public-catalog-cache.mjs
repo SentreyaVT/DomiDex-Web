@@ -16,7 +16,7 @@ function projectPublicCard(id, source) {
     card.variants_detailed = source.variants_detailed.map((value) => {
       if (!object(value) || typeof value.type !== 'string') throw Error('INVALID_PUBLIC_VARIANT');
       const variant = { type: value.type };
-      for (const field of ['size', 'foil', 'variantId']) if (value[field] !== undefined) {
+      for (const field of ['size', 'subtype', 'foil', 'variantId']) if (value[field] !== undefined) {
         // Preserve malformed declared identity instead of dropping a conflict and inventing a price.
         if (value[field] !== null && typeof value[field] !== 'string') cacheable = false;
         variant[field] = value[field];

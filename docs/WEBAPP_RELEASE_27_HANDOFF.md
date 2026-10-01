@@ -4,7 +4,44 @@ Stand: 01.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
-### Lokaler Zwischenstand: wiederverwendete Druck-IDs beim Hinzufügen
+### Aktueller lokaler Zwischenstand: vollständige Druckbeschreibungen
+
+Die Web-Identität übernimmt jetzt die vorhandenen Rohfelder `subtype`, `stamp`
+und `foil` in fester Reihenfolge, statt unterschiedliche Drucke allein auf
+`size` zu reduzieren. Stempel werden getrimmt, ohne Beachtung der Großschreibung
+dedupliziert und deterministisch sortiert. Der öffentliche Katalogcache behält
+zusätzlich `subtype`; private Providerfelder bleiben ausgeschlossen. Vollständig
+vorangereicherte Beschreibungen bleiben erhalten, auch wenn dieselben vollständigen
+Marker unterschiedliche Großschreibung oder äußere Leerzeichen haben. Kein
+Teilwort-/Namensmatching, keine Migration gespeicherter Einträge oder neue UUID-Regel.
+
+13 Tests mit Rohmetadaten-Auszügen aus dem eingefrorenen Snapshot (`base1-1`,
+`sv03-062`), unabhängigen Android-Labeln und Plattform-MD5-Referenz reproduzierten
+zunächst zehn Fehler. Sie prüfen getrennte UUIDs, gleiche Produkt-ID bei verschiedenen
+Drucken, Legacy-ID-Aliase, Shared-DTO und kalten/warmen Cache. 18 zusätzliche
+synthetische Kompatibilitätsfälle reproduzierten sieben doppelte Marker.
+Final **1.259/1.259 PASS**, 76 Dateien, keine Skips:
+`outputs/release-local/2026-10-01T17-55-33-246Z-15392.{json,log}`.
+RED-Belege: `2026-10-01T17-42-02-464Z-3180` und
+`2026-10-01T17-54-04-183Z-17576` im selben Ordner.
+
+Typecheck, fokussierter Oxlint und zehn Launcher-Verträge bestehen. Die isolierte
+Katalog-/Runtime-Auswahl besteht **103/103** (`outputs/public-catalog-cache/2026-10-01T17-51-32-348Z-6760.log`).
+Echte lokale SDK-Regression: **31/31**, Rules unverändert, eigene Ports anschließend
+frei (`outputs/release27-engineering-20261001/security-gate10-deletion/run-20261001-195601-3e7235bb/`).
+Isolierter Produktionsmodus-Build: **13,825 s**, 303 Quelldateien, synthetische
+Umgebung ohne private Env-Dateien. Root-dist und neun Konfigurationsdateien behalten
+Integritätshash `fbc3b489d56287d0dd84b2a4bedcbf0b17113621f5d3e74872fcc76e95fdf95f`.
+Buildbelege: `outputs/release27-engineering-20261001/baseline/build-printing-descriptor-final*`.
+
+Das ist keine Vollgarantie für physische Druckmetadaten, aktuelle Preise oder
+bereits mehrdeutig gespeicherte Altbestände. Normale bisherige Labels und
+Absent-size-Fallbacks bleiben unverändert; keine pauschale Parität für hypothetische
+abweichende Quellformate behaupten. Bestehende React-act/Canvas-Testwarnungen bleiben.
+Keine Produktionskonten, kein Deployment, keine Rules-/Signing-/Releaseänderung.
+Gesamtrelease weiterhin **NOT READY**.
+
+### Vorheriger lokaler Zwischenstand: wiederverwendete Druck-IDs beim Hinzufügen
 
 `collectionSyncIdForExactCard` akzeptiert dieselbe rohe Varianten-ID nicht mehr
 als alleinigen Gleichheitsbeweis. Zusätzlich muss die bereits aufgelöste

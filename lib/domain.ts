@@ -54,6 +54,7 @@ export interface CardmarketPricing {
 export interface TcgVariant {
   type: string;
   size?: string;
+  subtype?: string | null;
   stamp?: string[];
   foil?: string;
   variantId?: string;
@@ -191,7 +192,25 @@ export function canonicalTcgCardId(value: string) {
 }
 
 export function collectionVariantLabel(variant: TcgVariant) {
-  return variant.size?.trim() || (/reverse/i.test(variant.type) ? 'Reverse Holo' : /holo/i.test(variant.type) ? 'Holo' : 'Standard');
+  const base = variant.size?.trim() || (/reverse/i.test(variant.type) ? 'Reverse Holo' : /holo/i.test(variant.type) ? 'Holo' : 'Standard');
+  const parts = base.split(' · ');
+  const append = (label: string, raw: unknown) => {
+    if (typeof raw !== 'string' || !raw.trim()) return;
+    const value = `${label}: ${raw.trim()}`;
+    // Preserve precomposed labels verbatim; compare complete markers only.
+    if (!parts.some((part) => part.trim().toLowerCase() === value.toLowerCase())) parts.push(value);
+  };
+  append('Untertyp', variant.subtype);
+  const stamps = new Map<string, string>();
+  const rawStamps: unknown[] = Array.isArray(variant.stamp) ? variant.stamp : [variant.stamp];
+  for (const item of rawStamps) {
+    if (typeof item !== 'string' || !item.trim()) continue;
+    const stamp = item.trim();
+    if (!stamps.has(stamp.toLowerCase())) stamps.set(stamp.toLowerCase(), stamp);
+  }
+  append('Stempel', [...stamps].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, stamp]) => stamp).join(' + '));
+  append('Folie', variant.foil);
+  return parts.join(' · ');
 }
 
 export function collectionPriceIdentity(entry: CollectionEntry) {
