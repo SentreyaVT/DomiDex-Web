@@ -56,6 +56,13 @@ export function AccountDeletion() {
 }
 
 function deletionStatusLabel(status?: string) {
-  const labels: Record<string, string> = { STARTED: 'gestartet', IN_PROGRESS: 'in Bearbeitung', WAITING_FOR_TOKEN_EXPIRY: 'Zugriff wird sicher beendet', WAITING_FOR_RETENTION: 'technische Aufbewahrungsfrist', PARTIAL_FAILURE: 'erneute Bearbeitung erforderlich', REVIEW_REQUIRED: 'Zuordnung wird geprüft' };
+  const labels: Record<string, string> = {
+    STARTED: 'gestartet', IN_PROGRESS: 'in Bearbeitung',
+    PENDING_SESSION_EXPIRY: 'Zugriff wird sicher beendet',
+    ACTIVE_DATA_DELETED_PENDING_PROVIDER_RETENTION: 'technische Wiederherstellungsfrist beim Speicheranbieter',
+    PROVIDER_PURGE_NOT_CONFIRMED: 'endgültige Entfernung beim Speicheranbieter noch nicht bestätigt',
+    WAITING_FOR_TOKEN_EXPIRY: 'Zugriff wird sicher beendet', WAITING_FOR_RETENTION: 'technische Aufbewahrungsfrist',
+    PARTIAL_FAILURE: 'erneute Bearbeitung erforderlich', REVIEW_REQUIRED: 'Zuordnung wird geprüft',
+  };
   return labels[status || ''] || 'in Bearbeitung';
 }

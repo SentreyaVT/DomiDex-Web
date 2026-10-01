@@ -9,7 +9,7 @@ npm run test:release-local
 Use the repository's locked root dependencies and `backend/scan-knowledge` locked
 dependencies (needed by the trigger suite). The launcher installs nothing. It runs
 the ordinary `test`, `test:rate-limits`, `test:app-check`, `test:owner-snapshots` file
-lists plus the four explicit supplemental unit suites in `selection.mjs`, deduplicated.
+lists plus the explicit supplemental unit suites in `selection.mjs`, deduplicated.
 It does not execute package-script shell text. An unexpected command/file format,
 missing group, Rules/emulator test or empty selection fails closed.
 
@@ -37,3 +37,9 @@ preserved, not counted as a product failure or test pass. Latest successful repo
 Existing React-act/JSDOM-canvas warnings remain visible. Unit results do not establish
 browser visual correctness, real Firebase authentication, cross-client end-to-end
 convergence, scanner/device behavior or production performance.
+
+The later Gate-10 selection additionally includes the real account-deletion status
+component and public technical-information tests. Its initial run reproduced four
+missing status/reader descriptions; after the narrow text fixes all **1,031 tests
+in 65 files** pass. That does not close the separate account-switch UI audit.
+Report: `outputs/release-local/2026-10-01T03-37-40-496Z-14648.{json,log}`.

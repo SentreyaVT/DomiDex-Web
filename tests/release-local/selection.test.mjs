@@ -6,7 +6,7 @@ const scripts = () => Object.fromEntries(unitGroups.map((name) => [name,
   'vitest run --config vitest.config.ts tests/safe.test.ts tests/other.test.tsx']));
 await test('unit selection deduplicates groups and includes the targeted regression suites', () => {
   const result = unitFiles(scripts());
-  assert.equal(result.length, 6);
+  assert.equal(result.length, 8);
   assert.ok(result.includes('tests/collection-prices-incremental.test.ts'));
   assert.deepEqual(result, [...result].sort());
 });

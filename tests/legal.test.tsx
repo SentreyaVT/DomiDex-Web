@@ -32,6 +32,13 @@ describe('Public privacy and account request pages', () => {
     expect(content).toContain('Dieser Hintergrundpfad enthält kein Rohfoto');
     expect(content).toContain('keinen automatischen Fotoversand');
   });
+  it('describes explicitly delegated Scanner-Lab readers without granting access to ordinary testers', () => {
+    const section = legalContent.datenschutz.sections.find((item) => item.id === 'scanlab');
+    const content = JSON.stringify(section);
+    expect(content).toContain('ausdrücklich freigeschaltete Scanner-Lab-Mitglieder');
+    expect(content).toContain('Ohne diese gesonderte Berechtigung');
+    expect(content).toContain('keine öffentliche Bildgalerie');
+  });
   it('does not claim complete deletion, anonymous data or a fixed retention job', () => {
     expect(JSON.stringify(legalContent['konto-loeschen'])).toContain('ein Teilfehler wird nicht als vollständige Löschung bestätigt');
     expect(JSON.stringify(legalContent['konto-loeschen'])).toContain('siebentägige technische Wiederherstellungsfrist');

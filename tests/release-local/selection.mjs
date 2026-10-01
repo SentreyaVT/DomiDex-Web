@@ -5,6 +5,8 @@ const extraFiles = [
   'tests/cardmarket-root-identity.test.ts',
   'tests/collection-prices-incremental.test.ts',
   'tests/tcgdex-cache-metadata.test.ts',
+  'tests/account-deletion-ui.test.tsx',
+  'tests/legal.test.tsx',
 ];
 
 export function unitFiles(scripts) {
