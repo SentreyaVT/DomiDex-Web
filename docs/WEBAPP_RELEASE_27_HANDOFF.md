@@ -525,6 +525,39 @@ Unabhängiger Code-Review ohne verbleibenden konkreten Befund. Beleg:
 `outputs/release27-engineering-20261001/baseline/gate5-root-identity-final-results.json`.
 Keine API-Abfrage, Provider-Downloads, Regeln oder Deployments durch diesen Fix.
 
+### Gate 5: inkrementelle Collection-Preisauflösung (2026-10-01)
+
+Der Hook löst bei Mengen-/Notizänderungen oder Umordnung nicht mehr sämtliche
+unveränderten Einträge erneut auf. Wiederverwendet werden nur Ergebnisse derselben
+Owner-/Listenergeneration, desselben vollständigen Resolver-/Preiswahl-Fingerprints
+und desselben Retry-Versuchs innerhalb der ursprünglichen Katalog-Cachefrist.
+Geänderte Einträge werden einzeln neu aufgelöst, entfernte Einträge verworfen;
+ungeänderte Ergebnisse bleiben währenddessen sichtbar. Bereits laufende identische
+Arbeit wird wiederverwendet. Verspätete Ergebnisse aus alten Generationen oder
+nach Unmount dürfen die aktuelle Auswahl nicht überschreiben.
+
+Der öffentliche Katalog-Cache bleibt auf 600 Einträge und zehn Minuten begrenzt.
+`loadCard` behält seine Promise-API; `loadCardWithCacheInfo` liefert zusätzlich die
+ursprüngliche Ablaufzeit. Ein Cachetreffer oder langsamer Abschluss verlängert diese
+nicht. Ein spät fehlschlagender, schon verdrängter Request löscht keinen neueren
+Eintrag derselben Karten-ID. Preispriorität, Variantenregeln, Retry und die bestehende
+Sechsergruppen-Barriere bleiben unverändert. Private Ergebnisse werden nicht global
+gecacht. Ohne freigegebenen Owner werden keine privaten Preise aufgelöst; einziger
+Produktaufrufer ist die bereits zugangsgeschützte Web-App.
+
+Reproduktion: Nach einer Mengenänderung stiegen bei 18 Karten die Resolveraufrufe
+vorher von 18 auf 36, jetzt bleiben es 18. Bei 601 Karten verursachte der bisherige
+Neudurchlauf zusätzliche 601 Resolver-/Loader-/Fetch-Aufrufe; jetzt bleiben die
+jeweiligen Gesamtzähler bei 601. Fetch-Aufrufe in diesen lokalen Tests sind **kein
+Nachweis über echte Netzwerktransfers oder eingesparte Cloud-Kosten**.
+
+50 neue Regressionen decken Identitäts-/Sidecarfelder, TTL-Grenzen, Pending-Arbeit,
+Fehler/Retry, Ownerwechsel, Rechteentzug/-wiedererteilung und Unmount ab. Erste
+Reproduktion: 22 FAIL / 5 PASS; finale gezielte Auswahl 365/365. Unabhängiger Review
+ohne konkreten Restbefund. Root-Gesamtlauf: **962/962 Tests in 60 Dateien**, Typecheck,
+Oxlint und Diffprüfung bestanden. Beleg im ignorierten Evidence-Verzeichnis:
+`gate5-6-root-incremental-sharing-results.json`. Keine Live-Abfrage oder Veröffentlichung.
+
 ### Weiter offene Abnahme
 
 - Security-Emulatorergebnisse einschließlich der neun erneut registrierten
@@ -538,9 +571,10 @@ Keine API-Abfrage, Provider-Downloads, Regeln oder Deployments durch diesen Fix.
   Datenschutz-Allowlist erhalten, alte Links/Widerruf/Android-Web-Fallback testen.
 - Rate-Limit: Parallelität über Instanzen, Transaktionsretry, Ablauf, 429/UI,
   Infrastrukturfehler und nicht blockierter Widerruf prüfen; IP-Grenze nachweisen.
-- Große Sammlung/Binder mit warmem und kaltem Cache messen; aktuelles
-  `use-collection-prices` setzt bei Zustandsänderungen Preiszustand zurück und lädt
-  gebündelt neu. Optimierung erst nach Reproduktion, ohne Auth-/Sync-Abkürzung.
+- Große Sammlung/Binder mit warmem und kaltem Cache end-to-end messen. Der oben
+  reproduzierte lokale Komplett-Neudurchlauf ist behoben; Initialabfragen,
+  Sechsergruppen-Barriere und tatsächliche Netzwerk-/Cloud-Latenzen bleiben separat
+  zu prüfen. Keine Auth-/Sync-Abkürzung aus den lokalen Messungen ableiten.
 - Späterer echter Release-/Container-Smoke-Test mit ausdrücklich freigegebenem
   Deployment-Kontext erforderlich. Synthetischer Build ist keine Deploymentfreigabe.
 - Gate 9: Functions-Codebase-Überschneidung/`isCurrentEvidence`-Drift zwischen

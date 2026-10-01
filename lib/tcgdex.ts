@@ -1,6 +1,7 @@
 import type { TcgCardDetail, TcgCardSummary, TcgSetDetail } from './domain';
 
-const cardCache = new Map<string, Promise<TcgCardDetail>>();
+export type CardLoad = Readonly<{ promise: Promise<TcgCardDetail>; cacheExpiresAt: number }>;
+const cardCache = new Map<string, CardLoad>();
 const setCache = new Map<string, Promise<TcgSetDetail>>();
 const cacheTimes = new Map<string, number>();
 const CACHE_TTL = 10 * 60 * 1000;
@@ -46,22 +47,29 @@ export async function searchCards(query: string): Promise<TcgCardSummary[]> {
 }
 
 export function loadCard(id: string): Promise<TcgCardDetail> {
+  return loadCardWithCacheInfo(id).promise;
+}
+
+/** Cache deadline of this exact request, not the provider's price date or a new freshness grant. */
+export function loadCardWithCacheInfo(id: string): CardLoad {
   const safe = id.trim();
   const existing = cardCache.get(safe);
-  if (existing && Date.now() - (cacheTimes.get(`card:${safe}`) ?? 0) < CACHE_TTL) return existing;
+  const startedAt = Date.now();
+  if (existing && startedAt < existing.cacheExpiresAt) return existing;
   const request = boundedFetch(`/api/cards/${encodeURIComponent(safe)}`)
     .then((response) => {
       if (!response.ok) throw new Error('Kartendetails konnten nicht geladen werden.');
       return response.json() as Promise<TcgCardDetail>;
     })
     .catch((error) => {
-      cardCache.delete(safe);
+      // An evicted request may settle after a newer request for the same public ID.
+      if (cardCache.get(safe)?.promise === request) cardCache.delete(safe);
       throw error;
     });
-  cardCache.set(safe, request);
-  cacheTimes.set(`card:${safe}`, Date.now());
-  if (cardCache.size > CACHE_LIMIT) { const oldest = cardCache.keys().next().value!; cardCache.delete(oldest); cacheTimes.delete(`card:${oldest}`); }
-  return request;
+  const entry = Object.freeze({ promise: request, cacheExpiresAt: startedAt + CACHE_TTL });
+  cardCache.set(safe, entry);
+  if (cardCache.size > CACHE_LIMIT) cardCache.delete(cardCache.keys().next().value!);
+  return entry;
 }
 
 export function loadSet(id: string): Promise<TcgSetDetail> {

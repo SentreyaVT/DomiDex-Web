@@ -14,7 +14,10 @@ type SelectionListener = {
   stop: ReturnType<typeof vi.fn>;
 };
 const selectionMock = vi.hoisted(() => ({ subscribe: vi.fn() }));
-vi.mock('@/lib/tcgdex', () => ({ loadCard: vi.fn() }));
+vi.mock('@/lib/tcgdex', () => {
+  const loadCard = vi.fn();
+  return { loadCard, loadCardWithCacheInfo: (id: string) => ({ promise: loadCard(id), cacheExpiresAt: Date.now() + 600_000 }) };
+});
 vi.mock('@/lib/collection-price-selections', () => ({ subscribeCollectionPriceSelections: selectionMock.subscribe }));
 beforeEach(() => {
   selectionMock.subscribe.mockImplementation(async (_owner: string, next: SelectionListener['next']) => { next({}); return vi.fn(); });
