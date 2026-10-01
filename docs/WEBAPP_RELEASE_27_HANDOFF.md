@@ -4,7 +4,38 @@ Stand: 01.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
-### Aktueller lokaler Zwischenstand: echte SDK-Synchronisationsgrenzen
+### Aktueller lokaler Zwischenstand: Hinzufügen mit echten lokalen SDK-Transaktionen
+
+Der bestehende Private-Operations-Starter bewahrt alle 31 bisherigen Fälle und
+ergänzt zwei echte Web-Client-Fälle: `addExactCard` legt Menge 2/Revision 1 an und
+erhöht dieselbe Druckvariante auf Menge 5/Revision 2. Ein anderes eindeutig
+positives Produkt am selben bisherigen UUID-Schlüssel wird mit leerer sowie
+veralteter Clientliste abgelehnt; sämtliche bestätigten Serverfelder bleiben
+unverändert. Die Produkt-ID-/UUID-Kollision wird vorab ausdrücklich geprüft.
+
+**33/33 echte lokale SDK-Fälle bestanden**, 35,906 s Testzeit; kompletter isolierter
+Lauf 49,818 s. Sieben geordnete unabhängige Admin-Zustände über die beiden neuen
+Fälle, vollständige Dokumentvergleiche, bestätigte nicht-pendente Clientreads und
+gezielte Bereinigung bestanden. Neue Google-Testkonten hatten nur `appAccess:true`,
+keine Admin-/Pretesterrechte. Alle Ports anschließend frei, gehashte Eingaben
+unverändert. Beleg:
+`outputs/private-operations-local/2026-10-01T19-19-46-837Z-635450bc/manifest.json`
+und beide `web-add-*-proof.json` desselben Ordners.
+
+17 reine Sicherheitsprüfungen des Starters, Typecheck und gezielter Oxlint PASS.
+Der anfängliche Lintbefund im neuen Nachweisprüfer wurde durch einen getrennten
+Prüfhelfer korrigiert, ohne Regeln zu unterdrücken. Erneute vollständige lokale
+Web-Regressionssuite **1285/1285 PASS**, 78 Dateien, 24,58 s:
+`outputs/release-local/2026-10-01T19-21-37-030Z-13684.{json,log}`.
+Vorhandene React-act/Canvas-/SDK-Deprecationwarnungen bleiben sichtbar.
+
+Nur Tests, Starter und Dokumentation verändert; Produktcode, UUID, Schema,
+Zugriffsregeln und Konfiguration unverändert. Kein Deployment oder neuer
+Produktionsbuild. Der separate Android3/Web2-Preisrundlauf bleibt unverändert.
+Kein Nachweis über Browserklicks, automatische Android-Workerplanung, Produktion
+oder vollständige Preisdaten. Gesamtrelease weiterhin **NOT READY**.
+
+### Vorheriger lokaler Zwischenstand: echte SDK-Synchronisationsgrenzen
 
 Der bestehende lokale Teststarter prüft jetzt sieben Android-SDK-Fälle mit acht
 rein künstlichen Google-Testkonten. Neu abgesichert: Ein echter noch unbestätigter

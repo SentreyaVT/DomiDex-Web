@@ -1,4 +1,17 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { initializeApp as initializeClientApp, deleteApp as deleteClientApp, getApps } from 'firebase/app';
+import { connectAuthEmulator, getAuth as getClientAuth, GoogleAuthProvider, signInWithCredential, signOut } from 'firebase/auth';
+import { connectFirestoreEmulator, doc, getDocFromServer, initializeFirestore, memoryLocalCache, terminate } from 'firebase/firestore';
+import { assertTestEnvironment } from './private-operations-local/safety.mjs';
+
+// Only substitute default-app initialization. All Auth/Firestore RPCs, the
+// transaction callback, identity functions and the deployed local Rules are real.
+const webAddSdk = vi.hoisted(() => ({ firestore: undefined }));
+vi.mock('../lib/firebase-client', () => ({ get firestore() { return webAddSdk.firestore; } }));
+import { addExactCard, collectionSyncIdForExactCard } from '../lib/collection';
+import { exactCardmarketProductId } from '../lib/domain';
 import { applicationDefault, initializeApp, deleteApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -586,5 +599,194 @@ describe('Account deletion: isolated real Firebase emulators', () => {
     await ref.set({ confirmedCardId: 'card1' }); const latest = await ref.get();
     await lock.set({ jobId: 'deletion' });
     expect(await context.db.runTransaction((tx) => isCurrentEvidence(tx, latest, lock))).toBe(false);
+  });
+});
+
+describe('Web collection add: actual local Google SDK transactions', () => {
+  const owner = 'web-add-sdk-owner';
+  const email = 'web-add-sdk@example.invalid';
+  const googleUid = 'web-add-sdk-google';
+  const first = { type: 'Holo', size: 'Standard', variantId: 'printing-one',
+    thirdParty: { cardmarket: 900001 }, pricing: { cardmarket: { idProduct: 900001, unit: 'EUR', trend: 4.56 } } };
+  const second = { type: 'Holo', size: 'Standard', variantId: 'printing-two',
+    thirdParty: { cardmarket: 900002 }, pricing: { cardmarket: { idProduct: 900002, unit: 'EUR', trend: 12.34 } } };
+  const card = { id: 'identity-proof-001', localId: '001', name: 'Synthetic SDK card',
+    set: { id: 'identity-proof', name: 'Synthetic SDK set' }, variants_detailed: [first, second] };
+  // Independent Node MD5 oracle; never call the product UUID helper to predict
+  // the document key. Both positive products intentionally have this same key.
+  const bytes = createHash('md5').update([owner, 'identity-proof', 'identity-proof-001',
+    'Near Mint', 'Holo', 'Standard'].map(value => value.trim().toLowerCase()).join('|')).digest();
+  bytes[6] = (bytes[6] & 0x0f) | 0x30; bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  const syncId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  const entryPath = `users/${owner}/collectionEntries/${syncId}`;
+  const rejection = 'Die gespeicherte Karte gehört zu einer anderen Druckvariante. Bitte prüfe die Variante vor dem erneuten Hinzufügen.';
+  const normalize = value => {
+    if (value && typeof value.toMillis === 'function' && Number.isInteger(value.seconds) && Number.isInteger(value.nanoseconds)) {
+      return { seconds: value.seconds, nanoseconds: value.nanoseconds };
+    }
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalize(item)]));
+    return value;
+  };
+
+  async function adminReadback() {
+    const documents = {};
+    let inspected = 0;
+    async function visit(collections, depth = 0) {
+      if (depth > 8) throw Error('Unexpected fixture depth');
+      for (const collection of collections) for (const reference of await collection.listDocuments()) {
+        if (++inspected > 100) throw Error('Unexpected fixture size');
+        const snapshot = await reference.get();
+        if (snapshot.exists) documents[reference.path] = normalize(snapshot.data());
+        // Also visit subcollections of missing parent documents.
+        await visit(await reference.listCollections(), depth + 1);
+      }
+    }
+    await visit(await context.db.listCollections());
+    const listed = await context.auth.listUsers(100);
+    expect(listed.pageToken).toBeUndefined();
+    const users = listed.users.map(user => ({ uid: user.uid, email: user.email,
+      emailVerified: user.emailVerified, disabled: user.disabled, customClaims: user.customClaims ?? {},
+      providerData: user.providerData.map(provider => ({ providerId: provider.providerId, uid: provider.uid, email: provider.email })) }))
+      .sort((a, b) => a.uid.localeCompare(b.uid));
+    const [files] = await context.bucket.getFiles();
+    return { documents, users, storageNames: files.map(file => file.name).sort() };
+  }
+
+  function assertCreated(data, started, finished) {
+    expect(data.lastMutationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(Number.isInteger(data.updatedAtClient)).toBe(true);
+    expect(data.updatedAtClient).toBeGreaterThanOrEqual(started);
+    expect(data.updatedAtClient).toBeLessThanOrEqual(finished);
+    expect(Number.isInteger(data.updatedAt?.seconds)).toBe(true);
+    expect(Number.isInteger(data.updatedAt?.nanoseconds)).toBe(true);
+    expect(data.updatedAt.nanoseconds).toBeGreaterThanOrEqual(0);
+    expect(data.updatedAt.nanoseconds).toBeLessThan(1_000_000_000);
+    const serverMs = data.updatedAt.seconds * 1000 + data.updatedAt.nanoseconds / 1_000_000;
+    expect(serverMs).toBeGreaterThanOrEqual(started - 1000);
+    expect(serverMs).toBeLessThanOrEqual(finished + 1000);
+    expect(data).toEqual({ syncId, ownerUid: owner, revision: 1,
+      lastMutationId: data.lastMutationId, updatedAt: data.updatedAt, updatedAtClient: data.updatedAtClient,
+      deleted: false, deletedAtClient: null, name: 'Synthetic SDK card', setId: 'identity-proof',
+      setName: 'Synthetic SDK set', collectorNumber: '001', language: 'GERMAN', finish: 'Holo',
+      variant: 'Standard', rarity: 'UNKNOWN', quantity: 2, condition: 'Near Mint', notes: '',
+      acquisitionPriceMinor: null, acquisitionCurrency: null, acquisitionDateEpochDay: null,
+      externalProductSource: 'CARDMARKET_PUBLIC_DOWNLOAD', externalProductId: 900001,
+      imageUrl: null, effectOverride: null, binderId: 'tcgdex-identity-proof',
+      sourceSetId: 'identity-proof', sourceCardId: 'identity-proof-001', binderSetKey: 'tcgdex-identity-proof',
+      binderName: 'Synthetic SDK set', binderHeroAsset: null });
+  }
+
+  async function withClient(caseName, exercise) {
+    assertTestEnvironment(process.env);
+    expect(exactCardmarketProductId(card, first)).toBe(900001);
+    expect(exactCardmarketProductId(card, second)).toBe(900002);
+    expect(collectionSyncIdForExactCard(owner, card, first, [])).toBe(syncId);
+    expect(collectionSyncIdForExactCard(owner, card, second, [])).toBe(syncId);
+    const directory = process.env.DOMIDEX_PRIVATE_TEST_RUN;
+    expect(path.isAbsolute(directory ?? '') && path.basename(path.dirname(directory)) === 'private-operations-local').toBe(true);
+    const originalApps = getApps().map(value => value.name).sort();
+    expect(originalApps).not.toContain('[DEFAULT]');
+    const original = await adminReadback();
+    expect(original.documents).toEqual({}); expect(original.storageNames).toEqual([]);
+    expect(original.users.map(user => user.uid)).toEqual(['operator', 'owner-a', 'owner-b']);
+    let client, auth, db, ownedUser = false;
+    const failures = [];
+    const proof = { caseName, project: projectId, owner, entryPath, actualProductFunction: 'addExactCard',
+      rpcMocked: false, initial: original, stages: [], passed: false, cleanupComplete: false };
+    try {
+      const imported = await context.auth.importUsers([{ uid: owner, email, emailVerified: true, disabled: false,
+        providerData: [{ providerId: 'google.com', uid: googleUid, email }], customClaims: { appAccess: true } }]);
+      ownedUser = imported.successCount === 1;
+      expect(imported).toMatchObject({ successCount: 1, failureCount: 0, errors: [] });
+      client = initializeClientApp({ projectId, apiKey: 'demo-only-api-key', appId: '1:1234567890:web:addproof' }, `web-add-${caseName}-${randomUUID()}`);
+      auth = getClientAuth(client); connectAuthEmulator(auth, 'http://127.0.0.1:9097', { disableWarnings: true });
+      db = initializeFirestore(client, { localCache: memoryLocalCache() }); connectFirestoreEmulator(db, '127.0.0.1', 8187);
+      webAddSdk.firestore = db;
+      const signedIn = await signInWithCredential(auth,
+        GoogleAuthProvider.credential(JSON.stringify({ sub: googleUid, email, email_verified: true })));
+      expect(signedIn.user.uid).toBe(owner);
+      expect(signedIn.user.providerData.map(provider => ({ providerId: provider.providerId, uid: provider.uid, email: provider.email })))
+        .toEqual([{ providerId: 'google.com', uid: googleUid, email }]);
+      const claims = (await signedIn.user.getIdTokenResult(true)).claims;
+      expect(claims.appAccess).toBe(true); expect(claims.admin).toBeUndefined(); expect(claims.pretester).toBeUndefined();
+      expect(claims.firebase.sign_in_provider).toBe('google.com');
+      const before = await adminReadback();
+      expect(before).toEqual({ ...original, users: [...original.users, { uid: owner, email, emailVerified: true,
+        disabled: false, customClaims: { appAccess: true }, providerData: [{ providerId: 'google.com', uid: googleUid, email }] }]
+        .sort((a, b) => a.uid.localeCompare(b.uid)) });
+      proof.stages.push({ phase: 'signed-in-empty', server: before });
+      const readServer = async phase => {
+        const snapshot = await getDocFromServer(doc(db, entryPath));
+        expect(snapshot.exists()).toBe(true); expect(snapshot.metadata.fromCache).toBe(false);
+        expect(snapshot.metadata.hasPendingWrites).toBe(false);
+        const server = await adminReadback();
+        expect(server.users).toEqual(before.users); expect(server.storageNames).toEqual([]);
+        expect(Object.keys(server.documents)).toEqual([entryPath]);
+        expect(normalize(snapshot.data())).toEqual(server.documents[entryPath]);
+        proof.stages.push({ phase, server });
+        return server;
+      };
+      const started = Date.now();
+      expect(await addExactCard(signedIn.user, card, first, 2, [])).toBe(4.56);
+      const finished = Date.now();
+      const created = await readServer('created');
+      assertCreated(created.documents[entryPath], started, finished);
+      await exercise({ user: signedIn.user, created, readServer });
+    } catch (error) { failures.push(error); }
+    finally {
+      // Attempt every owned cleanup even after an assertion/RPC failure. No
+      // generic user/database delete; only the exact fixture document and user.
+      for (const cleanup of [() => db && terminate(db), () => auth && signOut(auth),
+        () => client && deleteClientApp(client), () => ownedUser && context.db.doc(entryPath).delete(),
+        () => ownedUser && context.auth.deleteUser(owner)]) {
+        try { await cleanup(); } catch (error) { failures.push(error); }
+      }
+      webAddSdk.firestore = undefined;
+      try {
+        expect(getApps().map(value => value.name).sort()).toEqual(originalApps);
+        proof.cleaned = await adminReadback(); expect(proof.cleaned).toEqual(original);
+        proof.cleanupComplete = true;
+      } catch (error) { failures.push(error); }
+    }
+    proof.passed = failures.length === 0;
+    writeFileSync(path.join(directory, `web-add-${caseName}-proof.json`), JSON.stringify(proof, null, 2), { flag: 'wx' });
+    if (failures.length === 1) throw failures[0];
+    if (failures.length) throw new AggregateError(failures, 'Web add SDK case/cleanup failed');
+  }
+
+  it('creates then increments the same printing through the actual Web SDK and unchanged Rules', async () => {
+    await withClient('create-increment', async ({ user, created, readServer }) => {
+      const previous = created.documents[entryPath];
+      const started = Date.now();
+      expect(await addExactCard(user, card, first, 3, [])).toBe(4.56);
+      const finished = Date.now();
+      const changed = await readServer('incremented');
+      const next = changed.documents[entryPath];
+      assertCreated({ ...next, quantity: 2, revision: 1 }, started, finished);
+      expect(next.lastMutationId).not.toBe(previous.lastMutationId);
+      expect(next).toEqual({ ...previous, quantity: 5, revision: 2,
+        lastMutationId: next.lastMutationId, updatedAt: next.updatedAt, updatedAtClient: next.updatedAtClient });
+      const previousNs = BigInt(previous.updatedAt.seconds) * 1_000_000_000n + BigInt(previous.updatedAt.nanoseconds);
+      const nextNs = BigInt(next.updatedAt.seconds) * 1_000_000_000n + BigInt(next.updatedAt.nanoseconds);
+      expect(nextNs).toBeGreaterThanOrEqual(previousNs);
+    });
+  });
+
+  it('rejects a colliding positive product for empty and stale current without any server mutation', async () => {
+    await withClient('collision', async ({ user, created, readServer }) => {
+      const stored = created.documents[entryPath];
+      const stale = [{ ...stored, externalProductId: 900002, quantity: 99 }];
+      const staleBefore = JSON.stringify(stale);
+      expect(collectionSyncIdForExactCard(owner, card, second, stale)).toBe(syncId);
+      for (const [phase, current] of [['rejected-empty', []], ['rejected-stale', stale]]) {
+        await expect(addExactCard(user, card, second, 3, current)).rejects.toThrow(rejection);
+        // Full document/timestamp/mutation/quantity and complete database+Auth
+        // identity inventory, not merely price or a successful promise count.
+        expect(await readServer(phase)).toEqual(created);
+      }
+      expect(JSON.stringify(stale)).toBe(staleBefore);
+    });
   });
 });

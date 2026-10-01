@@ -1,6 +1,6 @@
 # Lokale Private-Operations-Regression
 
-Dieser versionierte Starter führt ausschließlich die **30 bestehenden/erweiterten Tests**
+Dieser versionierte Starter führt ausschließlich die **33 bestehenden/erweiterten Tests**
 aus `tests/private-operations.test.mjs` gegen lokale Auth-, Firestore- und
 Storage-Emulatoren aus. Das Projekt ist fest `demo-domidex-privacy`.
 Es gibt keine Anmeldung an echten Konten, Veröffentlichung, Produktionslöschung
@@ -13,6 +13,12 @@ dem fehlenden Lock-Snapshot, ein gemeinsames 60+1-Limit über zwei SDK-Instanzen
 (59 echte Reservierungen, dann zwei konkurrierende Endpunktaufrufe) sowie
 Berechtigungsentzug/Disabled und Löschsperren vor und nach der Authentifizierung.
 Das ist kein Produktionslasttest und keine Android-Delta-Sync-Ende-zu-Ende-Prüfung.
+
+Ein weiterer bestehender Fall prüft die echte Admin-SDK-Fieldmask für geteilte
+Karteneinträge. Zwei neue Fälle rufen die unveränderte Web-Funktion `addExactCard`
+mit echten lokalen Google-/Firestore-Clients auf: Anlegen und identisches Erhöhen
+sowie Ablehnung zweier positiver Produkte am selben bisherigen Speicherschlüssel.
+Die 31 bisherigen Fälle bleiben erhalten; alte Läufe gelten nicht als 33er-Nachweis.
 
 ## Voraussetzungen und Aufruf
 
@@ -77,7 +83,7 @@ Unter dem ignorierten `outputs/private-operations-local/<Lauf-ID>/` liegen
 `emulator.log`, `vitest-results.json` und `manifest.json`. Das Manifest enthält
 Werkzeugversionen, SHA256/Größe der beiden JARs, Hashes der Regeln/Tests/des
 Harness, Portprüfungen, Testzahlen und Exitstatus. Erfolg setzt ausdrücklich
-**30 bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
+**33 exakt benannte Fälle bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
 Ports nach Emulatorende voraus.
 
 Getestet werden echte lokale Admin-SDK-Aufrufe der Sharing-, Bild-/Berechtigungs-
@@ -87,3 +93,35 @@ Produktionskonfiguration. Storage-Soft-Delete-Metadaten und die Uhr werden in de
 bestehenden Suite gezielt injiziert, weil der Emulator diese Anbieterfunktion
 nicht real nachbildet. Es gibt keinen Beleg einer tatsächlichen Provider-Purge-
 Frist oder eines live ausgelösten Functions-Triggers.
+
+## Zusätzlicher echter Web-Hinzufügen-Nachweis
+
+Jeder neue Fall verwendet ein eigenes synthetisches Google-Konto mit exakt
+`appAccess:true`, ohne Admin-/Pretesterrechte. Nur die Initialisierung von
+`lib/firebase-client` wird durch einen benannten lokalen SDK-Client ersetzt.
+RPCs, Transaktionen, Zeitstempel, Produktlogik und unveränderte Rules sind echt.
+Die vorhandenen privilegierten Backend-Testkonten führen diese Clientwrites nicht aus.
+
+Eine unabhängige MD5-Erwartung prüft den bisherigen UUIDv3-Schlüssel; beide
+positiven Produkt-IDs und die Schlüsselkollision werden ausdrücklich bestätigt.
+Der erste Fall muss Menge 2/Revision 1 anlegen und auf Menge 5/Revision 2 erhöhen.
+Der zweite muss mit leerer und veralteter Clientliste exakt den Druckvariantenfehler
+melden, ohne irgendein Serverfeld zu ändern. Nach jedem Schritt werden bestätigte
+Clientreads und unabhängige vollständige Admin-Dokumente einschließlich Nanosekunden,
+Mutation, Menge und Revision verglichen. Die begrenzte rekursive Inventur besucht
+auch Unterkollektionen fehlender Eltern; Überschreitung führt zum Fehler statt Kürzung.
+Erfasste Kontofelder/Claims/Provider sowie Storage-Objektnamen bleiben unverändert.
+Dies ist kein vollständiger Auth-Export einschließlich Passwort-/Betriebsmetadaten.
+
+`web-add-create-increment-proof.json` und `web-add-collision-proof.json` enthalten
+die exakt geordneten Zustände und Bereinigungsnachweise. Nur eigenes Testdokument,
+Testkonto und benannter SDK-Client werden bereinigt; anschließend muss die vorherige
+Inventur wieder stimmen. Der bestehende Demo-Reset vor jedem Suitefall bleibt bestehen.
+Ein Timeout oder harter Prozessabbruch beweist keine abgeschlossene Einzelbereinigung:
+ohne vollständiges Proofartefakt wird der Lauf nicht erfolgreich gemeldet.
+
+Der Starter prüft alle 33 Titel/Passzustände, beide Proofdateien und die unveränderten
+Hashes der direkten/transitiven lokalen `addExactCard`-Quellen sowie des Paketstands.
+Keine Browser-UI, Android-Workerplanung, Produktion, echten Marktpreise oder allgemeine
+Idempotenz werden dadurch belegt; wiederholtes erfolgreiches Hinzufügen erhöht bewusst
+die Menge. Der separate Android/Web-Preisrundlauf bleibt unverändert.
