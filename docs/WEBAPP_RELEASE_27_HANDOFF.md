@@ -1273,3 +1273,43 @@ Dies reduziert unnötige geladene Felder, **nicht die Anzahl abgerechneter Reads
 Keine gemessene Cloud-Latenzverbesserung, keine O(page)- oder Kostenbehauptung;
 O(N)-Placements, Gesamtsummenarbeit und öffentliche Ingresslimits bleiben offen.
 Keine Rules-/Signing-/Releaseänderung, kein Deployment.
+
+## Geteilte Binder: signalisierten Request-Abbruch respektieren (2026-10-01)
+
+`readBinderShare` prüft nun an Await-/Batch-Grenzen und vor der Antwort, ob sein
+Request abgebrochen wurde. Weitere 100er-Entry-/Sidecar-Batches, Katalogjobs und
+abschließende Reads starten dann nicht mehr. Bereits gestartete SDK-Aufrufe
+werden normal abgewartet. Die Katalogphase erhält einen eigenen Consumer-
+Controller mit Request-Brücke und unveränderter 12-Sekunden-Frist. Cleanup entfernt
+Listener/Timer und beendet eigene übrige Worker auch bei Fehlern. Kein Cache-
+Loadercontroller wird von einem einzelnen Leser übernommen. Normales Timeout
+liefert weiterhin partielle Ergebnisse; Request-Abbruch liefert nur den festen
+sanitisierten bestehenden 503-Fehler, niemals einen Binder-DTO oder abort.reason.
+
+Acht neue Fälle zunächst **1.214 PASS / sieben gezielte FAIL**, danach
+**1.221/1.221**. Zwei zusätzliche Kontrollen für manipulierten Abbruchgrund und
+Workerfehler-Cleanup: final **1.223/1.223**, kein Skip. Belege unter
+`outputs/release-local/`: `2026-10-01T17-06-42-655Z-9088.{json,log}` (RED),
+`2026-10-01T17-08-27-202Z-17524.{json,log}` (GREEN),
+`2026-10-01T17-10-09-358Z-22832.{json,log}` (final).
+Typecheck, fokussierter Lint und zehn Auswahl-/Umgebungsschutztests bestehen.
+Die bestehende Katalog-/Runtime-/Standalone-Auswahl besteht mit **103/103**:
+`outputs/public-catalog-cache/2026-10-01T17-09-30-794Z-22624.log`.
+Echte isolierte SDK-Regression **31/31**, eigene Ports anschließend frei:
+`outputs/release27-engineering-20261001/security-gate10-deletion/run-20261001-191032-f0ea80d1/`.
+Scale **9/9** und Concurrency **12/12**, je drei vorgesehene Wiederholungen,
+bleiben ebenfalls grün: `outputs/release27-engineering-20261001/request-abort-{scale,concurrency}-green.log`
+und `outputs/sharing-concurrency/2026-10-01T17-12-47-075Z-8612.metrics.json`.
+Isolierter Produktionsmodus-Build: **18,983 s**, 303 Quelldateien, synthetische
+Umgebung/Netzsperre. Root-dist und neun Konfigurationsdateien behalten den
+Integritätshash `fbc3b489d56287d0dd84b2a4bedcbf0b17113621f5d3e74872fcc76e95fdf95f`.
+Belege: `outputs/release27-engineering-20261001/baseline/build-request-abort-green*`.
+
+**Wesentliche Grenze:** Im installierten vinext-Node-Produktionspfad erzeugt
+`nodeToWebRequest` kein Browser-Disconnect-Signal. Unser eigener Einstieg ergänzt
+ebenfalls keines. Dieser Fix schützt korrekt signalisierte Web-Requests; er
+beweist derzeit keine reale Einsparung bei Browser-Disconnects. Framework,
+Packaging und Produktion wurden nicht geändert. Bereits gestartete RPCs,
+abortignorierende Provider sowie der unabhängige geteilte Preisguide dürfen bis
+zum eigenen Abschluss weiterlaufen. Keine Kosten-/Socket-/Cloud-SLA-Behauptung,
+kein Deployment; Gate 6 und das externe Ingressgate bleiben offen.

@@ -11,6 +11,7 @@ const extraFiles = [
   'tests/shared-binder-price-parity.test.mjs',
   'tests/shared-binder-catalog-parity.test.mjs',
   'tests/shared-binder-placement-projection.test.mjs',
+  'tests/shared-binder-request-abort.test.mjs',
   'tests/private-sync-time-anchor.test.mjs',
   'tests/private-sync-time-anchor-route.test.ts',
   'tests/read-rate-limit.test.mjs',

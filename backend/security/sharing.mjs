@@ -122,16 +122,32 @@ async function catalogCard(id, signal, mode = 'raw') {
   } catch { return null; }
 }
 const publicCatalog = createPublicCatalogCache({ load: catalogCard });
-async function catalogCards(ids, context, withPrices) {
-  const catalog = new Map(); const queue = [...new Set(ids)]; const signal = AbortSignal.timeout(12_000);
-  await Promise.all(Array.from({ length: Math.min(6, queue.length) }, async () => {
-    while (queue.length && !signal.aborted) {
-      const id = queue.shift();
-      catalog.set(id, await (context.cardFor ? context.cardFor(id, signal)
-        : publicCatalog.get(id, signal, withPrices ? 'prices' : 'raw')));
-    }
-  }));
-  return catalog;
+async function catalogCards(ids, context, withPrices, requestSignal) {
+  const catalog = new Map(); const queue = [...new Set(ids)]; const controller = new AbortController();
+  const abort = () => controller.abort();
+  requestSignal?.addEventListener('abort', abort, { once: true });
+  if (requestSignal?.aborted) abort();
+  const timer = setTimeout(abort, 12_000);
+  timer.unref?.();
+  try {
+    await Promise.all(Array.from({ length: Math.min(6, queue.length) }, async () => {
+      while (queue.length && !controller.signal.aborted) {
+        const id = queue.shift();
+        // Cancel this reader only; publicCatalog owns its shared loader's lifetime.
+        catalog.set(id, await (context.cardFor ? context.cardFor(id, controller.signal)
+          : publicCatalog.get(id, controller.signal, withPrices ? 'prices' : 'raw')));
+      }
+    }));
+    return catalog;
+  } finally {
+    clearTimeout(timer);
+    requestSignal?.removeEventListener('abort', abort);
+    abort(); // Also stop this reader's remaining workers after an exceptional exit.
+  }
+}
+function requireActiveRead(request) {
+  // Never forward a caller-controlled abort reason to the public error envelope.
+  if (request.signal?.aborted) fail('SERVER_OPERATION_FAILED', 503);
 }
 function sharedPlacements(documents, ownerUid) {
   const records = documents.map((doc) => ({ id: doc.id, data: doc.data() })).filter(({ data }) => data.deleted !== true);
@@ -160,16 +176,24 @@ function sharedPlacements(documents, ownerUid) {
 export async function readBinderShare(request, route, context = services()) {
   try {
     enabled(context);
+    requireActiveRead(request);
     const { token } = await route.params;
+    requireActiveRead(request);
     if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) fail('NOT_FOUND', 404);
     const reference = context.db.doc(`privateBinderShares/${digest(token)}`);
     const share = (await reference.get()).data();
-    if (!share || share.revokedAt !== null || !await ownerStillAllowed(context, share.ownerUid)) fail('NOT_FOUND', 404);
+    requireActiveRead(request);
+    if (!share || share.revokedAt !== null) fail('NOT_FOUND', 404);
+    const ownerAllowed = await ownerStillAllowed(context, share.ownerUid);
+    requireActiveRead(request);
+    if (!ownerAllowed) fail('NOT_FOUND', 404);
     const binder = await ownedBinder(context, share.ownerUid, share.binderId);
+    requireActiveRead(request);
     const page = Number(new URL(request.url).searchParams.get('page') ?? '0');
     if (!Number.isSafeInteger(page) || page < 0 || page > 100000) fail('INVALID_REQUEST', 400);
     const snapshots = await context.db.collection(`users/${share.ownerUid}/privateBinderPlacements`).where('binderId', '==', share.binderId)
       .select('ownerUid', 'entrySyncId', 'slotPosition', 'deleted', 'holoEffectId', 'holoIntensity').limit(5001).get();
+    requireActiveRead(request);
     if (snapshots.size > 5000) fail('SERVER_OPERATION_FAILED', 503);
     const placements = sharedPlacements(snapshots.docs, share.ownerUid);
     const pageCount = Math.max(1, Number.isSafeInteger(binder.minimumPageCount) ? binder.minimumPageCount : 1, ...placements.map((item) => Math.floor(item.slotPosition / 9) + 1));
@@ -179,18 +203,27 @@ export async function readBinderShare(request, route, context = services()) {
     // Read only the selected binder's referenced entries, never the owner's full collection.
     const ids = [...new Set(needed.map((item) => item.entrySyncId))];
     for (let offset = 0; offset < ids.length; offset += 100) {
+      requireActiveRead(request);
       const refs = ids.slice(offset, offset + 100).map((id) => context.db.doc(`users/${share.ownerUid}/collectionEntries/${id}`));
       // Keep exact printing/price identity and access checks, without fetching
       // private notes, acquisition information or owner-supplied photo fields.
-      for (const doc of refs.length ? await context.db.getAll(...refs, { fieldMask: [
+      const batch = refs.length ? await context.db.getAll(...refs, { fieldMask: [
         'ownerUid', 'syncId', 'deleted', 'quantity', 'sourceCardId', 'sourceSetId', 'setId',
         'collectorNumber', 'language', 'finish', 'variant', 'externalProductSource', 'externalProductId',
-      ] }) : []) {
+      ] }) : [];
+      // Already-started SDK reads settle normally; no detached background RPC race.
+      requireActiveRead(request);
+      for (const doc of batch) {
         const data = doc.data();
         if (data && data.ownerUid === share.ownerUid && data.deleted !== true && data.quantity > 0) entries.set(doc.id, data);
       }
     }
-    const catalog = await catalogCards([...entries.values()].map(publicCardId).filter(Boolean), context, share.showPrices === true || share.showTotal === true);
+    requireActiveRead(request);
+    const catalog = await catalogCards([...entries.values()].map(publicCardId).filter(Boolean), context,
+      share.showPrices === true || share.showTotal === true, request.signal);
+    // The existing catalog deadline still permits partial results; only a request
+    // cancellation suppresses the binder response and all subsequent work.
+    requireActiveRead(request);
     const selections = new Map();
     if (share.showPrices === true || share.showTotal === true) {
       // Never scan the owner's sidecar collection or cache private values with public metadata.
@@ -198,8 +231,11 @@ export async function readBinderShare(request, route, context = services()) {
       const selectionIds = [...entries].filter(([id, entry]) => entry.syncId === id
         && sharedPriceSelectionNeeded(entry, catalog.get(publicCardId(entry)) ?? null)).map(([id]) => id);
       for (let offset = 0; offset < selectionIds.length; offset += 100) {
+        requireActiveRead(request);
         const refs = selectionIds.slice(offset, offset + 100).map((id) => context.db.doc(`users/${share.ownerUid}/collectionPriceSelections/${id}`));
-        for (const doc of await context.db.getAll(...refs)) {
+        const batch = await context.db.getAll(...refs);
+        requireActiveRead(request);
+        for (const doc of batch) {
           const data = doc.data();
           const selection = data ? decodeCollectionPriceSelection(data, doc.id, share.ownerUid) : null;
           if (selection) selections.set(doc.id, selection);
@@ -220,8 +256,15 @@ export async function readBinderShare(request, route, context = services()) {
       }
     }
     // Re-check after slow catalog work; concurrent revoke, access loss or binder deletion must win.
-    if ((await reference.get()).data()?.revokedAt !== null || !await ownerStillAllowed(context, share.ownerUid)) fail('NOT_FOUND', 404);
+    requireActiveRead(request);
+    const finalShare = (await reference.get()).data();
+    requireActiveRead(request);
+    if (finalShare?.revokedAt !== null) fail('NOT_FOUND', 404);
+    const finalOwnerAllowed = await ownerStillAllowed(context, share.ownerUid);
+    requireActiveRead(request);
+    if (!finalOwnerAllowed) fail('NOT_FOUND', 404);
     await ownedBinder(context, share.ownerUid, share.binderId);
+    requireActiveRead(request);
     const dto = {
       title: typeof binder.name === 'string' ? binder.name.slice(0, 100) : 'Geteilter Binder', coverStyle: sharedVisualId(binder.coverStyle, true),
       page, pageCount, cards: cards.sort((a, b) => a.slot - b.slot), unavailableSlots,
@@ -231,6 +274,7 @@ export async function readBinderShare(request, route, context = services()) {
       ...(share.showTotal === true && (pricedCards !== visibleCards || cents <= SHARED_PRICE_MAX_EUR * 100)
         ? { total: { amount: pricedCards === visibleCards ? cents / 100 : null, currency: 'EUR', complete: pricedCards === visibleCards, pricedCards, visibleCards } } : {}),
     };
+    requireActiveRead(request);
     return respond(dto);
   } catch (error) { return failure(error); }
 }

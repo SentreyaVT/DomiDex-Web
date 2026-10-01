@@ -153,13 +153,26 @@ und keine Aussage über eine Provider-SLA.
   Browser-Visualtest und kein Deployment.
 
 Der Viewer ruft direkt Browser-`fetch` mit einem Signal auf. Der API-Router und
-`privateOperations` reichen das `Request`-Objekt an `readBinderShare` weiter;
-die Operation wertet dessen `request.signal` aber nicht aus. Die Katalogphase
-verwendet ihren eigenen 12-Sekunden-Abbruch, und die Firestore-Reads sind nicht
-an den Browser-Abbruch gebunden. Ein Client-Abbruch ist somit kein Nachweis dafür,
-dass die bereits gestartete Server-/Firestore-/Providerarbeit endet oder deren
-Kosten entfallen. Die Katalogdeadline ist außerdem keine Gesamtdeadline der
-HTTP-Anfrage einschließlich Datenbank- und abschließender Berechtigungsprüfungen.
+`privateOperations` reichen das `Request`-Objekt an `readBinderShare` weiter.
+Die Operation beachtet nun lokal geprüft dessen Abbruch an Await-/Batch-Grenzen
+und startet danach keine weiteren Entry-/Sidecar-/Katalog-/Abschlussphasen.
+Bereits gestartete SDK-Reads werden normal abgewartet, nicht durch ein Race
+scheinbar beendet. Die Katalogphase kombiniert Request-Abbruch mit ihrer
+12-Sekunden-Frist ausschließlich für diesen Leser; andere Cacheleser bleiben
+unbeeinflusst. Nur Request-Abbruch verhindert die DTO-Antwort; der normale
+Katalogtimeout erlaubt weiterhin das bisherige partielle Ergebnis.
+
+**Nachgewiesene Transportgrenze:** Das installierte
+`vinext/dist/server/prod-server.js`, `nodeToWebRequest` (734–757), erstellt im
+Node-Produktionspfad kein Disconnect-Signal. Der eigene Standalone-Einstieg
+startet dessen `startProdServer` ohne zusätzliche Abbruchbrücke. Ein geschlossener
+Browser ist somit nach diesem lokalen Stand **noch kein beobachteter Request-
+Abbruch im Handler**. Der Handlerfix belegt nur korrekt signalisierte Abbrüche;
+kein Live-Disconnect-/Kosten-/Latenzgewinn, keine Änderung des Frameworks oder
+Server-Packagings. Deploytes Image und alternatives Wrangler-Routing sind damit
+nicht geprüft. Auch korrekt signalisierter Abbruch beendet keine bereits laufenden
+Firestore-RPCs oder unabhängigen geteilten Preisguide-Downloads. Die Katalogfrist
+ist keine Gesamtdeadline der HTTP-Anfrage einschließlich Datenbank-/Auth-Prüfungen.
 
 Der lokal ergänzte Pool mit 32 aktiven Loadern und 512 FIFO-Wartenden begrenzt
 Loader-Promises pro Cacheinstanz. Der Browser-Lebensdauerbefund wurde separat im
@@ -247,3 +260,16 @@ Die separat beschriebenen lokalen Retry-Cleanup- und Request-Lebensdauer-Fixes
 ändern diese Entscheidung nicht. Die frühere automatische Refresh-Starvation
 ist lokal korrigiert; globale Last-/Kostengrenzen und die genannten
 Widerrufsfrische-/Serverabbruchgrenzen sind damit nicht belegt.
+
+## Lokaler Handler-Abbruchnachweis (2026-10-01)
+
+Zehn isolierte echte Handler-/Cachetests mit synthetischen SDK-/Providergrenzen:
+vorab abgebrochener Request, 100→101 Entry-/Sidecar-Batch, sechs aktive von sieben
+Katalogjobs, Abbruch während finaler Autorisierung, zwei Leser desselben Cachejobs,
+letzter Leser mit spät antwortendem Provider, normale 12-Sekunden-Frist,
+sanitisierter benutzerdefinierter Abbruchgrund und Cleanup nach Workerfehler.
+Auf den ersten acht Fällen: sieben gezielte REDs, eine gültige Timeoutkontrolle;
+anschließend alle zehn grün. Eigene Timer/Listener werden aufgeräumt, Cache-
+Loadercontroller und geteilter Preisguide bleiben unter ihrer bisherigen Hoheit.
+Vollregression 1.223/1.223, echte lokale SDK-Regression 31/31; Detailbelege im
+Handoff. Kein Ersatz für Transportverdrahtung, Ingresslimits oder Cloudmessung.
