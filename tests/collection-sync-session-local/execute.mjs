@@ -70,7 +70,7 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 8); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 10); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
     const scenario = SCENARIOS[index]; const { method } = scenario;
@@ -79,6 +79,8 @@ try {
     // Original healthy/stale remain genuine worker commits. Missing stays empty.
     // Late-parent Admin seeds ONLY an existing structural orphan + two binders;
     // its actual collection parent is created by the second nominal SDK client.
+    // The two session-only scenarios get no server seeds and never run workers.
+    // Their original pending mutations exist only inside the Android Room fixture.
     for (const fixture of seedFixtures(scenario, runId, FieldValue.serverTimestamp())) {
       const reference = db.doc(fixture.path);
       await reference.create(fixture.data);

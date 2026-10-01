@@ -12,7 +12,10 @@ export const SCENARIOS = Object.freeze([
   { key: 'confirmed', owner: 'sdk-proof-collection-confirmed', method: 'confirmedRereadCompletesCheckpoint' },
   { key: 'pending-overlay', owner: 'sdk-proof-collection-pending-overlay', method: 'pendingOverlayRereadRetainsCheckpointUntilActualAck' },
   { key: 'late-parent', owner: 'sdk-proof-collection-late-parent', method: 'lateParentPlacementIsRecoveredWithoutRemoteRewrite' },
+  { key: 'session-healthy', owner: 'sdk-proof-collection-session-healthy', method: 'sessionHealthyStartConfirmsAccessWithoutRunningWorkers' },
+  { key: 'session-offline', owner: 'sdk-proof-collection-session-offline', method: 'offlineSessionNeedsExplicitRecheckWithinObservedReconnectWindow' },
 ]);
+const isReadOnlySession = scenario => scenario.key === 'session-healthy' || scenario.key === 'session-offline';
 export const OTHER_OWNER = 'sdk-proof-collection-other';
 const lexical = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 export const ACCOUNTS = Object.freeze([...SCENARIOS.map(item => item.owner), OTHER_OWNER].sort(lexical).map(uid => ({
@@ -79,6 +82,7 @@ function confirmedStamp(data) {
 }
 export function assertEntry(data, scenario, runId, stage = 'final') {
   assert.notEqual(scenario.key, 'missing', 'Missing owner must have no server document');
+  assert.equal(isReadOnlySession(scenario), false, 'Session-only owners must never create a server entry');
   assert.ok(stage === 'seed' || stage === 'final');
   const normalized = normalize(data); const stamp = confirmedStamp(normalized);
   assert.deepEqual(normalized, stage === 'seed' ? entryFixture(scenario, runId, stamp) : finalEntryFixture(scenario, runId, stamp),
@@ -119,7 +123,7 @@ function expectedDocuments(phaseIndex, before, runId) {
     const scenario = SCENARIOS[index];
     if (before && index === phaseIndex) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
-    } else if (scenario.key !== 'missing') {
+    } else if (scenario.key !== 'missing' && !isReadOnlySession(scenario)) {
       if (scenario.key === 'late-parent') records.push(...lateParentSeedFixtures(runId, null).map(item => ({ ...item, scenario, seed: true })));
       records.push({ path: entryPath(scenario), scenario, seed: false });
     }
@@ -129,7 +133,7 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All eight nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All ten nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
@@ -177,6 +181,12 @@ export function validateReadbacks(readbacks, seeds, runId, preflights) {
     validatePreflight(preflights[index], index, runId, readbacks[index - 1], currentSeeds);
     validateReadback(item, index, runId);
     assertPreviousEntriesUnchanged(item, readbacks[index - 1]);
+    if (isReadOnlySession(scenario)) {
+      // Includes method, all accounts, every collection/document reference,
+      // and every field/timestamp in every existing document. No filter drops
+      // an unexpected owner, sidecar or access override before comparison.
+      assert.deepEqual(item, preflights[index], 'Read-only session must leave the complete Admin tree and identities unchanged');
+    }
     for (const seed of currentSeeds) {
       const observed = item.entries.find(value => value.path === seed.path);
       if (scenario.key === 'pending-overlay') {
@@ -197,8 +207,9 @@ export function validateServerProof(proof, runId) {
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
   assert.deepEqual(proof.preflights?.map(item => item.method), SCENARIOS.map(item => item.method));
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
-  return { verified: true, androidCases: 7, independentAdminReadbacks: 7, independentAdminPreflights: 7,
+  return { verified: true, androidCases: 9, independentAdminReadbacks: 9, independentAdminPreflights: 9,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
+    readOnlySessionCharacterizationCases: 2,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }
