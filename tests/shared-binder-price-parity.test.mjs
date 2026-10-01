@@ -29,7 +29,11 @@ export function priceFixture(flags = { showPrices: true, showTotal: true }, owne
     [entryPath, entry], [selectionPath, selection],
   ]);
   const rows = [{ id: 'placement-a', ownerUid: owner, binderId: 'binder-a', entrySyncId: entry.syncId, slotPosition: 0, deleted: false }];
-  const snapshot = (path) => ({ id: path.split('/').at(-1), exists: documents.has(path), data: () => structuredClone(documents.get(path)) });
+  const snapshot = (path, fields = null) => ({ id: path.split('/').at(-1), exists: documents.has(path), data: () => {
+    const data = documents.get(path);
+    return structuredClone(fields === null || data === undefined ? data
+      : Object.fromEntries(fields.filter((key) => Object.hasOwn(data, key)).map((key) => [key, data[key]])));
+  } });
   const context = { sharingEnabled: true,
     auth: { getUser: vi.fn(async () => ({ disabled: false, customClaims: { appAccess: true } })) },
     db: { doc: (path) => ({ path, get: async () => snapshot(path) }),
@@ -40,11 +44,14 @@ export function priceFixture(flags = { showPrices: true, showTotal: true }, owne
             data: () => structuredClone(Object.fromEntries(fields.filter((key) => Object.hasOwn(row, key)).map((key) => [key, row[key]]))),
           })) }) }) }) }) };
       },
-      getAll: vi.fn(async (...refs) => refs.map(({ path }) => snapshot(path))),
+      getAll: vi.fn(async (...refs) => {
+        const fields = Array.isArray(refs.at(-1)?.fieldMask) ? refs.pop().fieldMask : null;
+        return refs.map(({ path }) => snapshot(path, fields));
+      }),
     }, cardFor: vi.fn(async () => structuredClone(card)),
   };
   const read = (page = 0) => readBinderShare(new Request(`http://localhost/api/shared-binders/${token}?page=${page}`), { params: Promise.resolve({ token }) }, context);
-  const selectionReads = () => context.db.getAll.mock.calls.flat().filter((ref) => ref.path.includes('/collectionPriceSelections/'));
+  const selectionReads = () => context.db.getAll.mock.calls.flat().filter((ref) => typeof ref.path === 'string' && ref.path.includes('/collectionPriceSelections/'));
   return { entry, selection, card, documents, context, rows, read, selectionReads, entryPath, selectionPath, binderPath };
 }
 
@@ -178,7 +185,7 @@ describe('shared binder synchronized price selection parity', () => {
   it.each(['revoke', 'binder-delete', 'disabled', 'deletion-lock'])('still denies access changed during selection read (%s)', async (kind) => {
     const f = priceFixture(), original = f.context.db.getAll.getMockImplementation();
     f.context.db.getAll.mockImplementation(async (...refs) => {
-      if (refs.some((ref) => ref.path.includes('/collectionPriceSelections/'))) {
+      if (refs.some((ref) => typeof ref.path === 'string' && ref.path.includes('/collectionPriceSelections/'))) {
         if (kind === 'revoke') f.documents.get(sharePath).revokedAt = 1;
         if (kind === 'binder-delete') f.documents.get(f.binderPath).deleted = true;
         if (kind === 'disabled') f.context.auth.getUser.mockResolvedValue({ disabled: true, customClaims: { appAccess: true } });

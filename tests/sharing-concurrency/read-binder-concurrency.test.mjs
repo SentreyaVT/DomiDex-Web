@@ -47,9 +47,11 @@ function fixture({ count, showTotal = false, owner = 'synthetic-owner-a', showPr
       entrySyncId: `entry-${id}`, slotPosition: index, deleted: false, holoEffectId: 'galaxy', holoIntensity: .7 }) });
   });
   const stats = counters();
-  const snapshot = (path) => {
+  const snapshot = (path, fields = null) => {
     const data = documents.get(path);
-    return { id: path.split('/').pop(), exists: data !== undefined, data: () => data };
+    const selected = fields === null || data === undefined ? data
+      : Object.fromEntries(fields.filter((key) => Object.hasOwn(data, key)).map((key) => [key, data[key]]));
+    return { id: path.split('/').pop(), exists: data !== undefined, data: () => selected };
   };
   const context = { sharingEnabled: true,
     auth: { getUser: async (uid) => {
@@ -77,10 +79,11 @@ function fixture({ count, showTotal = false, owner = 'synthetic-owner-a', showPr
         } };
       },
       getAll: async (...refs) => {
+        const fields = Array.isArray(refs.at(-1)?.fieldMask) ? refs.pop().fieldMask : null;
         expect(refs.length > 0 && refs.length <= 100).toBe(true);
         expect(refs.every(({ path }) => path.startsWith(`users/${owner}/collectionEntries/entry-`) && documents.has(path))).toBe(true);
         stats.getAllCalls++; stats.getAllDocuments += refs.length;
-        return refs.map(({ path }) => snapshot(path));
+        return refs.map(({ path }) => snapshot(path, fields));
       },
     },
   };

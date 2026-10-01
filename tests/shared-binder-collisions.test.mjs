@@ -22,7 +22,11 @@ function fixture(rows, flags = {}) {
     collectorNumber: row.id, finish: 'Normal', variant: 'Standard', externalProductId: 42,
     deleted: false, quantity: 1, notes: 'PRIVATE_NOTES',
   });
-  const snapshot = (path) => ({ id: path.split('/').pop(), exists: documents.has(path), data: () => documents.get(path) });
+  const snapshot = (path, fields = null) => ({ id: path.split('/').pop(), exists: documents.has(path), data: () => {
+    const data = documents.get(path);
+    return fields === null || data === undefined ? data
+      : Object.fromEntries(fields.filter((key) => Object.hasOwn(data, key)).map((key) => [key, data[key]]));
+  } });
   const doc = (path) => ({ path, get: async () => snapshot(path) });
   const context = {
     sharingEnabled: true,
@@ -39,7 +43,10 @@ function fixture(rows, flags = {}) {
             })) }) }) }) };
         } };
       },
-      getAll: async (...references) => references.map(({ path }) => snapshot(path)),
+      getAll: async (...references) => {
+        const fields = Array.isArray(references.at(-1)?.fieldMask) ? references.pop().fieldMask : null;
+        return references.map(({ path }) => snapshot(path, fields));
+      },
     },
     cardFor: vi.fn(async (id) => ({ id, localId: id.slice(4), name: `Card ${id}`, image: `https://assets.tcgdex.net/de/sv/sv1/${id.slice(4)}`, set: { id: 'sv1', name: 'Fixture set' },
       variants_detailed: [{ type: 'Normal', size: 'Standard', pricing: { cardmarket: { idProduct: 42, trend: 2.5, unit: 'EUR' } } }],

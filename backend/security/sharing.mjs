@@ -180,7 +180,12 @@ export async function readBinderShare(request, route, context = services()) {
     const ids = [...new Set(needed.map((item) => item.entrySyncId))];
     for (let offset = 0; offset < ids.length; offset += 100) {
       const refs = ids.slice(offset, offset + 100).map((id) => context.db.doc(`users/${share.ownerUid}/collectionEntries/${id}`));
-      for (const doc of refs.length ? await context.db.getAll(...refs) : []) {
+      // Keep exact printing/price identity and access checks, without fetching
+      // private notes, acquisition information or owner-supplied photo fields.
+      for (const doc of refs.length ? await context.db.getAll(...refs, { fieldMask: [
+        'ownerUid', 'syncId', 'deleted', 'quantity', 'sourceCardId', 'sourceSetId', 'setId',
+        'collectorNumber', 'language', 'finish', 'variant', 'externalProductSource', 'externalProductId',
+      ] }) : []) {
         const data = doc.data();
         if (data && data.ownerUid === share.ownerUid && data.deleted !== true && data.quantity > 0) entries.set(doc.id, data);
       }

@@ -44,9 +44,11 @@ function fixture({ count = COUNT, showPrices = false, showTotal = false, reverse
   if (reverse) rows.reverse();
   let counters = metrics(), concurrent = 0, revokeAtCatalog = false;
   const dataHash = () => createHash('sha256').update(JSON.stringify([...documents]) + JSON.stringify(rows)).digest('hex');
-  const snapshot = (path) => {
+  const snapshot = (path, fields = null) => {
     const data = documents.get(path); // Snapshot remains immutable if source is later replaced.
-    return { id: path.split('/').pop(), exists: data !== undefined, data: () => data };
+    const selected = fields === null || data === undefined ? data
+      : Object.fromEntries(fields.filter((key) => Object.hasOwn(data, key)).map((key) => [key, data[key]]));
+    return { id: path.split('/').pop(), exists: data !== undefined, data: () => selected };
   };
   const context = {
     sharingEnabled: true,
@@ -80,10 +82,11 @@ function fixture({ count = COUNT, showPrices = false, showTotal = false, reverse
         } };
       },
       getAll: async (...refs) => {
+        const fields = Array.isArray(refs.at(-1)?.fieldMask) ? refs.pop().fieldMask : null;
         expect(refs.length).toBeGreaterThan(0); expect(refs.length).toBeLessThanOrEqual(100);
         expect(refs.every(({ path }) => path.startsWith(`${ENTRY_PATH}/entry-`) && documents.has(path))).toBe(true);
         counters.getAllCalls++; counters.getAllDocuments += refs.length;
-        return refs.map(({ path }) => snapshot(path));
+        return refs.map(({ path }) => snapshot(path, fields));
       },
     },
     cardFor: async (id) => {

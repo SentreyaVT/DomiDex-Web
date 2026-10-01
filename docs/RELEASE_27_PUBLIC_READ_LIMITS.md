@@ -52,6 +52,13 @@ Konfiguration ist nicht automatisch auch in der Produktion nicht vorhanden.
   eine Placementabfrage bis 5.001 Dokumente, benötigte Entry-Reads und Katalogarbeit.
   `showTotal` erweitert die Entry-/Katalogarbeit auf den gesamten Binder.
   Finale Widerruf-/Owner-/Binderprüfungen bleiben sicherheitsrelevant.
+- Entry-Batches projizieren lokal geprüft nur die 13 für Identität, Zugang und
+  Preise benötigten Felder. Private Notizen, Anschaffungsdaten und eigene Fotos
+  werden nicht mehr intern mitgelesen; das öffentliche DTO war schon begrenzt.
+  Die echte SDK-Projektion einschließlich fehlender Dokumente ist im isolierten
+  Demoharness geprüft. Das verringert Payload, nicht abgerechnete Dokumentreads,
+  und löst weder O(N)-Placements noch die Gesamtsummenarbeit. Belege im Handoff,
+  Abschnitt „Öffentliche Binder: begrenzte Entry-Felder (2026-10-01)“.
 - `components/shared-binder-viewer.tsx`: sofortiges Laden und bei sichtbarem Tab
   ein 15-Sekunden-Takt. Ein periodischer Tick überspringt eine noch laufende
   Anfrage einschließlich ihres JSON-Bodys. Zusätzlich laden Visibilitywechsel,

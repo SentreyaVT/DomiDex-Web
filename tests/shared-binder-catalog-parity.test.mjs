@@ -20,11 +20,18 @@ function fixture(id = '30th-c-001', productId = 907940, owner = 'owner-fixture')
   const documents = new Map([[sharePath, { ownerUid: owner, binderId: 'binder-a', revokedAt: null, showPrices: true, showTotal: true }],
     [binderPath, { ownerUid: owner, binderId: 'binder-a', name: 'Fixture', deleted: false }],
     [`users/${owner}/collectionEntries/entry-a`, entry]]);
-  const snap = (path) => ({ id: path.split('/').at(-1), exists: documents.has(path), data: () => structuredClone(documents.get(path)) });
+  const snap = (path, fields = null) => ({ id: path.split('/').at(-1), exists: documents.has(path), data: () => {
+    const data = documents.get(path);
+    return structuredClone(fields === null || data === undefined ? data
+      : Object.fromEntries(fields.filter((key) => Object.hasOwn(data, key)).map((key) => [key, data[key]])));
+  } });
   const placement = { ownerUid: owner, binderId: 'binder-a', entrySyncId: 'entry-a', slotPosition: 0 };
   const context = { sharingEnabled: true, auth: { getUser: async () => ({ disabled: false, customClaims: { appAccess: true } }) },
     db: { doc: (path) => ({ path, get: async () => snap(path) }),
-      getAll: vi.fn(async (...refs) => refs.map(({ path }) => snap(path))),
+      getAll: vi.fn(async (...refs) => {
+        const fields = Array.isArray(refs.at(-1)?.fieldMask) ? refs.pop().fieldMask : null;
+        return refs.map(({ path }) => snap(path, fields));
+      }),
       collection: () => ({ where: () => ({ select: (...fields) => ({ limit: () => ({ get: async () => ({ size: 1,
         docs: [{ id: 'placement-a', data: () => Object.fromEntries(fields.filter((key) => Object.hasOwn(placement, key)).map((key) => [key, placement[key]])) }],
       }) }) }) }) }),
@@ -73,7 +80,7 @@ describe('actual shared loader matches reviewed normal API enrichment', () => {
     f.flags({ showPrices: false, showTotal: false });
     const body = await (await f.read()).json(); expect(body.cards[0].price).toBeUndefined(); expect(body.total).toBeUndefined();
     expect(f.guideCalls()).toHaveLength(1);
-    expect(f.context.db.getAll.mock.calls.flat().filter((ref) => ref.path.includes('/collectionPriceSelections/'))).toEqual([]);
+    expect(f.context.db.getAll.mock.calls.flat().filter((ref) => typeof ref.path === 'string' && ref.path.includes('/collectionPriceSelections/'))).toEqual([]);
   });
   it.each([{ subtype: 'Special' }, { stamp: ['Pokémon-Center'] }, { foil: 'Special' },
     { thirdParty: { cardmarket: 123 } }, { pricing: { cardmarket: { idProduct: 123, trend: 999 } } }])(

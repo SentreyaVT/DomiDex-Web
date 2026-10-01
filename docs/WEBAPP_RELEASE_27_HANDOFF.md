@@ -1229,3 +1229,47 @@ logische Slot freigegeben. Widerruf bleibt requestbasiert, nicht Push; 15-Sekund
 Ticks garantieren bei langsamen Antworten keine exakt 15-sekündige Sichtbarkeit.
 Die API bleibt no-store mit ihren bestehenden Berechtigungsprüfungen. Bestehende
 React-act-/JSDOM-Canvas-Warnungen bleiben Harnessgrenzen. Kein Deployment.
+
+## Öffentliche Binder: begrenzte Entry-Felder (2026-10-01)
+
+Die bestehenden 100er-Entry-Batches verwenden nun die echte Admin-SDK-Feldmaske
+mit 13 benötigten Feldern: Owner, Sync-ID, Löschstatus, Menge, Karten-/Set-ID,
+Legacy-Set-ID, Sammlernummer, Sprache, Finish/Variante und externe Produktbindung.
+Private Notizen, Anschaffungsdaten und eigene Fotos werden dadurch schon beim
+internen Lesen weggelassen. Das bisherige öffentliche DTO war bereits eine
+Allowlist; diese Änderung behauptet keine zuvor nachgewiesene öffentliche Datenpanne.
+Preis-Sidecars, Zugangs-/Widerrufsprüfungen und fehlende Snapshots bleiben unverändert.
+Die Menge bleibt Zulassungsprüfung, kein neuer Multiplikator für Binderwerte.
+
+Fünf neue Handlerfälle prüfen vollständige DTO-Parität über alle acht Freigabe-
+Optionen, Normal/Reverse, Trend und manuelle Alternative, Legacy-/Missing-Fälle
+sowie ausgeschlossene große private Felder. SDK-nahe Doubles wenden die Maske
+tatsächlich an und zählen die abschließende ReadOptions nicht als Dokument.
+Vorher: 1.211 PASS / zwei gezielte Feldmaskenfehler, danach **1.213/1.213 PASS**.
+Belege: `outputs/release-local/2026-10-01T16-47-16-602Z-19900.{json,log}` und
+`outputs/release-local/2026-10-01T16-49-14-243Z-1940.{json,log}`.
+Auch der abschließende Lauf nach der SDK-Test-Lintkorrektur besteht mit
+**1.213/1.213**, keine Skips: `outputs/release-local/2026-10-01T17-02-26-915Z-23000.{json,log}`.
+
+Zusätzlich wurde die unveränderte echte Admin-SDK-getAll-Methode im isolierten
+Auth-/Firestore-/Storage-Demoharness beobachtet: gespeichertes privates Original
+unverändert, tatsächliches Ergebnis nur 13 Felder, fehlendes Dokument weiterhin
+fehlend, Preise/DTO unverändert. RED **30 PASS / ein Maskenfehler** unter
+`outputs/release27-engineering-20261001/security-gate10-deletion/run-20261001-184742-57bd042d/`;
+final **31/31 PASS**, keine Skips und keine verbliebenen Emulatorports, unter
+`run-20261001-190044-a6926128/` im selben Verzeichnis. Keine Produktivkonten/-daten.
+
+Typecheck und fokussierter Lint bestehen. Scale **9/9**, Concurrency **12/12**,
+je drei Wiederholungen der vorgesehenen synthetischen Lastfälle; Zählverträge
+und maximal 32 Loader bleiben unverändert. Logs:
+`outputs/release27-engineering-20261001/entry-projection-{scale,concurrency}-final.log`
+und `outputs/sharing-concurrency/2026-10-01T17-01-45-754Z-22248.metrics.json`.
+Isolierter Produktionsmodus-Build: **13,229 s**, 303 Quelldateien, synthetische
+Umgebung/Netzsperre, Exit 0. Root-dist und neun Konfigurationsdateien behalten
+Hash `fbc3b489d56287d0dd84b2a4bedcbf0b17113621f5d3e74872fcc76e95fdf95f`;
+Belege: `outputs/release27-engineering-20261001/baseline/build-entry-projection-green*`.
+
+Dies reduziert unnötige geladene Felder, **nicht die Anzahl abgerechneter Reads**.
+Keine gemessene Cloud-Latenzverbesserung, keine O(page)- oder Kostenbehauptung;
+O(N)-Placements, Gesamtsummenarbeit und öffentliche Ingresslimits bleiben offen.
+Keine Rules-/Signing-/Releaseänderung, kein Deployment.

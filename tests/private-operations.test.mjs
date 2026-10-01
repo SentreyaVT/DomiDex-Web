@@ -216,6 +216,47 @@ describe('Read-only binder sharing server boundary', () => {
     const namedBody = await (await read(named.path.split('/').pop())).json();
     expect(namedBody.displayName).toBe('Sammler'); expect(namedBody.cards[0].price.amount).toBe(2.5); expect(namedBody.total).toBeUndefined();
   });
+  it('uses genuine SDK field masks for shared entries without fetching private payload or losing missing snapshots', async () => {
+    await seed();
+    const entryPath = 'users/owner-a/collectionEntries/entry-a';
+    await context.db.doc(entryPath).update({ syncId: 'entry-a', language: 'DE', externalProductSource: 'CARDMARKET_PUBLIC_DOWNLOAD' });
+    await context.db.doc('users/owner-a/privateBinderPlacements/missing-placement').set({
+      ownerUid: 'owner-a', binderId: 'binder-a', entrySyncId: 'missing-entry', slotPosition: 2, deleted: false,
+    });
+    const before = (await context.db.doc(entryPath).get()).data();
+    const created = await make({ showPrices: true, showTotal: true });
+    const batches = [];
+    const observedContext = { ...context, db: {
+      doc: context.db.doc.bind(context.db), collection: context.db.collection.bind(context.db),
+      getAll: async (...args) => {
+        // Observe the real Admin SDK result; do not emulate or replace its projection.
+        const snapshots = await context.db.getAll(...args);
+        batches.push({ paths: args.filter(ref => typeof ref?.path === 'string').map(ref => ref.path),
+          options: args.at(-1)?.fieldMask,
+          snapshots: snapshots.map(doc => ({ id: doc.id, exists: doc.exists, data: doc.data() })) });
+        return snapshots;
+      },
+    } };
+    const response = await readBinderShare(new Request('http://localhost/shared'),
+      { params: Promise.resolve({ token: created.path.split('/').pop() }) }, observedContext);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.cards).toHaveLength(1);
+    expect(body.cards[0]).toMatchObject({ cardId: 'sv1-200', slot: 1, finish: 'Normal', price: { amount: 2.5 } });
+    expect(body.total).toEqual({ amount: 2.5, currency: 'EUR', complete: true, pricedCards: 1, visibleCards: 1 });
+    expect(body.unavailableSlots).toEqual([]);
+    expect((await context.db.doc(entryPath).get()).data()).toEqual(before);
+    expect(batches).toHaveLength(1); // A real trend price must not read private selections.
+    expect([...batches[0].paths].sort((left, right) => left.localeCompare(right))).toEqual([entryPath, 'users/owner-a/collectionEntries/missing-entry']);
+    expect(batches[0].snapshots.find(doc => doc.id === 'missing-entry')).toEqual({ id: 'missing-entry', exists: false, data: undefined });
+    const expectedFields = ['ownerUid', 'syncId', 'deleted', 'quantity', 'sourceCardId', 'sourceSetId', 'setId',
+      'collectorNumber', 'language', 'finish', 'variant', 'externalProductSource', 'externalProductId'];
+    expect(batches[0].options, 'SHARED_ENTRY_SDK_FIELD_MASK_REQUIRED').toEqual(expectedFields);
+    const actual = batches[0].snapshots.find(doc => doc.id === 'entry-a');
+    expect(actual.exists).toBe(true);
+    expect(actual.data).toEqual(Object.fromEntries(expectedFields.map(field => [field, before[field]])));
+    expect(JSON.stringify(actual.data)).not.toMatch(/PRIVATE_|private.invalid|acquisitionPriceMinor|imageUrl/);
+  });
   it('only allows the owner to list/revoke and makes revocation immediately effective', async () => {
     await seed(); const created = await make(); const token = created.path.split('/').pop();
     const list = await listBinderShares(new Request('http://localhost/shares?binderId=binder-a', { headers: { Authorization: `Bearer ${tokens.a}` } }), context);

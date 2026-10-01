@@ -44,11 +44,19 @@ function fixture({ id = card.id, prices = false } = {}) {
   ]);
   const placement = { ownerUid: owner, entrySyncId: 'entry', slotPosition: 0 };
   let logicalReads = 0, authReads = 0;
-  const snapshot = (path) => ({ id: path.split('/').at(-1), exists: documents.has(path), data: () => documents.get(path) });
+  const snapshot = (path, fields = null) => ({ id: path.split('/').at(-1), exists: documents.has(path), data: () => {
+    const data = documents.get(path);
+    return fields === null || data === undefined ? data
+      : Object.fromEntries(fields.filter((key) => Object.hasOwn(data, key)).map((key) => [key, data[key]]));
+  } });
   const context = { sharingEnabled: true,
     auth: { getUser: async () => { authReads++; return { disabled: false, customClaims: { appAccess: true } }; } },
     db: { doc: (path) => ({ path, get: async () => { logicalReads++; return snapshot(path); } }),
-      getAll: async (...refs) => { logicalReads += refs.length; return refs.map(({ path }) => snapshot(path)); },
+      getAll: async (...refs) => {
+        const fields = Array.isArray(refs.at(-1)?.fieldMask) ? refs.pop().fieldMask : null;
+        logicalReads += refs.length;
+        return refs.map(({ path }) => snapshot(path, fields));
+      },
       collection: () => ({ where: () => ({ select: (...fields) => ({ limit: () => ({ get: async () => ({ size: 1,
         docs: [{ id: 'placement', data: () => Object.fromEntries(fields.filter((key) => Object.hasOwn(placement, key))
           .map((key) => [key, placement[key]])) }],
