@@ -1,7 +1,8 @@
 # Release 27 — öffentliche Binder-Reads: Gate 2/6
 
-Stand: 01.10.2026, lokaler Source-Audit mit getrennt gekennzeichnetem
-Retry-Cleanup-Follow-up. Keine Cloud-/Auth-/Netzabfragen, keine Rules-/Ingressänderung
+Stand: 01.10.2026, lokaler Source-Audit mit getrennt gekennzeichneten
+Retry-Cleanup- und Request-Lebensdauer-Follow-ups. Aktueller Viewer-Stand:
+`6782c59`. Keine Cloud-/Auth-/Netzabfragen, keine Rules-/Ingressänderung
 und kein Deployment für diesen Bericht.
 
 ## Status und Beleggrenzen
@@ -51,10 +52,14 @@ Konfiguration ist nicht automatisch auch in der Produktion nicht vorhanden.
   eine Placementabfrage bis 5.001 Dokumente, benötigte Entry-Reads und Katalogarbeit.
   `showTotal` erweitert die Entry-/Katalogarbeit auf den gesamten Binder.
   Finale Widerruf-/Owner-/Binderprüfungen bleiben sicherheitsrelevant.
-- `components/shared-binder-viewer.tsx`: sofortiges Laden, sichtbares Tab alle
-  15 Sekunden erneut laden, zusätzlich Visibilitywechsel, Seitenwechsel und
-  manueller Retry. Grob vier periodische Requests pro Minute und offenem Tab,
-  zuzüglich Initial-/Interaktionsaufrufen. Langsame Requests können überlappen.
+- `components/shared-binder-viewer.tsx`: sofortiges Laden und bei sichtbarem Tab
+  ein 15-Sekunden-Takt. Ein periodischer Tick überspringt eine noch laufende
+  Anfrage einschließlich ihres JSON-Bodys. Zusätzlich laden Visibilitywechsel,
+  Seitenwechsel und manueller Retry; diese brechen den jeweiligen Vorgänger ab.
+  Bei zügigen Antworten sind es grob vier periodische Requests pro Minute und
+  offenem Tab, zuzüglich Initial-/Interaktionsaufrufen; bei langsamen Antworten
+  weniger. Eine 30-Sekunden-Frist gibt den lokalen Slot auch bei ignoriertem
+  Abbruch frei. Das begrenzt weder bereits gestartete Serverarbeit noch globale Last.
 - Android: `CardVault/app/src/main/java/com/dominik/cardvault/data/sharing/`
   `SharedBinderReader.kt` wartet jeweils 15 Sekunden nach einem Ladeversuch;
   `ui/SharedBinderScreen.kt` bindet die Subscription an Sichtbarkeit/Lifecycle.
@@ -70,36 +75,34 @@ Konfiguration ist nicht automatisch auch in der Produktion nicht vorhanden.
 
 Ergänzender Source-Audit von `components/shared-binder-viewer.tsx`,
 `tests/shared-binder-ui.test.tsx` und `tests/shared-binder-viewer-refresh.test.tsx`.
-Die folgenden Abläufe sind aus dem Code abgeleitet, keine gemessenen
-Produktionslatenzen und keine Aussage über eine Provider-SLA.
+Die folgenden historischen und aktuellen Abläufe sind aus dem Code und den
+genannten lokalen Komponententests abgeleitet, keine gemessenen Produktionslatenzen
+und keine Aussage über eine Provider-SLA.
 
-- Initialer Aufruf, 15-Sekunden-Intervall und Visibility-Aktualisierung verwenden
-  denselben Controller der Effect-Lebensdauer. Ein weiterer Aufruf erhöht
-  `requestVersion`, bricht den Vorgänger aber nicht ab. Der Versionsvergleich
-  verhindert die Veröffentlichung veralteter Antworten, nicht parallele Requests.
-- Konkreter Verwerfungsfall: Bei durchgehend sichtbarem Tab und angenommenen
-  20 Sekunden Antwortdauer starten Requests bei Sekunde 0, 15 und 30. Die erste
-  Antwort bei Sekunde 20 ist bereits veraltet, die zweite bei Sekunde 35 ebenfalls.
-  Setzt sich dieser Ablauf fort, wird keine erfolgreiche Antwort veröffentlicht.
-  Ohne vorherige Daten bleibt die Ladeanzeige stehen; bereits dargestellte Daten
-  werden durch diese verworfenen Antworten nicht aktualisiert. Zusätzliche
-  Visibility-Aufrufe können weitere Requests und Versionen erzeugen.
-- **Historischer Retry-Befund, inzwischen lokal korrigiert:** „Erneut versuchen“
+- **Historischer automatischer Refresh-Befund, inzwischen lokal korrigiert:**
+  Initialer Aufruf, 15-Sekunden-Intervall und Visibility-Aktualisierung verwendeten
+  denselben Controller der Effect-Lebensdauer. Jeder weitere Aufruf erhöhte
+  `requestVersion`, brach den Vorgänger aber nicht ab. Der Versionsvergleich
+  verhinderte alte Veröffentlichungen, nicht parallele Requests. Bei durchgehend
+  sichtbarem Tab und 20 Sekunden Antwortdauer starteten Requests bei Sekunde 0,
+  15 und 30. Die Antwort bei Sekunde 20 war bereits veraltet, die nächste bei
+  Sekunde 35 ebenfalls. Im reproduzierten Fall kam trotz erfolgreicher Antworten
+  kein Binder zur Anzeige. Zusätzliche Visibility-Aufrufe konnten weitere Requests
+  und Versionen erzeugen.
+- **Historischer Retry-Befund und erster lokaler Zwischenstand:** „Erneut versuchen“
   erzeugte einen eigenen `AbortController`, ohne ihn für das Cleanup zu speichern.
   Dieser manuelle Request wurde deshalb bei Unmount oder Freigabewechsel nicht
-  durch den Effect-Controller abgebrochen. Der minimale lokale Fix hält den
-  bestehenden Effect-Controller in `requestLifetime`; manuelle Retries teilen
-  jetzt dessen Signal und damit das Cleanup bei Seiten-/Tokenwechsel und Unmount.
-  Das Cleanup leert die Referenz nur, wenn sie noch auf seinen eigenen Controller
-  zeigt. Es gibt weder Abbruch vor jedem Refresh noch Coalescing oder neue Timeouts.
-  Mehrfache Retries können während derselben Lebensdauer weiterhin überlappen.
-  Die bereits vorhandene Versionsprüfung gegen alte Antworten bleibt unverändert;
-  diese Korrektur ist kein neu eingeführter Schutz vor veralteten DTOs.
-- Die bisherigen Viewer-Tests belegen die jüngste zulässige DTO-Veröffentlichung,
-  das Entfernen widerrufener Preise/Karten und den Schutz vor verspäteten alten
-  Antworten. Zwei neue reale Komponententests prüfen zusätzlich einen manuellen
-  Retry mit offenem Fetch bei Unmount sowie einen offenen Retry-JSON-Body bei
-  Tokenwechsel einschließlich verspäteter alter Antwort. Der lokale RED-Lauf
+  durch den Effect-Controller abgebrochen. Der erste minimale Fix hielt den
+  Effect-Controller in `requestLifetime`; manuelle Retries teilten dessen Signal
+  und damit das Cleanup bei Seiten-/Tokenwechsel und Unmount. Die Referenz wurde
+  nur durch ihren eigenen Controller geleert. Dieser Zwischenstand enthielt noch
+  kein Coalescing und keinen Requesttimeout; mehrere Retries konnten überlappen.
+  Er ist nicht mehr die aktuelle Request-Implementierung, siehe unten.
+- **Beleg des ersten Retry-Cleanup-Fixes:** Neben den bestehenden Prüfungen der
+  jüngsten zulässigen DTO-Veröffentlichung und des Entfernens widerrufener
+  Preise/Karten kamen zwei reale Komponententests hinzu: manueller Retry mit
+  offenem Fetch bei Unmount sowie offener Retry-JSON-Body bei Tokenwechsel
+  einschließlich verspäteter alter Antwort. Der damalige lokale RED-Lauf
   vor dem Fix ergab 1.199 PASS / 2 FAIL, beide exakt am noch nicht abgebrochenen
   Retry-Signal: `outputs/release-local/2026-10-01T15-08-35-416Z-4664.json`
   und die gleichnamige `.log`-Datei. Anschließend **1.201/1.201 PASS, kein Skip**:
@@ -109,6 +112,38 @@ Produktionslatenzen und keine Aussage über eine Provider-SLA.
   blieben unverändert (`baseline/build-viewer-manual-retry-*` unter
   `outputs/release27-engineering-20261001/`). Kein Deployment. Die Tests sind kein Nachweis
   einer Obergrenze tatsächlich laufender Requests oder von beendetem Serveraufwand.
+
+### Aktueller lokal geprüfter Viewer-Stand
+
+- Periodische Ticks überspringen eine laufende Anfrage, ohne `requestVersion` zu
+  erhöhen. Der Schutz umfasst sowohl Fetch als auch JSON-Verarbeitung; eine
+  erfolgreiche 20-Sekunden-Antwort kann dadurch veröffentlicht werden.
+- Jede Anfrage besitzt einen eigenen Controller, der an die Effect-Lebensdauer
+  gebunden ist. Expliziter Retry und erneute Tab-Sichtbarkeit behalten
+  Latest-Request-Priorität und brechen den Vorgänger ab. Seiten-/Tokenwechsel und
+  Unmount brechen die zugehörige Anfrage ab und entfernen Frist und Listener.
+- Eine **30-Sekunden-Frist pro Anfrage** umfasst Fetch und JSON-Body. Bei Ablauf
+  werden bisherige Binder-/Modalinhalte entfernt und eine Fehlermeldung angezeigt.
+  Der lokale Slot wird unabhängig davon frei, ob der Transport den Abbruch beachtet.
+  Der nächste zulässige sichtbare Intervalltick oder ein expliziter Retry kann
+  erneut laden; der Takt wird nicht auf 15 Sekunden nach Abschluss umgestellt.
+- Versions-/Abbruchprüfungen verhindern verspätete Veröffentlichungen. Ein alter
+  `finally`-Block darf nur seinen eigenen Slot freigeben, nicht den einer neueren
+  Anfrage. Die bisherigen Widerruf-/DTO-Prüfungen bleiben erhalten.
+- **Lokaler RED/GREEN-Nachweis vom 01.10.2026:** 1.204 PASS / vier gezielte Fehler
+  vor dem Fix, danach **1.208/1.208 PASS, keine Skips**. Sieben neue Fälle prüfen
+  langsame Header/JSON, beide Fristabläufe mit Wiederanlauf sowie Token-/Seiten-/
+  Unmount-Wechsel. Belege:
+  `outputs/release-local/2026-10-01T16-00-29-476Z-20668.{json,log}` (RED) und
+  `outputs/release-local/2026-10-01T16-07-05-543Z-18044.{json,log}` (GREEN).
+  Typecheck und fokussierter Lint bestanden. Isolierter Produktionsmodus-Build:
+  13,181 Sekunden, 303 Quelldateien, synthetische Umgebung und Netzsperre, Exit 0.
+  Root-`dist` und neun Konfigurationsdateien behielten ihren Integritätshash;
+  Beleg: `outputs/release27-engineering-20261001/baseline/build-viewer-deadline-green*`.
+  Der datierte Gesamtbeleg steht auch in `docs/WEBAPP_RELEASE_27_HANDOFF.md`,
+  Abschnitt „Langsame öffentliche Binder-Antworten und begrenztes Warten“.
+  Bestehende React-act-/JSDOM-Canvas-Warnungen bleiben Harnessgrenzen; kein
+  Browser-Visualtest und kein Deployment.
 
 Der Viewer ruft direkt Browser-`fetch` mit einem Signal auf. Der API-Router und
 `privateOperations` reichen das `Request`-Objekt an `readBinderShare` weiter;
@@ -120,18 +155,20 @@ Kosten entfallen. Die Katalogdeadline ist außerdem keine Gesamtdeadline der
 HTTP-Anfrage einschließlich Datenbank- und abschließender Berechtigungsprüfungen.
 
 Der lokal ergänzte Pool mit 32 aktiven Loadern und 512 FIFO-Wartenden begrenzt
-Loader-Promises pro Cacheinstanz. Er löst weder diesen Browser-Lebensdauerbefund
-noch anonymes Rate-Limiting, deploymentsweite Parallelität oder garantierte
+Loader-Promises pro Cacheinstanz. Der Browser-Lebensdauerbefund wurde separat im
+Viewer korrigiert, nicht durch diesen Pool. Beide Änderungen ersetzen weder
+anonymes Rate-Limiting noch deploymentsweite Parallelitätsgrenzen oder garantierte
 Socket-/Gesamtspeichergrenzen.
 
-**Noch keine Polling-/Timeout-Änderung:** Abbruch vor jedem Intervallrequest würde
-den beschriebenen Verwerfungsfall nicht beheben. Automatisches Zusammenfassen
-gleichzeitiger Aktualisierungen könnte eine langsame Antwort fertig werden lassen,
-würde aber die Frequenz neuer Widerrufprüfungen ändern; ohne weitere Grenze könnte
-ein hängender Request diese dauerhaft aufhalten. Über den separat korrigierten
-Controllerbesitz hinaus müssen Frische-/Timeout-Semantik und ihre Tests vor einer
-weiteren Produktänderung bewusst entschieden werden. Der bestehende 15-Sekunden-Takt,
-die finalen Berechtigungsprüfungen und die Darstellung privater Auswahlen bleiben unverändert.
+**Verbleibende Frische-/Lastgrenzen:** Die 30-Sekunden-Frist ist eine lokale
+Browser-Timerregel, keine harte Wallclock- oder Server-SLA. Hintergrunddrosselung
+und ein blockierter Eventloop können ihre Ausführung verzögern. Bei ignoriertem
+Abort wird nur der logische Anfrageslot freigegeben; bereits gestartete Arbeit
+kann weiterlaufen. Explizite Retries/Visibilitywechsel können neue Requests
+auslösen und sind kein Rate-Limit. Widerruf bleibt requestbasiert, nicht Push:
+15-Sekunden-Ticks garantieren bei langsamen Antworten keine exakt 15-sekündige
+Widerrufssichtbarkeit. Die API bleibt `no-store` mit ihren bestehenden finalen
+Berechtigungsprüfungen; die Darstellung privater Auswahlen wurde nicht verändert.
 
 ## Vorhandene Technik, die gezielt wiederverwendbar wäre
 
@@ -199,5 +236,7 @@ Methoden-/Securityheader, unverändertes GET/Revoke und beide Runtimewege ergän
 
 **Entscheidung zu öffentlichen Read-Limits:** Nur Befunde dokumentiert. Kein
 öffentlicher Limiter, keine HEAD-Änderung, keine neue Secret-/Proxy-/Firestore-Konfiguration.
-Der oben separat beschriebene lokale Retry-Cleanup-Fix ändert diese Entscheidung
-und die offenen Polling-/Serverlastgrenzen nicht.
+Die separat beschriebenen lokalen Retry-Cleanup- und Request-Lebensdauer-Fixes
+ändern diese Entscheidung nicht. Die frühere automatische Refresh-Starvation
+ist lokal korrigiert; globale Last-/Kostengrenzen und die genannten
+Widerrufsfrische-/Serverabbruchgrenzen sind damit nicht belegt.
