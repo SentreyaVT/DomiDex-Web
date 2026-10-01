@@ -1,5 +1,16 @@
 # Collection/private-worker session proof — local only
 
+Latest additive proof: **13/13 actual SDK cases PASS**, 2026-10-02 local time,
+`outputs/collection-sync-session-local/2026-10-01T23-24-15-174Z-448b17e0ba034f5796a0336a0290f8f0/`.
+Complete harness 100.475 s; thirteenth case 6.726 s. All thirteen full preflight/
+readbacks, fourteen nominal accounts, exact previous owner payloads, free ports,
+empty reverse mappings, idle instrumentation and frozen inputs pass. 18 pure
+validators and focused oxlint pass separately. Product APK unchanged
+`64d40b75180873a339413460b5af1455a32c32ac24096577777d3a725ec822d3`;
+test APK `7d45119d587f8d97f86c896e03662e608aecba3a83a8c32b8fd2d91cf915ed25`.
+This does not claim OS scheduling, process restart or physical multi-device tests.
+The older twelve-case evidence below remains tied to its historical inputs.
+
 All twelve real-SDK cases, including offline private-worker retry across Room
 file reopen, were verified locally on 2026-10-02 (UTC run starts 2026-10-01).
 Exact evidence and input hashes below apply only to their dated pinned inputs.
@@ -23,9 +34,9 @@ node tests/collection-sync-session-local/run.mjs --android-root C:/Users/Dominik
 
 Allowed preinstalled path overrides are `--firebase-cli`, `--java-home`, `--emulator-cache`. Project, ports, serial, account list, method registry and run-ID shape are fixed. New run IDs are lowercase 32-hex. Pure validator tests are not SDK evidence.
 
-## Exact fixtures and twelve methods
+## Exact fixtures and thirteen methods
 
-Host requires entirely empty Auth/Firestore emulators. It imports exactly thirteen nominal Google users: the twelve `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
+Host requires entirely empty Auth/Firestore emulators. It imports exactly fourteen nominal Google users: the thirteen `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
 
 Class remains `com.dominik.cardvault.data.sync.CollectionSyncSessionSdkInstrumentedTest`. Existing arguments remain `domidexCollectionSessionProof=demo-loopback-only` and `domidexCollectionSessionRunId=<32hex>`.
 
@@ -308,3 +319,33 @@ app `58613d94075ea30791e4996c791ed5aedd9f960f97326aea66d0d3f5ddbdf958`,
 test `230d51dff73bd2e52d308c0e98b3f03ccf8f19dcbba29690c649b2bc5fc2dd46`.
 No product, Rules, release artifact, signing, deployment or Xiaomi change. These
 hashes precede this evidence paragraph; no process-death/active-delta claim.
+
+## Thirteenth case: two-client private-binder stale-base convergence
+
+13. `twoClientPrivateBinderStaleEditConvergesWithoutRemoteRewrite` starts remotely
+empty, with no Admin seed. Two independent named client SDKs use the same nominal
+Google owner and separate run/label/UUID-owned Room files. A creates revision1 with
+the real private worker; B receives it via the real FULL worker, not direct local
+copying. Each Room then holds a different synthetic pending base1 edit. A commits
+revision2. B's later client timestamp cannot override its stale base: REMOTE_WINS
+must consume B's original outbox mutation and apply every A field. An independent
+named witness checks full SERVER payload/timestamps before and after B and fresh
+passes. All 14 business tables and exact FULL metadata are checked in both Rooms;
+only their separate fixture-owner marker differs across databases. No continuation
+or sharing callback is expected. Each exact owned Room file is closed, ownership-
+verified and deleted with its sidecars; @After failure cannot count as PASS.
+
+The final Admin inventory is exactly 14 collection references / 23 document
+references / 14 existing documents; existing 16/32 inventory limits are unchanged.
+All earlier scenarios and owner payloads/timestamps remain unchanged, with exactly
+14 nominal accounts checked in every preflight/readback. No Admin writes occur for
+this new owner. The host cannot replace Android intermediate witness assertions
+with a final-only sample; both are mandatory for a passing complete proof.
+
+The initial creation and edits are valid synthetic DAO fixtures, not UI/repository
+action coverage. The invocations are sequential to test a deterministic stale base
+in this one process. This does not prove concurrent physical devices, all conflict
+interleavings, process death, WorkManager delivery, or native query completeness.
+The draft adds no product behavior, credentials, Rules or runtime architecture.
+The dated Root run at the top is the actual 13-case proof. Pure validator success
+alone does not prove that Android performed any worker pass.

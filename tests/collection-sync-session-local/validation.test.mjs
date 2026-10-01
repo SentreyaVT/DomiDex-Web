@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { PROJECT, SERIAL, AVD, SCENARIOS, OTHER_OWNER, ACCOUNTS, TEST_CLASS, validRunId, parseSessionOptions,
   entryPath, entryFixture, finalEntryFixture, seedFixtures, lateParentSeedFixtures, assertEntry, assertSeed,
   offlinePrivateBinderFixture, assertOfflinePrivateBinder,
+  twoClientPrivateBinderFixture, assertTwoClientPrivateBinder,
   validateInstrumentation, validateReadback, validatePreflight, validateReadbacks, validateServerProof,
   assertNoInstrumentation } from './contract.mjs';
 import { PORTS, assertTestEnvironment, isolatedEnvironment } from '../private-operations-local/safety.mjs';
@@ -20,6 +21,7 @@ const scenarioSeeds = scenario => seedFixtures(scenario, runId, seedStamp(scenar
 const finalDocuments = index => SCENARIOS.slice(0, index + 1).flatMap(scenario => ['missing', 'session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key) ? [] :
   scenario.key === 'deferred-point-read' ? seedFixtures(scenario, runId, seedStamp(scenario)) :
   scenario.key === 'private-offline-retry' ? [offlinePrivateBinderFixture(runId, finalStamp(scenario))] :
+  scenario.key === 'private-two-client' ? [twoClientPrivateBinderFixture(runId, finalStamp(scenario))] :
   [...(scenario.key === 'late-parent' ? lateParentSeedFixtures(runId, seedStamp(scenario)) : []), documentFixture(scenario)]);
 const snapshot = (index, before = false) => {
   const current = SCENARIOS[index];
@@ -45,8 +47,8 @@ const proof = () => ({ project: PROJECT, runId, verified: true, accountUnchanged
 
 void test('exact demo/AVD and path-safe run ID are fixed, with no project/serial/port override', () => {
   assert.equal(PROJECT, 'demo-domidex-privacy'); assert.equal(SERIAL, 'emulator-5554'); assert.equal(AVD, 'DomiDex_R27_Baseline_API36');
-  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 13);
-  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect', 'deferred-point-read', 'private-offline-retry']);
+  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 14);
+  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect', 'deferred-point-read', 'private-offline-retry', 'private-two-client']);
   assert.deepEqual(PORTS, { auth: 9097, firestore: 8187, storage: 9297, hub: 4407, logging: 4507, websocket: 9150 });
   assert.equal(validRunId(runId), runId); assert.ok(parseSessionOptions(['--android-root', '.'])['--android-root']);
   for (const value of ['', '../bad', 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), undefined, 1e31, {}]) assert.throws(() => validRunId(value));
@@ -74,7 +76,7 @@ void test('each SDK method requires exact START+PASS, mandatory numtests and fin
   assert.throws(() => validateInstrumentation(instrumentation(SCENARIOS[0].method), SCENARIOS[1].method));
 });
 void test('exact server fixtures reject extra/missing fields, changed identity and fabricated ACK revision', () => {
-  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline', 'session-reconnect', 'private-offline-retry'].includes(value.key))) {
+  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline', 'session-reconnect', 'private-offline-retry', 'private-two-client'].includes(value.key))) {
     const make = () => finalEntryFixture(scenario, runId, { seconds: 1700000100, nanoseconds: 1234 });
     assert.equal(assertEntry(make(), scenario, runId).revision, scenario.key === 'pending-overlay' ? 2 : 1);
     for (const mutate of [value => { delete value.notes; }, value => { delete value.acquisitionPriceMinor; },
@@ -107,7 +109,7 @@ void test('every independent readback checks exact Google accounts, no access ov
   }
 });
 void test('remote commit alone, RED, missing teardown PASS or missing readback never count as a passing session proof', () => {
-  assert.equal(validateServerProof(proof(), runId).androidCases, 12);
+  assert.equal(validateServerProof(proof(), runId).androidCases, 13);
   for (const mutate of [value => { value.verified = false; }, value => { value.accountUnchanged = false; },
     value => { value.project = 'production'; }, value => { value.runId = 'b'.repeat(32); },
     value => { value.errors.push({ method: SCENARIOS[1].method, error: 'STALE_SESSION_ACKED_COMMITTED_MUTATION' }); },
@@ -204,7 +206,7 @@ void test('pending overlay requires the exact rev1 seed and actual agreed rev2 w
   const equal = proof();
   for (const item of [...equal.readbacks.slice(5), ...equal.preflights.slice(6)])
     item.entries.find(row => row.path === entryPath(scenario)).data.updatedAt = structuredClone(seed.data.updatedAt);
-  assert.equal(validateServerProof(equal, runId).androidCases, 12);
+  assert.equal(validateServerProof(equal, runId).androidCases, 13);
 });
 void test('late parent preserves all three orphan seeds, requires only the client-created parent and rejects extras', () => {
   const scenario = SCENARIOS[6]; const valid = proof();
@@ -322,7 +324,7 @@ void test('offline private retry has no Admin seed and only one exact worker-cre
   assert.equal(valid.readbacks[11].collectionPaths.length, 13);
   assert.equal(valid.readbacks[11].documentPaths.length, 21);
   const summary = validateServerProof(valid, runId);
-  assert.equal(summary.androidCases, 12);
+  assert.equal(summary.androidCases, 13);
   assert.equal(summary.actualPrivateWorkerOfflineRetryCases, 1);
 });
 
@@ -370,7 +372,7 @@ void test('deferred point-read appends one nominal owner with exactly three immu
   const scenario = SCENARIOS[10];
   assert.deepEqual(scenario, { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read',
     method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' });
-  assert.equal(SCENARIOS.length, 12); assert.equal(ACCOUNTS.length, 13);
+  assert.equal(SCENARIOS.length, 13); assert.equal(ACCOUNTS.length, 14);
   assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
     uid: scenario.owner, email: `${scenario.owner}@example.invalid`, emailVerified: true,
     disabled: false, customClaims: { appAccess: true },
@@ -400,7 +402,7 @@ void test('deferred point-read appends one nominal owner with exactly three immu
   assert.equal(valid.readbacks[10].collectionPaths.length, 12);
   assert.equal(valid.readbacks[10].documentPaths.length, 19);
   const summary = validateServerProof(valid, runId);
-  assert.equal(summary.androidCases, 12);
+  assert.equal(summary.androidCases, 13);
   assert.equal(summary.readOnlyDeferredPointReadCases, 1);
   for (const prior of valid.readbacks[9].entries)
     assert.deepEqual(valid.readbacks[10].entries.find(item => item.path === prior.path), prior);
@@ -488,6 +490,119 @@ void test('deferred point-read rejects changed seeds, all client writes, owner c
     value => { value.readbacks.pop(); },
     value => { value.errors.push({ method: scenario.method, error: 'deferred marker lost after Room reopen' }); },
     value => { value.readbackErrors.push({ method: scenario.method, error: 'incomplete Admin tree' }); },
+  ]) {
+    const broken = proof(); change(broken);
+    assert.throws(() => validateServerProof(broken, runId));
+  }
+});
+
+// REVIEW DRAFT: append to validation.test.mjs after applying the matching host patch.
+// Pure validator fixtures only. No Android/SDK/runtime result is claimed here.
+
+void test('two-client private conflict appends one nominal owner, no seed and exact winner revision2', () => {
+  const scenario = SCENARIOS[12];
+  assert.deepEqual(scenario, { key: 'private-two-client', owner: 'sdk-proof-collection-private-two-client',
+    method: 'twoClientPrivateBinderStaleEditConvergesWithoutRemoteRewrite' });
+  assert.equal(SCENARIOS.length, 13); assert.equal(ACCOUNTS.length, 14);
+  assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
+    uid: scenario.owner, email: `${scenario.owner}@example.invalid`, emailVerified: true,
+    disabled: false, customClaims: { appAccess: true },
+    providerData: [{ providerId: 'google.com', uid: `${scenario.owner}-google`, email: `${scenario.owner}@example.invalid` }],
+  });
+  assert.deepEqual(seedFixtures(scenario, runId, seedStamp(scenario)), []);
+  const expected = { path: `users/${scenario.owner}/privateBinders/private-two-client-binder`, data: {
+    binderId: 'private-two-client-binder', ownerUid: scenario.owner,
+    name: 'Synthetic pair winner', description: 'A revision two', coverStyle: 'DOMIDEX',
+    minimumPageCount: 3, createdAtClient: 1700000000000, updatedAtClient: 1700000000010,
+    lastOpenedAtClient: 1700000000010, deleted: false, revision: 2,
+    lastMutationId: `private-pair-${runId}-a-edit`, updatedAt: finalStamp(scenario),
+  } };
+  assert.deepEqual(twoClientPrivateBinderFixture(runId, finalStamp(scenario)), expected);
+  assert.deepEqual(assertTwoClientPrivateBinder(expected.data, runId), expected.data);
+  assert.throws(() => assertEntry(entryFixture(scenario, runId, finalStamp(scenario)), scenario, runId));
+  assert.throws(() => assertSeed({ method: scenario.method, ...expected }, scenario, runId));
+  const valid = proof();
+  assert.deepEqual(valid.seeds.filter(item => item.method === scenario.method), []);
+  assert.deepEqual(valid.preflights[12], { ...valid.readbacks[11], method: scenario.method });
+  assert.deepEqual(valid.readbacks[12].entries,
+    [...valid.readbacks[11].entries, expected].sort((left, right) => lexical(left.path, right.path)));
+  assert.equal(valid.readbacks[11].collectionPaths.length, 13);
+  assert.equal(valid.readbacks[11].documentPaths.length, 21);
+  assert.equal(valid.readbacks[11].entries.length, 13);
+  assert.equal(valid.readbacks[12].collectionPaths.length, 14);
+  assert.equal(valid.readbacks[12].documentPaths.length, 23);
+  assert.equal(valid.readbacks[12].entries.length, 14);
+  // Fits the unchanged actual Admin traversal bounds; these are not new larger limits.
+  assert.ok(valid.readbacks[12].collectionPaths.length < 16);
+  assert.ok(valid.readbacks[12].documentPaths.length < 32);
+  const summary = validateServerProof(valid, runId);
+  assert.equal(summary.androidCases, 13);
+  assert.equal(summary.independentAdminReadbacks, 13);
+  assert.equal(summary.independentAdminPreflights, 13);
+  assert.equal(summary.actualPrivateWorkerOfflineRetryCases, 1);
+  assert.equal(summary.actualPrivateWorkerTwoClientConflictCases, 1);
+  for (const prior of valid.readbacks[11].entries)
+    assert.deepEqual(valid.readbacks[12].entries.find(item => item.path === prior.path), prior);
+});
+
+void test('two-client proof rejects stale B or revision3, premature seeding, extra authority and incomplete evidence', () => {
+  const scenario = SCENARIOS[12];
+  const fixture = () => twoClientPrivateBinderFixture(runId, finalStamp(scenario));
+  const finalRow = value => value.readbacks[12].entries.find(item => item.path === fixture().path);
+  for (const change of [
+    data => { data.binderId = 'other'; }, data => { data.ownerUid = OTHER_OWNER; },
+    data => { data.name = 'Synthetic pair stale'; }, data => { data.description = 'B stale revision one'; },
+    data => { delete data.description; }, data => { data.description = null; },
+    data => { data.coverStyle = 'other'; }, data => { data.minimumPageCount = 7; },
+    data => { data.createdAtClient++; }, data => { data.updatedAtClient = 1700000000020; },
+    data => { data.lastOpenedAtClient = 1700000000020; }, data => { data.lastOpenedAtClient = null; },
+    data => { delete data.lastOpenedAtClient; }, data => { data.deleted = true; },
+    data => { data.revision = 1; }, data => { data.revision = 3; },
+    data => { data.lastMutationId = `private-pair-${runId}-b-stale`; },
+    data => { data.lastMutationId = `private-pair-${runId}-initial`; },
+    data => { data.extra = true; }, data => { data.updatedAt = null; },
+    data => { data.updatedAt.seconds = 0; }, data => { data.updatedAt.nanoseconds = 1e9; },
+    data => { data.updatedAt.extra = true; },
+  ]) {
+    const document = fixture(); change(document.data);
+    assert.throws(() => assertTwoClientPrivateBinder(document.data, runId));
+    const broken = proof(); change(finalRow(broken).data);
+    assert.throws(() => validateServerProof(broken, runId));
+  }
+  const addDocument = (snapshot, path, data) => {
+    snapshot.entries.push({ path, data }); snapshot.entries.sort((a, b) => lexical(a.path, b.path));
+    const parts = path.split('/');
+    for (let length = 1; length <= parts.length; length++) {
+      const inventory = length % 2 === 0 ? snapshot.documentPaths : snapshot.collectionPaths;
+      const item = parts.slice(0, length).join('/');
+      if (!inventory.includes(item)) inventory.push(item);
+      inventory.sort(lexical);
+    }
+  };
+  for (const change of [
+    value => { value.readbacks[12].entries = value.readbacks[12].entries.filter(item => item.path !== fixture().path); },
+    value => { addDocument(value.preflights[12], fixture().path, fixture().data); },
+    value => { value.seeds.push({ method: scenario.method, ...fixture() }); },
+    value => { addDocument(value.readbacks[12], entryPath(scenario), entryFixture(scenario, runId, finalStamp(scenario))); },
+    value => { addDocument(value.readbacks[12], `users/${scenario.owner}/privateBinders/extra`, fixture().data); },
+    value => { addDocument(value.readbacks[12], `users/${OTHER_OWNER}/privateBinders/other`, fixture().data); },
+    value => { addDocument(value.readbacks[12], `accountAccess/${scenario.owner}`, { appAccess: true }); },
+    value => { value.readbacks[12].entries.push(structuredClone(finalRow(value))); },
+    value => { value.readbacks[12].collectionPaths.push(`users/${scenario.owner}/collectionPriceSelections`); },
+    value => { value.readbacks[12].documentPaths.push(`users/${scenario.owner}/privateBinders/empty-reference`); },
+    value => { value.readbacks[12].entries[0].data.updatedAt.nanoseconds++; },
+    value => { value.preflights[12].entries[0].data.updatedAt.nanoseconds++; },
+    value => { value.readbacks[12].accounts.find(item => item.uid === scenario.owner).customClaims.admin = true; },
+    value => { value.preflights[12].accounts.find(item => item.uid === scenario.owner).customClaims = {}; },
+    value => { value.readbacks[12].accounts.find(item => item.uid === scenario.owner).providerData[0].uid = 'wrong-google'; },
+    value => { value.preflights[12].accounts.find(item => item.uid === scenario.owner).emailVerified = false; },
+    value => { value.readbacks[12].accounts = value.readbacks[12].accounts.filter(item => item.uid !== scenario.owner); },
+    value => { value.phases.pop(); }, value => { value.preflights.pop(); }, value => { value.readbacks.pop(); },
+    value => { value.phases[12] = structuredClone(value.phases[11]); },
+    value => { value.phases[12].successEvidence = false; },
+    value => { value.errors.push({ method: scenario.method, error: 'stale private edit overwrote winner' }); },
+    value => { value.readbackErrors.push({ method: scenario.method, error: 'independent readback incomplete' }); },
+    value => { value.error = 'Exact owned private-pair Room cleanup failed'; },
   ]) {
     const broken = proof(); change(broken);
     assert.throws(() => validateServerProof(broken, runId));
