@@ -70,6 +70,9 @@ const inputs = ['firestore.rules', 'storage.rules', 'tests/private-operations.te
   'lib/collection.ts', 'lib/domain.ts', 'lib/cardmarket-identity.ts',
   'lib/sync-id.ts', 'lib/tcgdex.ts', 'lib/owner-document-state.ts',
   'lib/firebase-client.ts', 'package.json', 'package-lock.json',
+  'backend/scan-knowledge/index.js', 'backend/scan-knowledge/current-evidence.js',
+  'backend/scan-knowledge/knowledge-aggregate.js', 'backend/scan-knowledge/package.json',
+  'backend/scan-knowledge/package-lock.json',
   ...['run.mjs', 'safety.mjs', 'execute.mjs', 'config.mjs', 'network-preload.cjs', 'safety.test.mjs', 'README.md']
     .map((name) => `tests/private-operations-local/${name}`)];
 const inputHashes = Object.fromEntries(await Promise.all(inputs.map(async (name) => [name, await sha256(requireFile(path.join(root, name)))])));
@@ -101,6 +104,8 @@ try {
     const results = readJson(report);
     manifest.tests = { total: results.numTotalTests, passed: results.numPassedTests, failed: results.numFailedTests, pending: results.numPendingTests };
     const expectedTitles = [
+      'persists concurrent canonical knowledge votes and makes exact redelivery a server no-op',
+      'uses real evidence versions and deletion locks before changing persisted knowledge',
       'preserves the exact real absent-lock snapshot readTime and authenticated identity',
       'enforces the shared 60+1 budget across independent SDK instances and isolates another owner',
       'denies revoked/disabled access and both early and post-auth deletion fences without quota writes',
@@ -136,9 +141,9 @@ try {
       'rejects a colliding positive product for empty and stale current without any server mutation',
     ];
     const assertions = results.testResults?.flatMap(suite => suite.assertionResults ?? []) ?? [];
-    if (results.success !== true || results.numTotalTests !== 33 || results.numPassedTests !== 33
+    if (results.success !== true || results.numTotalTests !== 35 || results.numPassedTests !== 35
         || results.numFailedTests !== 0 || results.numPendingTests !== 0 || (results.numTodoTests ?? 0) !== 0
-        || assertions.length !== 33 || assertions.some(test => test.status !== 'passed')
+        || assertions.length !== 35 || assertions.some(test => test.status !== 'passed')
         || !isDeepStrictEqual(assertions.map(test => test.title).sort(), [...expectedTitles].sort())) process.exitCode = 1;
     try { manifest.webAdd = await verifyWebAddProofs(directory); }
     catch (error) { console.error(error.message); process.exitCode = 1; }

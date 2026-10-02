@@ -149,5 +149,32 @@ Die 10/40/80-Matrix, normale Stimmwechsel und die 32-Key-Grenze laufen auch nach
 Clientzeit, Events/Retryoption, Instanzzahl, Rules und Stimmenpolicy sind unverändert.
 Keine Cloud-Veröffentlichung; bestehende Daten wurden weder gelesen noch repariert.
 
+## Ergänzung 02.10.2026: tatsächlicher kanonischer Callback mit lokalem Admin-SDK
+
+Die unten bezeichnete neue Prüfung ergänzt die historischen Doubles; sie ersetzt
+deren absichtlich adversariale 10/40/80-Matrix nicht. Zwei zusätzliche Fälle in
+`tests/private-operations.test.mjs` importieren den unveränderten kanonischen
+`aggregateScanKnowledge`-Export samt eigenem Admin-SDK. Echte Emulator-Snapshots
+und echte Transaktionen werden über den Callback verarbeitet. Separate Admin-
+Reads vergleichen den vollständigen gespeicherten Graph einschließlich Server-
+Zeitstempeln; nicht bloß einen reinen Reducer-Rückgabewert.
+
+- Drei konkurrierende Beiträge ergeben exakt drei Stimmen und `STABLE`.
+  Wiederzustellung desselben Ereignisses verändert weder Felder noch Updatezeiten.
+- Ein echter alter Evidence-Snapshot und eine aktive synthetische Löschsperre
+  verändern keine Aggregate. Nach Entfernung ausschließlich des Testlocks zählt
+  dieselbe gültige Version korrekt als 2:1/`DISPUTED`; Wiederholung bleibt ein No-op.
+- Alle bisherigen 33 Fälle bleiben erhalten: **35/35 PASS**, 0 Fehler/Skips,
+  unveränderte Quellen und freie Ports. Gesamtharness 53,567 s; neue Fälle
+  5,860/3,696 s. Beleg:
+  `outputs/private-operations-local/2026-10-01T23-47-21-660Z-52ae5b8f/manifest.json`.
+
+Die Umgebung ist fest `demo-domidex-privacy`, mit bereinigtem Environment und
+Loopbackschutz. Keine Produktion, kein Deployment, keine Änderung von Handler,
+Retrybudget, Instanzzahl, Rules oder Stimmenpolicy. Manuelle Callback-Ausführung
+ist **kein** Nachweis einer tatsächlichen Eventarc-Zustellung, ausgelöster SDK-
+Retries, Produktionslast oder realer Nutzereinwilligung. Gate 9 bleibt in diesen
+Punkten offen.
+
 Für echte Skalierungsentscheidungen bleibt eine kontrollierte Staging-/Emulatormessung mit SDK,
 explizitem Zustell-/Retrybudget und Fehlerbeobachtung erforderlich. Kein blindes Sharding oder neues Tracking.

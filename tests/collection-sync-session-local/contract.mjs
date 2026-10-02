@@ -18,10 +18,36 @@ export const SCENARIOS = Object.freeze([
   { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read', method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' },
   { key: 'private-offline-retry', owner: 'sdk-proof-collection-private-offline-retry', method: 'offlinePrivateMutationSurvivesRoomReopenAndCompletesFullPull' },
   { key: 'private-two-client', owner: 'sdk-proof-collection-private-two-client', method: 'twoClientPrivateBinderStaleEditConvergesWithoutRemoteRewrite' },
+  { key: 'private-full-budget', owner: 'sdk-proof-collection-private-full-budget', method: 'largePrivateFullPullContinuesAfterBudgetAndRoomReopen' },
 ]);
 const isReadOnlySession = scenario => ['session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key);
 export const OTHER_OWNER = 'sdk-proof-collection-other';
 const lexical = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+export const FULL_BUDGET_PARENT = 'users/sdk-proof-collection-private-full-budget';
+export const FULL_BUDGET_COLLECTION = `${FULL_BUDGET_PARENT}/privateBinders`;
+export const FULL_BUDGET_PATHS = Object.freeze(Array.from({ length: 1001 }, (_, index) =>
+  `${FULL_BUDGET_COLLECTION}/paging-${String(index).padStart(4, '0')}`));
+const fullBudgetDocuments = new Set(FULL_BUDGET_PATHS);
+// Only this final scenario may extend the ordinary inventory with these exact
+// 1001 references and their still-missing owner parent. Unknown paths are errors,
+// not ignored records; the generic 16-collection/32-reference limits stay intact.
+export function isFullBudgetInventoryPath(documentPath, scenario) {
+  if (documentPath !== FULL_BUDGET_PARENT && !documentPath.startsWith(`${FULL_BUDGET_PARENT}/`)) return false;
+  assert.equal(scenario, SCENARIOS[13], 'Large fixture is allowed only during its exact final scenario');
+  assert.ok(documentPath === FULL_BUDGET_PARENT || fullBudgetDocuments.has(documentPath), 'Unexpected large-owner reference');
+  return true;
+}
+export function fullBudgetBinderFixture(documentPath, runId, timestamp) {
+  validRunId(runId); assert.ok(fullBudgetDocuments.has(documentPath), 'Exact paging identity required');
+  const binderId = documentPath.slice(FULL_BUDGET_COLLECTION.length + 1);
+  return { path: documentPath, data: {
+    binderId, ownerUid: SCENARIOS[13].owner, name: `Synthetic paging binder ${binderId}`,
+    description: null, coverStyle: 'DOMIDEX', minimumPageCount: 1,
+    createdAtClient: 1700000000000, updatedAtClient: 1700000000000,
+    lastOpenedAtClient: null, deleted: false, revision: 1,
+    lastMutationId: `private-full-${runId}-${binderId}`, updatedAt: timestamp,
+  } };
+}
 export const ACCOUNTS = Object.freeze([...SCENARIOS.map(item => item.owner), OTHER_OWNER].sort(lexical).map(uid => ({
   uid, email: `${uid}@example.invalid`, emailVerified: true, disabled: false,
   customClaims: { appAccess: true },
@@ -124,6 +150,7 @@ export function deferredPointReadSeedFixtures(runId, timestamp) {
 }
 export function seedFixtures(scenario, runId, timestamp) {
   entryPath(scenario);
+  if (scenario.key === 'private-full-budget') return FULL_BUDGET_PATHS.map(documentPath => fullBudgetBinderFixture(documentPath, runId, timestamp));
   if (scenario.key === 'late-parent') return lateParentSeedFixtures(runId, timestamp);
   if (scenario.key === 'deferred-point-read') return deferredPointReadSeedFixtures(runId, timestamp);
   return ['malformed', 'confirmed', 'pending-overlay'].includes(scenario.key)
@@ -140,6 +167,7 @@ export function assertEntry(data, scenario, runId, stage = 'final') {
   assert.notEqual(scenario.key, 'missing', 'Missing owner must have no server document');
   assert.notEqual(scenario.key, 'private-offline-retry', 'Private-only case must never create a collection entry');
   assert.notEqual(scenario.key, 'private-two-client', 'Two-client private-only case must never create a collection entry');
+  assert.notEqual(scenario.key, 'private-full-budget', 'Read-only paging case must never create a collection entry');
   assert.equal(isReadOnlySession(scenario), false, 'Session-only owners must never create a server entry');
   assert.ok(stage === 'seed' || stage === 'final');
   const normalized = normalize(data); const stamp = confirmedStamp(normalized);
@@ -151,7 +179,9 @@ export function assertSeed(seed, scenario, runId) {
   assert.deepEqual(Object.keys(seed).sort(lexical), ['data', 'method', 'path']);
   assert.equal(seed.method, scenario.method);
   const normalized = normalize(seed.data); const stamp = confirmedStamp(normalized);
-  const expected = seedFixtures(scenario, runId, stamp).find(item => item.path === seed.path);
+  const expected = scenario.key === 'private-full-budget'
+    ? fullBudgetBinderFixture(seed.path, runId, stamp)
+    : seedFixtures(scenario, runId, stamp).find(item => item.path === seed.path);
   assert.ok(expected, 'Only exact just-in-time seed paths are allowed');
   assert.deepEqual({ path: seed.path, data: normalized }, expected);
 }
@@ -181,7 +211,7 @@ function expectedDocuments(phaseIndex, before, runId) {
     const scenario = SCENARIOS[index];
     if (before && index === phaseIndex) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
-    } else if (scenario.key === 'deferred-point-read') {
+    } else if (scenario.key === 'deferred-point-read' || scenario.key === 'private-full-budget') {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
     } else if (scenario.key === 'private-offline-retry') {
       records.push({ ...offlinePrivateBinderFixture(runId, null), scenario, privateBinder: true });
@@ -197,7 +227,7 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All fourteen nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All fifteen nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
@@ -247,7 +277,7 @@ export function validateReadbacks(readbacks, seeds, runId, preflights) {
     validatePreflight(preflights[index], index, runId, readbacks[index - 1], currentSeeds);
     validateReadback(item, index, runId);
     assertPreviousEntriesUnchanged(item, readbacks[index - 1]);
-    if (isReadOnlySession(scenario) || scenario.key === 'deferred-point-read') {
+    if (isReadOnlySession(scenario) || scenario.key === 'deferred-point-read' || scenario.key === 'private-full-budget') {
       // Includes method, all accounts, every collection/document reference,
       // and every field/timestamp in every existing document. No filter drops
       // an unexpected owner, sidecar or access override before comparison.
@@ -273,7 +303,7 @@ export function validateServerProof(proof, runId) {
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
   assert.deepEqual(proof.preflights?.map(item => item.method), SCENARIOS.map(item => item.method));
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
-  return { verified: true, androidCases: 13, independentAdminReadbacks: 13, independentAdminPreflights: 13,
+  return { verified: true, androidCases: 14, independentAdminReadbacks: 14, independentAdminPreflights: 14,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
     readOnlySessionCharacterizationCases: 2,
@@ -281,5 +311,6 @@ export function validateServerProof(proof, runId) {
     readOnlyDeferredPointReadCases: 1,
     actualPrivateWorkerOfflineRetryCases: 1,
     actualPrivateWorkerTwoClientConflictCases: 1,
+    actualPrivateWorkerFullBudgetCases: 1,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }

@@ -6,6 +6,38 @@ Prüfung oder Freigabe. Auftrag: Gate 10 des Nutzerbriefs
 Android-Pfade beziehen sich auf das benachbarte Repository `../CardVault/`.
 Zeilenangaben sind Orientierung im geprüften Stand, keine unveränderlichen Permalinks.
 
+## Ergänzung 02.10.2026: begrenzter Live-Konfigurationsnachweis
+
+Die historische lokale Ausgangsprüfung und spätere Fixnachweise bleiben unten
+erhalten. Provider-Einstellungen sind jetzt teilweise read-only belegt, nicht
+die Durchführung oder Vollständigkeit einer Löschung. Minimierte Belege:
+`retention-metadata-20261001T233605Z.json` und
+`serving-metadata-20261001T234426Z.json` unter
+`../CardVault/artifacts/release27-engineering-20261002/lifecycle-gates-review/`.
+Abfragen 01.10.2026, 23:36–23:49 UTC; Projekt `cardvault-715ac`, gcloud 583.0.0.
+Keine Einstellungen, Kontorechte oder Produktdaten geändert. Keine Nutzerdokumente,
+Objektinhalte oder Rohlogs gelesen. CLI-Ausgabeprojektion ist clientseitig, kein
+Server-Field-Mask- oder Netzwerk-/Speicherlimitnachweis.
+
+- Logging-**Initialseite**: `_Default` 30 Tage, `_Required` 400 Tage und gesperrt,
+  beide aktiv. Kein vollständiges Bucketinventar, Export- oder Logfeldnachweis.
+- Firestore `(default)`: Native/Standard in `eur3`, PITR und Delete-Protection
+  deaktiviert, Versionsspanne 3600 Sekunden. Diese Spanne ist keine Dokument-TTL.
+- Erfolgreiche TTL-, Backup-Schedule- und Backup-Abfragen lieferten jeweils
+  exakt `[]`, nicht `null` oder einen Fehler. Das belegt nicht die Abwesenheit
+  externer Kopien, eine Wiederherstellung oder eine abgeschlossene Löschung.
+- Storage `cardvault-715ac.firebasestorage.app`: `US-EAST1`, Soft Delete
+  **604800 Sekunden = sieben Tage**, effectiveTime `2026-08-31T23:07:56.099+02:00`.
+  Bestätigt ist die Wiederherstellungsfrist nach Löschung, **nicht** automatisches
+  Löschen lebender Bilder nach sieben Tagen. Lifecycle-Regeln und Objektversionen
+  wurden nicht inventarisiert; fehlende projizierte Werte sind kein Deaktivierungsbeleg.
+- `publicAccessPrevention:inherited` und `uniformBucketLevelAccess:false` wurden
+  gelesen. Daraus folgt weder öffentliche Lesbarkeit noch eine IAM-/ACL-Freigabe.
+
+Produktfristen, lokale Kopien, Betreiberfortsetzung des Löschjobs, tatsächlicher
+Provider-Purge und vollständiger Konto-Löschlauf bleiben offen. Unterschiedliche
+Regionen ersetzen keine Datenfluss-/Vertragsprüfung. Keine Compliancefreigabe.
+
 ## Ergebnis und offene Prioritäten
 
 1. **Bestätigte Export-Isolationslücke:** Androids lokale Scan-Feedback-Dateien

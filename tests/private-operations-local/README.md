@@ -1,6 +1,6 @@
 # Lokale Private-Operations-Regression
 
-Dieser versionierte Starter führt ausschließlich die **33 bestehenden/erweiterten Tests**
+Dieser versionierte Starter führt ausschließlich die **35 bestehenden/erweiterten Tests**
 aus `tests/private-operations.test.mjs` gegen lokale Auth-, Firestore- und
 Storage-Emulatoren aus. Das Projekt ist fest `demo-domidex-privacy`.
 Es gibt keine Anmeldung an echten Konten, Veröffentlichung, Produktionslöschung
@@ -19,6 +19,13 @@ Karteneinträge. Zwei neue Fälle rufen die unveränderte Web-Funktion `addExact
 mit echten lokalen Google-/Firestore-Clients auf: Anlegen und identisches Erhöhen
 sowie Ablehnung zweier positiver Produkte am selben bisherigen Speicherschlüssel.
 Die 31 bisherigen Fälle bleiben erhalten; alte Läufe gelten nicht als 33er-Nachweis.
+
+Zwei weitere Fälle prüfen seit 02.10.2026 den unveränderten kanonischen
+Knowledge-Callback mit echten lokalen Admin-SDK-Transaktionen, konkurrierenden
+Stimmen, unveränderter Wiederzustellung, alten Evidence-Versionen und Löschsperren.
+Alle bisherigen 33 Fälle bleiben unverändert erhalten. Der Callback wird bewusst
+direkt mit echten Server-Snapshots aufgerufen; Eventarc/Functions-Zustellung und
+produktive Retry-/Lastbedingungen werden damit nicht simuliert oder bewiesen.
 
 ## Voraussetzungen und Aufruf
 
@@ -83,7 +90,7 @@ Unter dem ignorierten `outputs/private-operations-local/<Lauf-ID>/` liegen
 `emulator.log`, `vitest-results.json` und `manifest.json`. Das Manifest enthält
 Werkzeugversionen, SHA256/Größe der beiden JARs, Hashes der Regeln/Tests/des
 Harness, Portprüfungen, Testzahlen und Exitstatus. Erfolg setzt ausdrücklich
-**33 exakt benannte Fälle bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
+**35 exakt benannte Fälle bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
 Ports nach Emulatorende voraus.
 
 Getestet werden echte lokale Admin-SDK-Aufrufe der Sharing-, Bild-/Berechtigungs-
@@ -120,8 +127,26 @@ Inventur wieder stimmen. Der bestehende Demo-Reset vor jedem Suitefall bleibt be
 Ein Timeout oder harter Prozessabbruch beweist keine abgeschlossene Einzelbereinigung:
 ohne vollständiges Proofartefakt wird der Lauf nicht erfolgreich gemeldet.
 
-Der Starter prüft alle 33 Titel/Passzustände, beide Proofdateien und die unveränderten
+Der Starter prüft alle 35 Titel/Passzustände, beide Proofdateien und die unveränderten
 Hashes der direkten/transitiven lokalen `addExactCard`-Quellen sowie des Paketstands.
 Keine Browser-UI, Android-Workerplanung, Produktion, echten Marktpreise oder allgemeine
 Idempotenz werden dadurch belegt; wiederholtes erfolgreiches Hinzufügen erhöht bewusst
 die Menge. Der separate Android/Web-Preisrundlauf bleibt unverändert.
+
+## Zusätzliche kanonische Knowledge-Persistierung
+
+Der Test importiert den tatsächlichen `aggregateScanKnowledge`-Export und dessen
+eigenen verschachtelten Admin-SDK-Paketstand. Der Standardclient wird nur nach
+bestätigter Demo-Projekt-/Emulatorisolation initialisiert und am Ende beendet.
+Unabhängige Admin-Reads vergleichen sämtliche gespeicherten Aggregat-, Public-
+und Contributor-Felder einschließlich Server-Updatezeitstempeln. Eine identische
+Wiederzustellung darf keine zusätzliche Stimme und keinen neuen Write erzeugen.
+Ein echter alter Snapshot sowie der aktive synthetische Löschlock verhindern
+Änderungen; nach Entfernung ausschließlich dieses Testlocks wird derselbe gültige
+Beitrag verarbeitet. Das Transaktions-Versuchslimit des Produkts bleibt unverändert.
+
+Nachweis: `outputs/private-operations-local/2026-10-01T23-47-21-660Z-52ae5b8f/manifest.json`,
+35/35 bestanden, unveränderte Inputs, freie Ports nach Abschluss. Die kanonischen
+Quellen und ihr Paket-/Lockstand sind zusätzlich im Quellenmanifest enthalten.
+Kein tatsächlicher Retryzähler, Live-Trigger, Einwilligungs-UI oder produktiver
+Löschlauf wird dadurch abgenommen.

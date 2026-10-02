@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { initializeApp as initializeClientApp, deleteApp as deleteClientApp, getApps } from 'firebase/app';
 import { connectAuthEmulator, getAuth as getClientAuth, GoogleAuthProvider, signInWithCredential, signOut } from 'firebase/auth';
 import { connectFirestoreEmulator, doc, getDocFromServer, initializeFirestore, memoryLocalCache, terminate } from 'firebase/firestore';
@@ -89,6 +91,169 @@ beforeEach(async () => {
   tokens = { a: await login('owner-a', { appAccess: true, pretester: true }), b: await login('owner-b', { appAccess: true }), admin: await login('operator', { admin: true }) };
 }, 30_000);
 afterAll(async () => deleteApp(app));
+
+describe('Canonical knowledge callback: actual local Admin SDK transactions', () => {
+  const owners = ['knowledge-sdk-a', 'knowledge-sdk-b', 'knowledge-sdk-c'];
+  const firstCard = 'sv3-215', secondCard = 'sv3-216';
+  const identity = (cardId) => ({ sourceSetId: 'sv3', cardNumber: cardId.endsWith('215') ? '215' : '216', setCode: 'OBF' });
+  let triggerAppApi, triggerDb, triggerApp, aggregate;
+
+  beforeAll(async () => {
+    assertTestEnvironment(process.env);
+    expect(process.env.GCLOUD_PROJECT).toBe('demo-domidex-privacy');
+    expect(process.env.GOOGLE_CLOUD_PROJECT).toBe('demo-domidex-privacy');
+    expect(process.env.FIRESTORE_EMULATOR_HOST).toBe('127.0.0.1:8187');
+    expect(process.env.FIREBASE_CONFIG).toBeUndefined();
+    // Match the canonical backend's installed SDK, including its nested package.
+    // Root must retain the existing fresh process / no-credential environment.
+    const entry = new URL('../backend/scan-knowledge/index.js', import.meta.url);
+    const resolve = createRequire(entry);
+    triggerAppApi = await import(pathToFileURL(resolve.resolve('firebase-admin/app')).href);
+    const firestoreApi = await import(pathToFileURL(resolve.resolve('firebase-admin/firestore')).href);
+    expect(triggerAppApi.getApps().some((candidate) => candidate.name === '[DEFAULT]')).toBe(false);
+    // index.js genuinely calls initializeApp() and registers the Cloud Function.
+    // The pinned demo project variables and loopback guard were checked first.
+    try {
+      ({ aggregateScanKnowledge: aggregate } = await import('../backend/scan-knowledge/index.js'));
+    } finally {
+      // We proved this registry had no default app before this import, so even
+      // a later module-initialization error must release our newly created app.
+      triggerApp = triggerAppApi.getApps().find((candidate) => candidate.name === '[DEFAULT]');
+    }
+    expect(triggerApp).toBeDefined();
+    expect(triggerApp.options.projectId ?? process.env.GCLOUD_PROJECT).toBe('demo-domidex-privacy');
+    expect(typeof aggregate.run).toBe('function');
+    triggerDb = firestoreApi.getFirestore(triggerApp);
+  });
+
+  afterAll(async () => {
+    const failures = [];
+    try { if (triggerDb) await triggerDb.terminate(); } catch (error) { failures.push(error); }
+    try { if (triggerApp) await triggerAppApi.deleteApp(triggerApp); } catch (error) { failures.push(error); }
+    if (failures.length) throw new AggregateError(failures, 'OWNED_KNOWLEDGE_SDK_CLEANUP_FAILED');
+  });
+
+  const evidenceFor = (fingerprint, cardId, observedAtClient) => ({
+    fingerprint, confirmedCardId: cardId, observedAtClient, corrected: false,
+    ...identity(cardId), knowledgeVersion: 1,
+  });
+  async function capture(fingerprint, uid, cardId, time) {
+    const ref = triggerDb.doc(`users/${uid}/scanEvidence/${fingerprint}`);
+    await ref.set(evidenceFor(fingerprint, cardId, time));
+    const after = await ref.get();
+    expect(after.exists).toBe(true);
+    expect(after.data()).toEqual(evidenceFor(fingerprint, cardId, time));
+    expect(after.updateTime).toBeDefined();
+    // Only the event envelope is manually constructed. after/ref/updateTime are
+    // genuine server snapshots from the same SDK that the callback will use.
+    return { params: { uid, fingerprint }, data: { after } };
+  }
+  async function graph(fingerprint) {
+    // Separate existing Admin instance independently reads the stored outcome.
+    const privateRef = context.db.doc(`scanKnowledgePrivate/${fingerprint}`);
+    const [summary, publicDoc, contributors] = await Promise.all([
+      privateRef.get(), context.db.doc(`scanKnowledge/${fingerprint}`).get(),
+      privateRef.collection('contributors').get(),
+    ]);
+    const record = (snapshot) => ({ exists: snapshot.exists, data: snapshot.data(), updateTime: snapshot.updateTime });
+    return {
+      summary: record(summary), public: record(publicDoc),
+      contributors: contributors.docs.map((snapshot) => ({ id: snapshot.id, ...record(snapshot) }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    };
+  }
+  function assertTimestamp(value) {
+    expect(Number.isSafeInteger(value?.seconds)).toBe(true);
+    expect(value.seconds).toBeGreaterThan(0);
+    expect(Number.isSafeInteger(value?.nanoseconds)).toBe(true);
+    expect(value.nanoseconds).toBeGreaterThanOrEqual(0);
+    expect(value.nanoseconds).toBeLessThan(1_000_000_000);
+  }
+  function assertStable(fingerprint, state) {
+    expect(state.summary.exists).toBe(true); expect(state.public.exists).toBe(true);
+    assertTimestamp(state.summary.data.lastUpdatedAt);
+    assertTimestamp(state.public.data.lastUpdatedAt);
+    expect(state.summary.data).toEqual({
+      votes: { [firstCard]: 3 }, correctionVotes: {}, identities: { [firstCard]: identity(firstCard) },
+      total: 3, knowledgeVersion: 1, lastUpdatedAt: state.summary.data.lastUpdatedAt,
+    });
+    expect(state.public.data).toEqual({
+      fingerprint, cardId: firstCard, ...identity(firstCard), status: 'STABLE',
+      confidence: 100, confirmations: 3, corrections: 0, manualCorrections: 0,
+      knowledgeVersion: 1, lastUpdatedAt: state.public.data.lastUpdatedAt,
+    });
+    expect(state.contributors.map(({ id }) => id)).toEqual(owners.map(uidHash).sort());
+    for (const item of state.contributors) {
+      expect(item.exists).toBe(true); assertTimestamp(item.data.updatedAt);
+      expect(item.data).toEqual({ cardId: firstCard, corrected: false, ...identity(firstCard),
+        observedAtClient: 1000, updatedAt: item.data.updatedAt });
+    }
+  }
+
+  it('persists concurrent canonical knowledge votes and makes exact redelivery a server no-op', async () => {
+    const fingerprint = 'd'.repeat(64);
+    expect(await graph(fingerprint)).toEqual({
+      summary: { exists: false, data: undefined, updateTime: undefined },
+      public: { exists: false, data: undefined, updateTime: undefined }, contributors: [],
+    });
+    const events = await Promise.all(owners.map((uid) => capture(fingerprint, uid, firstCard, 1000)));
+    // Real Firestore runTransaction/default retry behavior. No manually forced
+    // commit, inflated maxAttempts or swallowed ABORTED/unavailable result.
+    await Promise.all(events.map((event) => aggregate.run(event)));
+    const confirmed = await graph(fingerprint);
+    assertStable(fingerprint, confirmed);
+    await Promise.all(events.map((event) => aggregate.run(event)));
+    expect(await graph(fingerprint)).toEqual(confirmed); // Includes server updateTimes.
+    for (let index = 0; index < owners.length; index++) {
+      const current = await context.db.doc(`users/${owners[index]}/scanEvidence/${fingerprint}`).get();
+      expect(current.data()).toEqual(evidenceFor(fingerprint, firstCard, 1000));
+      // Root and backend can install distinct SDK package instances. Compare the
+      // timestamp value, not an SDK instanceof-based cross-package isEqual.
+      expect([current.updateTime.seconds, current.updateTime.nanoseconds]).toEqual([
+        events[index].data.after.updateTime.seconds, events[index].data.after.updateTime.nanoseconds,
+      ]);
+    }
+  });
+
+  it('uses real evidence versions and deletion locks before changing persisted knowledge', async () => {
+    const fingerprint = 'e'.repeat(64);
+    const originals = await Promise.all(owners.map((uid) => capture(fingerprint, uid, firstCard, 1000)));
+    await Promise.all(originals.map((event) => aggregate.run(event)));
+    const stable = await graph(fingerprint); assertStable(fingerprint, stable);
+    const updated = await capture(fingerprint, owners[0], secondCard, 2000);
+    expect(updated.data.after.updateTime.isEqual(originals[0].data.after.updateTime)).toBe(false);
+    await aggregate.run(originals[0]);
+    expect(await graph(fingerprint)).toEqual(stable);
+    const lock = context.db.doc(`accountDeletionLocks/${owners[0]}`);
+    await lock.create({ fixture: 'knowledge-actual-transaction' });
+    await aggregate.run(updated);
+    expect(await graph(fingerprint)).toEqual(stable);
+    await lock.delete(); // Exact synthetic fixture only; not a production deletion.
+    await aggregate.run(updated); // Positive control: the same valid version now applies.
+    const corrected = await graph(fingerprint);
+    expect(corrected.summary.data).toEqual({
+      votes: { [firstCard]: 2, [secondCard]: 1 }, correctionVotes: {},
+      identities: { [firstCard]: identity(firstCard), [secondCard]: identity(secondCard) },
+      total: 3, knowledgeVersion: 1, lastUpdatedAt: corrected.summary.data.lastUpdatedAt,
+    });
+    expect(corrected.public.data).toEqual({ fingerprint, cardId: firstCard, ...identity(firstCard),
+      status: 'DISPUTED', confidence: 67, confirmations: 2, corrections: 1, manualCorrections: 0,
+      knowledgeVersion: 1, lastUpdatedAt: corrected.public.data.lastUpdatedAt });
+    assertTimestamp(corrected.summary.data.lastUpdatedAt); assertTimestamp(corrected.public.data.lastUpdatedAt);
+    expect(corrected.contributors).toHaveLength(3);
+    for (const item of corrected.contributors) {
+      const original = stable.contributors.find(({ id }) => id === item.id);
+      expect(original).toBeDefined();
+      if (item.id === uidHash(owners[0])) {
+        assertTimestamp(item.data.updatedAt);
+        expect(item.data).toEqual({ cardId: secondCard, corrected: false, ...identity(secondCard),
+          observedAtClient: 2000, updatedAt: item.data.updatedAt });
+      } else expect(item).toEqual(original);
+    }
+    await aggregate.run(updated);
+    expect(await graph(fingerprint)).toEqual(corrected);
+  });
+});
 
 describe('Private sync anchors: real local Auth and Firestore SDKs', () => {
   const anchorRequest = token => new Request('http://localhost/api/private-sync/time-anchor', {

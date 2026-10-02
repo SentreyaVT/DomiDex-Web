@@ -216,6 +216,69 @@ describe('shared binder placement payload projection (synthetic, no read-count s
     expect((await f.read(112)).status).toBe(404);
   });
 
+  // Characterize the documented raw-document budget without changing it:
+  // retained tombstones count toward the cap, just like live placements.
+
+  it.each([
+    { tombstones: 4999, expectedStatus: 200 },
+    { tombstones: 5000, expectedStatus: 503 },
+  ])('characterizes one live card plus $tombstones retained tombstones under the raw-document cap', async ({ tombstones, expectedStatus }) => {
+    const f = fixture();
+    const live = structuredClone(f.rows[0]);
+    live.id = 'live-placement';
+    live.data.slotPosition = 0;
+    f.rows.splice(0, f.rows.length, live, ...Array.from({ length: tombstones }, (_, index) => ({
+      id: `retired-placement-${String(index).padStart(5, '0')}`,
+      data: {
+        ...structuredClone(live.data),
+        lastMutationId: `retired-mutation-${index}`,
+        deleted: true,
+      },
+    })));
+    const before = structuredClone({ rows: f.rows, documents: f.documents, cards: f.cards });
+
+    const response = await f.read(0);
+    expect(response.status).toBe(expectedStatus);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    // Keep the existing SDK-like query double: no invented deleted filter,
+    // silent truncation, pagination, or altered placement projection.
+    expect(f.stats.queries).toEqual([{
+      filters: [['binderId', '==', binderId]], mask: fields, maximum: 5001,
+    }]);
+    expect(f.stats.queryDocuments).toBe(tombstones + 1);
+    expect(f.stats.projectedData).toHaveLength(tombstones + 1);
+
+    if (expectedStatus === 200) {
+      expect(await response.json()).toEqual({
+        title: 'Projection fixture', coverStyle: 'galaxy', page: 0, pageCount: 1,
+        cards: [{
+          slot: 0, cardId: 'sv1-001', name: 'Public 001', setName: 'Public set',
+          collectorNumber: '001', image: 'https://assets.tcgdex.net/de/sv/sv1/001/high.webp',
+          finish: 'Normal', holoEffectId: 'galaxy', holoIntensity: .7,
+        }],
+        unavailableSlots: [],
+      });
+      expect(f.stats.getAllRequests).toEqual([{
+        paths: [`users/${owner}/collectionEntries/entry-1`], fieldMask: entryFields,
+      }]);
+      expect(f.stats.getAllDocuments).toBe(1);
+      expect(f.context.cardFor).toHaveBeenCalledTimes(1);
+      expect(f.context.cardFor).toHaveBeenCalledWith('sv1-001', expect.any(AbortSignal));
+      expect(f.stats.singleGets).toBe(8);
+      expect(f.context.auth.getUser).toHaveBeenCalledTimes(2);
+    } else {
+      // One active card does not exempt an over-budget binder. Refuse before
+      // any entry, sidecar or catalog fan-out; never return a partial binder.
+      expect(await response.json()).toEqual({ ok: false, error: 'SERVER_OPERATION_FAILED' });
+      expect(f.stats.getAllRequests).toEqual([]);
+      expect(f.stats.getAllDocuments).toBe(0);
+      expect(f.context.cardFor).not.toHaveBeenCalled();
+      expect(f.stats.singleGets).toBe(4);
+      expect(f.context.auth.getUser).toHaveBeenCalledTimes(1);
+    }
+    expect({ rows: f.rows, documents: f.documents, cards: f.cards }).toEqual(before);
+  });
+
   it('retains the 5000-document cap including tombstones, rather than quietly filtering them out', async () => {
     const f = fixture();
     f.rows.splice(0, f.rows.length, ...Array.from({ length: 5001 }, (_, index) => ({

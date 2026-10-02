@@ -7,6 +7,41 @@ Keine Cloud-, Billing-, Auth-, Provider- oder Produktionsabfrage; kein Deploymen
 Neu sind ausschließlich dieses Dokument und das offline ausführbare Modell in
 `tests/cost-model/`. Keine Runtime-, Budget-, Rollen- oder Logging-Einstellung geändert.
 
+## Ergänzung 02.10.2026: beobachtete Serving-/Retention-Metadaten
+
+Die historische lokale Ausgangsprüfung unten wird um read-only Abfragen ergänzt.
+Belege im benachbarten Android-Repo: `artifacts/release27-engineering-20261002/`
+`lifecycle-gates-review/{retention-metadata-20261001T233605Z,serving-metadata-20261001T234426Z}.json`.
+Keine neue Laufzeit-/Last-/Billingmessung oder Cloud-, IAM-, Skalierungsänderung.
+
+Cloud Run `domidex-web`, `cardvault-715ac`, `europe-west1`, am 01.10.2026 um
+23:44:29 UTC: Generation/ObservedGeneration **40/40**. Latest-ready und latest-created
+sind `domidex-web-sharing-layout-repair-20260925`; 100-%-Service-Traffic nennt
+dagegen `domidex-web-00019-niw`, zusätzlich 24 getaggte Einträge. Beide Revisionen
+wurden 23:49:28/23:49:38 UTC separat gelesen: Parallelität40, Timeout60s, CPU1,
+RAM512Mi, Revisionsannotation `maxScale:2`, `startupCpuBoost:true`. Nur für
+`domidex-web-00019-niw` ist `executionEnvironment:gen2` dokumentiert. Fehlende
+minScale-/Throttling- oder andere projizierte Werte sind keine effektiven Defaults.
+
+**Hosting-Pin bleibt offen:** Repositorykonfiguration verwendet `pinTag`. Weder
+latest-ready noch 100-%-Run-Traffic beweisen das Ziel der aktiven Hosting-Version.
+MaxScale2 pro beobachteter Revision ist keine globale Dienst-/Kosten-/Kapazitätsgrenze.
+Keine vermeintliche gleichzeitige Kapazität oder Live-Latenz daraus berechnen.
+
+Logging-Initialseite: 30 Tage `_Default`, gesperrte 400 Tage `_Required`, kein
+vollständiges Inventar. Firestore in `eur3`, PITR/Delete-Protection deaktiviert,
+Versionsspanne3600s; erfolgreiche TTL-/Backup-Schedule-/Backup-Abfragen exakt `[]`.
+Storage in `US-EAST1`, sieben Tage Soft Delete, keine TTL lebender Objekte.
+Details und Grenzen stehen im ergänzten Datenschutz-/Lifecycle-Audit.
+
+Die Standard-CLI projiziert Ausgaben clientseitig; gespeichert wurden minimierte
+Metadaten, keine Env-/Secretwerte oder Nutzer-/Objektinhalte. Der gesperrte
+Custom-Transport-Entwurf wurde nicht verwendet. Offen bleiben Hosting-Pin, weitere
+Revisions-/Functions-Konfiguration, Billingmodus, reale Reads/Writes/Bytes/Cachehits,
+Metriken, Dashboards, Alarmzustellung, Budgetentscheidung, gültige Einheitspreise
+und kontrollierte Last. Das Kostenmodell erhält dadurch keine gemessenen Geldwerte;
+keine Lösch-, Restore- oder Produktionsfreigabe.
+
 ## Ergebnis und Beleggrenze
 
 - **Kostenmessung vorbereitet**, aber **produktives Monitoring nicht nachgewiesen**.
