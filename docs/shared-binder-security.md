@@ -1,5 +1,32 @@
 # Read-only binder sharing — production activation 2026-09-22
 
+## R27 local-only follow-up: reuse exact price resolution (2026-10-02)
+
+The current un-deployed R27 DTO path reuses its already resolved exact variant
+and trend when deciding whether a manual price selection is needed. Previously,
+a missing trend caused the same variant/trend to be resolved again. The extracted
+identity predicate preserves owner, deletion, source and Cardmarket-product checks;
+queries, authorization, DTO fields, price policy and cache behavior are unchanged.
+
+A forwarding spy on the real resolver first reproduced 128 calls for 64 complete
+missing-trend DTOs; the unchanged assertion now proves 64 calls. Seven complete
+parity fixtures cover selected/trend/cleared/foreign-selection/different-product/
+image-only/reverse behavior, unchanged input and excluded private fields. The
+isolated full unit suite went from **1,294 PASS / 1 intentional FAIL** to
+**1,295/1,295 PASS** across 78 files (23.53 s). Typecheck and focused lint pass
+(zero lint warnings/errors). Existing React-act/Canvas unit-harness warnings remain.
+
+Evidence: `outputs/release-local/2026-10-02T00-46-18-162Z-16120.{json,log}` (RED)
+and `2026-10-02T00-49-35-054Z-18684.{json,log}` (GREEN). An initial lint invocation
+used the unit-test child-process guard, which correctly blocked the lint helper;
+the successful lint used the existing local-child/loopback-only CLI guard. This
+was a launcher issue, not a product regression or weakened unit isolation.
+
+This is a deterministic duplicate-work reduction, **not** a measured live speedup,
+O(N) placement-read fix, provider fan-out limit or completion of Gate 6. No
+deployment, production mutation, release package or device operation occurred.
+The dated production-activation record below is historical, not R27 approval.
+
 The operator explicitly authorized activation of private-binder sharing on 2026-09-22. The narrow sharing runtime is now enabled with `BINDER_SHARING_READY=verified-v1`; merely opening a binder does not create a share. Existing frontend bundles and routes are retained unchanged. This activation does not declare the unrelated Grand Update production-ready.
 
 ## Owner API integration

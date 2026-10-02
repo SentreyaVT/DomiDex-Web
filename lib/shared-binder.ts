@@ -52,12 +52,16 @@ function exactSharedVariant(entry: CollectionEntry, card: TcgCardDetail | null) 
   return { card, cardId, exactVariant, productId };
 }
 
+function hasBoundSelectionIdentity(entry: CollectionEntry, exact: ReturnType<typeof exactSharedVariant>): boolean {
+  return Boolean(exact?.exactVariant && exact.productId !== null
+    && entry.externalProductSource === 'CARDMARKET_PUBLIC_DOWNLOAD' && entry.externalProductId === exact.productId
+    && entry.sourceSetId && entry.sourceCardId && entry.syncId && entry.ownerUid && !entry.deleted);
+}
+
 /** Only a fully bound exact printing without trend can need a private sidecar read. */
 export function sharedPriceSelectionNeeded(entry: CollectionEntry, card: TcgCardDetail | null): boolean {
   const exact = exactSharedVariant(entry, card);
-  return Boolean(exact?.exactVariant && exact.productId !== null
-    && entry.externalProductSource === 'CARDMARKET_PUBLIC_DOWNLOAD' && entry.externalProductId === exact.productId
-    && entry.sourceSetId && entry.sourceCardId && entry.syncId && entry.ownerUid && !entry.deleted
+  return Boolean(hasBoundSelectionIdentity(entry, exact) && exact?.exactVariant
     && exactTrendPrice(exact.card, exact.exactVariant) === null);
 }
 
@@ -68,7 +72,8 @@ export function sharedCardDto(entry: CollectionEntry, placement: { slotPosition:
   const { card: publicCard, cardId, exactVariant, productId } = exact;
   const pricing = exactVariant && productId !== null ? cardmarketPricingForVariant(publicCard, exactVariant) : null;
   const trend = exactVariant ? exactTrendPrice(publicCard, exactVariant) : null;
-  const manual = prices && trend === null && sharedPriceSelectionNeeded(entry, publicCard) ? manualSelectionPrice(entry, selection) : null;
+  // Reuse this DTO's exact printing and trend; no private identity is cached across calls.
+  const manual = prices && trend === null && hasBoundSelectionIdentity(entry, exact) ? manualSelectionPrice(entry, selection) : null;
   const amount = trend ?? manual;
   const publicAmount = amount != null && Number.isFinite(amount) && amount >= 0 && amount <= SHARED_PRICE_MAX_EUR ? amount : null;
   const sourceDate = manual !== null && selection?.sourceAt ? new Date(selection.sourceAt) : null;
