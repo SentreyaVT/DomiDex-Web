@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { PROJECT as SAFETY_PROJECT, PORTS, requireFile, readJson, validateMetadata, verifyCache, sha256,
   assertPortsFree, isolatedEnvironment, assertTestEnvironment, firebaseConfiguration, runChild } from '../private-operations-local/safety.mjs';
-import { PROJECT, SERIAL, AVD, SCENARIOS, validRunId, parseSessionOptions, validateInstrumentation,
+import { PROJECT, SCENARIOS, validRunId, parseSessionOptions, sessionProfile, assertSessionDevice, validateInstrumentation,
   assertNoInstrumentation, validateServerProof } from './contract.mjs';
 
 function kotlinFiles(directory) {
@@ -16,6 +16,7 @@ function kotlinFiles(directory) {
 async function main() {
   const root = fileURLToPath(new URL('../../', import.meta.url)); const here = fileURLToPath(new URL('.', import.meta.url));
   const options = parseSessionOptions(process.argv.slice(2)); const androidRoot = options['--android-root'];
+  const profile = sessionProfile(options.deviceProfile);
   if (Number(process.versions.node.split('.')[0]) < 24 || process.platform !== 'win32') throw Error('Preinstalled Node 24+ on Windows required');
   if (PROJECT !== SAFETY_PROJECT || PROJECT !== 'demo-domidex-privacy') throw Error('Unexpected project');
   const cli = requireFile(options['--firebase-cli'] ?? path.join(process.env.APPDATA ?? '', 'npm/node_modules/firebase-tools/lib/bin/firebase.js'));
@@ -47,15 +48,21 @@ async function main() {
   mkdirSync(directory, { recursive: true });
   const env = isolatedEnvironment(process.env, { directory, root, java, cache, preload: path.join(root, 'tests/private-operations-local/network-preload.cjs') });
   env.DOMIDEX_COLLECTION_SESSION_ADB = adb; env.DOMIDEX_COLLECTION_SESSION_RUN_ID = runId;
+  env.DOMIDEX_COLLECTION_SESSION_DEVICE_PROFILE = profile.id;
   for (const name of ['temp', 'home', 'appdata', 'localappdata', 'xdg', 'cloudsdk']) mkdirSync(path.join(directory, name));
   assertTestEnvironment(env);
   const adbCommand = args => {
-    const result = spawnSync(adb, ['-s', SERIAL, ...args], { env, encoding: 'utf8', timeout: 15_000, windowsHide: true, shell: false });
+    const result = spawnSync(adb, ['-s', profile.serial, ...args], { env, encoding: 'utf8', timeout: 15_000, windowsHide: true, shell: false });
     if (result.status !== 0) throw Error(`Emulator-only command failed: ${args[0]}`); return result.stdout.trim();
   };
-  if (adbCommand(['get-state']) !== 'device' || adbCommand(['shell', 'getprop', 'ro.boot.qemu.avd_name']) !== AVD ||
-      adbCommand(['shell', 'settings', 'get', 'global', 'airplane_mode_on']) !== '1' ||
-      adbCommand(['shell', 'settings', 'get', 'global', 'wifi_on']) !== '0') throw Error('Exact isolated offline AVD required');
+  const deviceSnapshot = () => assertSessionDevice({
+    state: adbCommand(['get-state']), avd: adbCommand(['shell', 'getprop', 'ro.boot.qemu.avd_name']),
+    qemu: adbCommand(['shell', 'getprop', 'ro.kernel.qemu']), api: adbCommand(['shell', 'getprop', 'ro.build.version.sdk']),
+    airplane: adbCommand(['shell', 'settings', 'get', 'global', 'airplane_mode_on']),
+    wifi: adbCommand(['shell', 'settings', 'get', 'global', 'wifi_on']),
+    connectivity: adbCommand(['shell', 'dumpsys', 'connectivity']),
+  }, profile);
+  const beforeDevice = deviceSnapshot();
   assertNoInstrumentation(adbCommand(['shell', 'dumpsys', 'activity', 'processes']));
   if (adbCommand(['reverse', '--list']) !== '') throw Error('Existing reverse mapping present; nothing removed');
   const javaVersion = spawnSync(java, ['-version'], { env, encoding: 'utf8', timeout: 10_000, windowsHide: true, shell: false });
@@ -64,7 +71,8 @@ async function main() {
   copyFileSync(path.join(here, 'execute.mjs'), path.join(directory, 'execute.mjs'));
   const config = firebaseConfiguration(); delete config.emulators.storage;
   writeFileSync(path.join(directory, 'firebase.json'), JSON.stringify(config, null, 2));
-  const manifest = { project: PROJECT, runId, serial: SERIAL, avd: AVD, startedAt: new Date().toISOString(), inputs: hashes,
+  const manifest = { project: PROJECT, runId, deviceProfile: profile.id, serial: profile.serial, avd: profile.avd,
+    beforeDevice, afterDevice: null, startedAt: new Date().toISOString(), inputs: hashes,
     apkHashScope: 'Local APK files only; operator must separately verify exact installed APKs on this AVD',
     roomCleanupScope: 'Android @After closes owned Room; persistent cases verify exact owner/run-marked file before deleting only that fixture; PASS includes teardown, RED alone does not prove teardown',
     node: process.version, java: (javaVersion.stderr + javaVersion.stdout).trim(), firebaseCli: cliPackage.version,
@@ -75,7 +83,10 @@ async function main() {
   const manifestFile = path.join(directory, 'manifest.json'); writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
   console.log(`Collection session proof: ${directory}`); const ownedReverse = [];
   try {
-    for (const port of [PORTS.firestore, PORTS.auth]) { adbCommand(['reverse', '--no-rebind', `tcp:${port}`, `tcp:${port}`]); ownedReverse.push(port); }
+    for (const port of [PORTS.firestore, PORTS.auth]) {
+      deviceSnapshot();
+      adbCommand(['reverse', '--no-rebind', `tcp:${port}`, `tcp:${port}`]); ownedReverse.push(port);
+    }
     manifest.result = await runChild(process.execPath, [cli, 'emulators:exec', '--only', 'auth,firestore', '--project', PROJECT,
       '--config', path.join(directory, 'firebase.json'), 'node execute.mjs'], {
       cwd: directory, env, timeoutMs: 1_080_000, onOutput: chunk => {
@@ -84,10 +95,15 @@ async function main() {
     process.exitCode = manifest.result.code;
   } finally {
     // No package force-stop, no deletion of a persistent Room database or user data.
-    try { assertNoInstrumentation(adbCommand(['shell', 'dumpsys', 'activity', 'processes'])); manifest.afterInstrumentationEmpty = true; }
+    try {
+      manifest.afterDevice = deviceSnapshot();
+      assertNoInstrumentation(adbCommand(['shell', 'dumpsys', 'activity', 'processes'])); manifest.afterInstrumentationEmpty = true;
+    }
     catch (error) { manifest.instrumentationError = error.message; process.exitCode = 1; }
     for (const port of ownedReverse.reverse()) {
       try {
+        // Refuse mutations if the exact fixed target/offline identity changed.
+        deviceSnapshot();
         const mappings = adbCommand(['reverse', '--list']).split(/\r?\n/).map(line => line.trim().split(/\s+/))
           .filter(parts => parts.length === 3 && parts[1] === `tcp:${port}`);
         if (mappings.length === 1 && mappings[0][2] === `tcp:${port}`) adbCommand(['reverse', '--remove', `tcp:${port}`]);
@@ -103,7 +119,7 @@ async function main() {
     catch (error) { manifest.serverError = error.message; process.exitCode = 1; }
     try { manifest.android = SCENARIOS.map(({ method }) => validateInstrumentation(readFileSync(path.join(directory, `${method}.log`), 'utf8'), method)); }
     catch (error) { manifest.androidError = error.message; process.exitCode = 1; }
-    if (!manifest.afterPortsFree || !manifest.afterReverseEmpty || !manifest.afterInstrumentationEmpty || !manifest.inputsUnchanged || !manifest.serverVerified) process.exitCode = 1;
+    if (!manifest.afterDevice || !manifest.afterPortsFree || !manifest.afterReverseEmpty || !manifest.afterInstrumentationEmpty || !manifest.inputsUnchanged || !manifest.serverVerified) process.exitCode = 1;
     manifest.finishedAt = new Date().toISOString(); manifest.exitCode = process.exitCode ?? 1;
     writeFileSync(manifestFile, JSON.stringify(manifest, null, 2)); console.log(`Collection session manifest: ${manifestFile}`);
   }

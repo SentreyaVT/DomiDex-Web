@@ -9,14 +9,15 @@ const directory = process.env.DOMIDEX_PRIVATE_TEST_RUN;
 const adb = process.env.DOMIDEX_COLLECTION_SESSION_ADB;
 if (!root || !directory || path.resolve(directory) !== process.cwd() || !adb || !path.isAbsolute(adb)) throw Error('Isolated driver context required');
 const { assertTestEnvironment, runChild } = await import(pathToFileURL(path.join(root, 'tests/private-operations-local/safety.mjs')));
-const { PROJECT, SERIAL, TEST_CLASS, SCENARIOS, ACCOUNTS, validRunId, normalize, validateInstrumentation,
+const { PROJECT, TEST_CLASS, SCENARIOS, ACCOUNTS, validRunId, normalize, validateInstrumentation, sessionProfile, assertSessionDevice,
   assertNoInstrumentation, seedFixtures, assertSeed, validatePreflight, validateReadbacks,
   FULL_BUDGET_PARENT, FULL_BUDGET_COLLECTION, FULL_BUDGET_PATHS, isFullBudgetInventoryPath,
-  KNOWLEDGE_PATH, KNOWLEDGE_MISSING_PATH, assertKnowledgeInventoryPath,
+  KNOWLEDGE_PATH, KNOWLEDGE_MISSING_PATH, KNOWLEDGE_MALFORMED_PATH, assertKnowledgeInventoryPath,
   validateServerProof } = await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/contract.mjs')));
 const env = { ...process.env }; delete env.FIREBASE_CONFIG;
 assertTestEnvironment(env); delete process.env.FIREBASE_CONFIG;
 const runId = validRunId(env.DOMIDEX_COLLECTION_SESSION_RUN_ID);
+const profile = sessionProfile(env.DOMIDEX_COLLECTION_SESSION_DEVICE_PROFILE);
 const require = createRequire(path.join(root, 'package.json'));
 const { initializeApp, applicationDefault, deleteApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth'); const { getFirestore, FieldValue } = require('firebase-admin/firestore');
@@ -24,11 +25,21 @@ const app = initializeApp({ projectId: PROJECT, credential: applicationDefault()
 const db = getFirestore(app); const auth = getAuth(app);
 const proof = { project: PROJECT, runId, verified: false, phases: [], seeds: [], preflights: [], readbacks: [], accountUnchanged: false, errors: [], readbackErrors: [] };
 function saveProof() { writeFileSync(path.join(directory, 'server-proof.json'), JSON.stringify(proof, null, 2)); }
-async function noInstrumentation() {
+async function deviceRead(args) {
   let output = '';
-  const result = await runChild(adb, ['-s', SERIAL, 'shell', 'dumpsys', 'activity', 'processes'], {
+  const result = await runChild(adb, ['-s', profile.serial, ...args], {
     cwd: directory, env, timeoutMs: 15_000, onOutput: chunk => { output += String(chunk); } });
-  assert.equal(result.code, 0); assertNoInstrumentation(output);
+  assert.equal(result.code, 0); return output.trim();
+}
+async function noInstrumentation() {
+  assertSessionDevice({
+    state: await deviceRead(['get-state']), avd: await deviceRead(['shell', 'getprop', 'ro.boot.qemu.avd_name']),
+    qemu: await deviceRead(['shell', 'getprop', 'ro.kernel.qemu']), api: await deviceRead(['shell', 'getprop', 'ro.build.version.sdk']),
+    airplane: await deviceRead(['shell', 'settings', 'get', 'global', 'airplane_mode_on']),
+    wifi: await deviceRead(['shell', 'settings', 'get', 'global', 'wifi_on']),
+    connectivity: await deviceRead(['shell', 'dumpsys', 'connectivity']),
+  }, profile);
+  assertNoInstrumentation(await deviceRead(['shell', 'dumpsys', 'activity', 'processes']));
 }
 async function accountsSnapshot() {
   const accounts = await auth.listUsers(); assert.equal(accounts.pageToken, undefined);
@@ -46,11 +57,11 @@ async function databaseSnapshot(scenario) {
   async function visit(collection, depth) {
     assert.ok(depth <= 4 && collectionPaths.length < 16, 'Unexpected emulator collection tree');
     if (collection.path === 'scanKnowledge' || collection.path.startsWith('scanKnowledge/')) {
-      assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14], 'No knowledge inventory before its own case');
+      assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15], 'No knowledge inventory before its own case');
       assert.equal(collection.path, 'scanKnowledge', 'No knowledge child collections');
     }
     if (collection.path.startsWith(`${FULL_BUDGET_PARENT}/`)) {
-      assert.equal(scenario, SCENARIOS[14], 'No paging-owner inventory before its own case');
+      assert.equal(scenario, SCENARIOS[15], 'No paging-owner inventory before its own case');
       assert.equal(collection.path, FULL_BUDGET_COLLECTION, 'No additional large-owner collections');
     }
     collectionPaths.push(collection.path);
@@ -71,12 +82,15 @@ async function databaseSnapshot(scenario) {
     }
   }
   for (const collection of await db.listCollections()) await visit(collection, 0);
-  if (scenario === SCENARIOS[14]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+  if (scenario === SCENARIOS[15]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     [FULL_BUDGET_PARENT, ...FULL_BUDGET_PATHS].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     'Only the complete fixed paging-owner inventory may exceed the ordinary reference bound');
-  if (scenario === SCENARIOS[13] || scenario === SCENARIOS[14]) {
+  if (scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15]) {
     assert.ok(documentPaths.includes(KNOWLEDGE_PATH), 'Require the exact knowledge seed in the complete inventory');
     assert.equal((await db.doc(KNOWLEDGE_MISSING_PATH).get()).exists, false, 'The second knowledge fingerprint must remain absent');
+  }
+  if (scenario === SCENARIOS[14] || scenario === SCENARIOS[15]) {
+    assert.ok(documentPaths.includes(KNOWLEDGE_MALFORMED_PATH), 'Require the exact malformed knowledge seed in the complete inventory');
   }
   return { entries: entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
     collectionPaths: collectionPaths.sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
@@ -84,7 +98,7 @@ async function databaseSnapshot(scenario) {
 }
 async function android(method) {
   await noInstrumentation(); let output = '';
-  const result = await runChild(adb, ['-s', SERIAL, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', `${TEST_CLASS}#${method}`,
+  const result = await runChild(adb, ['-s', profile.serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', `${TEST_CLASS}#${method}`,
     '-e', 'domidexCollectionSessionProof', 'demo-loopback-only', '-e', 'domidexCollectionSessionRunId', runId,
     'com.dominik.cardvault.test/androidx.test.runner.AndroidJUnitRunner'], {
     cwd: directory, env, timeoutMs: 180_000, onOutput: chunk => {
@@ -98,7 +112,7 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 16); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 17); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
     const scenario = SCENARIOS[index]; const { method } = scenario;
@@ -117,7 +131,10 @@ try {
     // initial revision1 and winner revision2. Host never seeds or changes that owner.
     // Knowledge-listener uses the normal create-only branch below: one complete
     // aggregate, with lastUpdatedAt supplied by the real emulator server clock.
-    if (scenario === SCENARIOS[14]) {
+    // Knowledge-malformed also gets exactly one create-only Admin seed. Its sole
+    // schema violation is knowledgeVersion string "1"; Android's real listener
+    // must decode/reject it. Admin preserves the exact malformed payload.
+    if (scenario === SCENARIOS[15]) {
       // Bounded create-only fixture setup, not an SDK commit/ACK. Only this new
       // owner has 1001 seeds. Every complete payload is independently read back;
       // no existing scenario's seed or execution semantics are changed.

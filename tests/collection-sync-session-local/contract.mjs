@@ -2,7 +2,36 @@ import assert from 'node:assert/strict';
 import { parseRulesOptions } from '../rules-local/run.mjs';
 import { PROJECT, SERIAL, AVD, normalize, validRunId as existingRunId, assertNoInstrumentation } from '../android-web-price-local/contract.mjs';
 export { PROJECT, SERIAL, AVD, normalize, assertNoInstrumentation };
-export const parseSessionOptions = parseRulesOptions;
+export const BASELINE_PROFILE = Object.freeze({ id: 'baseline', serial: SERIAL, avd: AVD });
+export const OWNED_REGRESSION_PROFILE = Object.freeze({
+  id: 'owned-regression-avd', serial: 'emulator-5556', avd: 'DomiDex_R27_Regression_API36',
+});
+export function sessionProfile(id) {
+  assert.ok(id === BASELINE_PROFILE.id || id === OWNED_REGRESSION_PROFILE.id, 'Exact fixed device profile required');
+  return id === OWNED_REGRESSION_PROFILE.id ? OWNED_REGRESSION_PROFILE : BASELINE_PROFILE;
+}
+export function parseSessionOptions(args) {
+  const paths = []; let owned = false;
+  for (let index = 0; index < args.length;) {
+    if (args[index] === '--owned-regression-avd') {
+      assert.equal(owned, false, 'Duplicate owned regression profile'); owned = true; index++;
+    } else {
+      assert.ok(typeof args[index + 1] === 'string' && !args[index + 1].startsWith('--'), 'Every path option requires its path');
+      paths.push(args[index], args[index + 1]); index += 2;
+    }
+  }
+  return { ...parseRulesOptions(paths), deviceProfile: owned ? OWNED_REGRESSION_PROFILE.id : BASELINE_PROFILE.id };
+}
+export function assertSessionDevice(snapshot, profile) {
+  assert.equal(sessionProfile(profile?.id), profile, 'Only the actual frozen fixed profile is accepted');
+  assert.deepEqual(Object.keys(snapshot).sort(), ['airplane', 'api', 'avd', 'connectivity', 'qemu', 'state', 'wifi']);
+  assert.equal(snapshot.state, 'device'); assert.equal(snapshot.avd, profile.avd);
+  assert.equal(snapshot.qemu, '1'); assert.equal(snapshot.api, '36');
+  assert.equal(snapshot.airplane, '1'); assert.equal(snapshot.wifi, '0');
+  const networks = [...snapshot.connectivity.matchAll(/^\s*Active default network:\s*(.*?)\s*$/gm)].map(match => match[1]);
+  assert.deepEqual(networks, ['none'], 'Exactly one observed absent default Android network required');
+  return { profile: profile.id, serial: profile.serial, avd: profile.avd, api: 36, qemu: true, offline: true };
+}
 export const TEST_CLASS = 'com.dominik.cardvault.data.sync.CollectionSyncSessionSdkInstrumentedTest';
 export const SCENARIOS = Object.freeze([
   { key: 'healthy', owner: 'sdk-proof-collection-healthy', method: 'healthyCollectionPushAcknowledgesAndRereads' },
@@ -19,6 +48,7 @@ export const SCENARIOS = Object.freeze([
   { key: 'private-offline-retry', owner: 'sdk-proof-collection-private-offline-retry', method: 'offlinePrivateMutationSurvivesRoomReopenAndCompletesFullPull' },
   { key: 'private-two-client', owner: 'sdk-proof-collection-private-two-client', method: 'twoClientPrivateBinderStaleEditConvergesWithoutRemoteRewrite' },
   { key: 'knowledge-listener', owner: 'sdk-proof-collection-knowledge-listener', method: 'knowledgeListenerReplacesCacheRemovesMissingAndInvalidatesOnSignOut' },
+  { key: 'knowledge-malformed', owner: 'sdk-proof-collection-knowledge-malformed', method: 'malformedKnowledgeListenerRemovesOnlyExactCacheAndPreservesLocalState' },
   { key: 'private-full-budget', owner: 'sdk-proof-collection-private-full-budget', method: 'largePrivateFullPullContinuesAfterBudgetAndRoomReopen' },
 ]);
 const isReadOnlySession = scenario => ['session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key);
@@ -26,10 +56,15 @@ export const OTHER_OWNER = 'sdk-proof-collection-other';
 const lexical = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 export const KNOWLEDGE_PATH = `scanKnowledge/${'1'.repeat(64)}`;
 export const KNOWLEDGE_MISSING_PATH = `scanKnowledge/${'2'.repeat(64)}`;
+export const KNOWLEDGE_MALFORMED_PATH = `scanKnowledge/${'4'.repeat(64)}`;
 export function assertKnowledgeInventoryPath(documentPath, scenario) {
   if (!documentPath.startsWith('scanKnowledge/')) return;
-  assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14], 'Knowledge fixture cannot exist before its own case');
-  assert.equal(documentPath, KNOWLEDGE_PATH, 'Only the single exact positive knowledge seed may exist');
+  if (documentPath === KNOWLEDGE_MALFORMED_PATH) {
+    assert.ok(scenario === SCENARIOS[14] || scenario === SCENARIOS[15], 'Malformed knowledge fixture cannot exist before its own case');
+  } else {
+    assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15], 'Knowledge fixture cannot exist before its own case');
+    assert.equal(documentPath, KNOWLEDGE_PATH, 'Only the exact positive or malformed knowledge seed may exist');
+  }
 }
 export function knowledgeFixture(runId, timestamp) {
   validRunId(runId);
@@ -37,6 +72,14 @@ export function knowledgeFixture(runId, timestamp) {
     fingerprint: '1'.repeat(64), cardId: `sdk-knowledge-${runId}-server`,
     sourceSetId: 'synthetic-server-set', cardNumber: '101/202', status: 'STABLE',
     confidence: 91, confirmations: 7, corrections: 2, knowledgeVersion: 1, lastUpdatedAt: timestamp,
+  } };
+}
+export function malformedKnowledgeFixture(runId, timestamp) {
+  validRunId(runId);
+  return { path: KNOWLEDGE_MALFORMED_PATH, data: {
+    fingerprint: '4'.repeat(64), cardId: `sdk-knowledge-${runId}-malformed-server`,
+    sourceSetId: 'synthetic-server-set', cardNumber: '101/202', status: 'STABLE',
+    confidence: 91, confirmations: 7, corrections: 2, knowledgeVersion: '1', lastUpdatedAt: timestamp,
   } };
 }
 export const FULL_BUDGET_PARENT = 'users/sdk-proof-collection-private-full-budget';
@@ -49,7 +92,7 @@ const fullBudgetDocuments = new Set(FULL_BUDGET_PATHS);
 // not ignored records; the generic 16-collection/32-reference limits stay intact.
 export function isFullBudgetInventoryPath(documentPath, scenario) {
   if (documentPath !== FULL_BUDGET_PARENT && !documentPath.startsWith(`${FULL_BUDGET_PARENT}/`)) return false;
-  assert.equal(scenario, SCENARIOS[14], 'Large fixture is allowed only during its exact final scenario');
+  assert.equal(scenario, SCENARIOS[15], 'Large fixture is allowed only during its exact final scenario');
   assert.ok(documentPath === FULL_BUDGET_PARENT || fullBudgetDocuments.has(documentPath), 'Unexpected large-owner reference');
   return true;
 }
@@ -57,7 +100,7 @@ export function fullBudgetBinderFixture(documentPath, runId, timestamp) {
   validRunId(runId); assert.ok(fullBudgetDocuments.has(documentPath), 'Exact paging identity required');
   const binderId = documentPath.slice(FULL_BUDGET_COLLECTION.length + 1);
   return { path: documentPath, data: {
-    binderId, ownerUid: SCENARIOS[14].owner, name: `Synthetic paging binder ${binderId}`,
+    binderId, ownerUid: SCENARIOS[15].owner, name: `Synthetic paging binder ${binderId}`,
     description: null, coverStyle: 'DOMIDEX', minimumPageCount: 1,
     createdAtClient: 1700000000000, updatedAtClient: 1700000000000,
     lastOpenedAtClient: null, deleted: false, revision: 1,
@@ -167,6 +210,7 @@ export function deferredPointReadSeedFixtures(runId, timestamp) {
 export function seedFixtures(scenario, runId, timestamp) {
   entryPath(scenario);
   if (scenario.key === 'knowledge-listener') return [knowledgeFixture(runId, timestamp)];
+  if (scenario.key === 'knowledge-malformed') return [malformedKnowledgeFixture(runId, timestamp)];
   if (scenario.key === 'private-full-budget') return FULL_BUDGET_PATHS.map(documentPath => fullBudgetBinderFixture(documentPath, runId, timestamp));
   if (scenario.key === 'late-parent') return lateParentSeedFixtures(runId, timestamp);
   if (scenario.key === 'deferred-point-read') return deferredPointReadSeedFixtures(runId, timestamp);
@@ -186,6 +230,7 @@ export function assertEntry(data, scenario, runId, stage = 'final') {
   assert.notEqual(scenario.key, 'private-two-client', 'Two-client private-only case must never create a collection entry');
   assert.notEqual(scenario.key, 'private-full-budget', 'Read-only paging case must never create a collection entry');
   assert.notEqual(scenario.key, 'knowledge-listener', 'Read-only knowledge case must never create a collection entry');
+  assert.notEqual(scenario.key, 'knowledge-malformed', 'Read-only malformed knowledge case must never create a collection entry');
   assert.equal(isReadOnlySession(scenario), false, 'Session-only owners must never create a server entry');
   assert.ok(stage === 'seed' || stage === 'final');
   const normalized = normalize(data); const stamp = confirmedStamp(normalized);
@@ -197,7 +242,7 @@ export function assertSeed(seed, scenario, runId) {
   assert.deepEqual(Object.keys(seed).sort(lexical), ['data', 'method', 'path']);
   assert.equal(seed.method, scenario.method);
   const normalized = normalize(seed.data);
-  const stamp = confirmedStamp(scenario.key === 'knowledge-listener' ? { updatedAt: normalized.lastUpdatedAt } : normalized);
+  const stamp = confirmedStamp(['knowledge-listener', 'knowledge-malformed'].includes(scenario.key) ? { updatedAt: normalized.lastUpdatedAt } : normalized);
   const expected = scenario.key === 'private-full-budget'
     ? fullBudgetBinderFixture(seed.path, runId, stamp)
     : seedFixtures(scenario, runId, stamp).find(item => item.path === seed.path);
@@ -230,7 +275,7 @@ function expectedDocuments(phaseIndex, before, runId) {
     const scenario = SCENARIOS[index];
     if (before && index === phaseIndex) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
-    } else if (['deferred-point-read', 'private-full-budget', 'knowledge-listener'].includes(scenario.key)) {
+    } else if (['deferred-point-read', 'private-full-budget', 'knowledge-listener', 'knowledge-malformed'].includes(scenario.key)) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
     } else if (scenario.key === 'private-offline-retry') {
       records.push({ ...offlinePrivateBinderFixture(runId, null), scenario, privateBinder: true });
@@ -246,7 +291,7 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All sixteen nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All seventeen nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
@@ -297,7 +342,7 @@ export function validateReadbacks(readbacks, seeds, runId, preflights) {
     validatePreflight(preflights[index], index, runId, readbacks[index - 1], currentSeeds);
     validateReadback(item, index, runId);
     assertPreviousEntriesUnchanged(item, readbacks[index - 1]);
-    if (isReadOnlySession(scenario) || ['deferred-point-read', 'private-full-budget', 'knowledge-listener'].includes(scenario.key)) {
+    if (isReadOnlySession(scenario) || ['deferred-point-read', 'private-full-budget', 'knowledge-listener', 'knowledge-malformed'].includes(scenario.key)) {
       // Includes method, all accounts, every collection/document reference,
       // and every field/timestamp in every existing document. No filter drops
       // an unexpected owner, sidecar or access override before comparison.
@@ -323,7 +368,7 @@ export function validateServerProof(proof, runId) {
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
   assert.deepEqual(proof.preflights?.map(item => item.method), SCENARIOS.map(item => item.method));
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
-  return { verified: true, androidCases: 15, independentAdminReadbacks: 15, independentAdminPreflights: 15,
+  return { verified: true, androidCases: 16, independentAdminReadbacks: 16, independentAdminPreflights: 16,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
     readOnlySessionCharacterizationCases: 2,
@@ -333,5 +378,6 @@ export function validateServerProof(proof, runId) {
     actualPrivateWorkerTwoClientConflictCases: 1,
     actualPrivateWorkerFullBudgetCases: 1,
     readOnlyKnowledgeListenerAuthCases: 1,
+    readOnlyMalformedKnowledgeListenerCases: 1,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }
