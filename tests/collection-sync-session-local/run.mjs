@@ -38,7 +38,7 @@ async function main() {
   const webInputs = ['firestore.rules', 'storage.rules', 'package.json', 'package-lock.json',
     'tests/private-operations-local/safety.mjs', 'tests/private-operations-local/network-preload.cjs',
     'tests/rules-local/run.mjs', 'tests/android-web-price-local/contract.mjs',
-    ...['run.mjs', 'execute.mjs', 'contract.mjs', 'revocation.mjs', 'validation.test.mjs', 'revocation-stop.test.mjs', 'README.md'].map(name => `tests/collection-sync-session-local/${name}`)];
+    ...['run.mjs', 'execute.mjs', 'contract.mjs', 'revocation.mjs', 'revocation-mutation.mjs', 'validation.test.mjs', 'revocation-stop.test.mjs', 'README.md'].map(name => `tests/collection-sync-session-local/${name}`)];
   const inputs = Object.fromEntries([...androidInputs.map(name => [`android/${name}`, requireFile(path.join(androidRoot, name))]),
     ...webInputs.map(name => [`web/${name}`, requireFile(path.join(root, name))])]);
   const hashes = Object.fromEntries(await Promise.all(Object.entries(inputs).map(async ([name, file]) => [name, await sha256(file)])));

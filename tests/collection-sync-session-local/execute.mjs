@@ -18,16 +18,19 @@ const { REVOCATION, REVOCATION_LOCK_PATH, revocationReadyPath, assertRevocationD
   revocationReadyExists, assertRevocationReadyRead, assertRevocationShellV2, assertRevocationMayCreate,
   revocationLockFixture, revocationStartIsActive, expectedLockedSnapshot, validateRevocationReceipt } =
   await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/revocation.mjs')));
+const { MUTATION, MUTATION_PATH, MUTATION_LOCK_PATH, mutationReadyPath, mutationFixture,
+  createMutationState, beginMutation, finishMutation, validateMutationReceipt } =
+  await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/revocation-mutation.mjs')));
 const env = { ...process.env }; delete env.FIREBASE_CONFIG;
 assertTestEnvironment(env); delete process.env.FIREBASE_CONFIG;
 const runId = validRunId(env.DOMIDEX_COLLECTION_SESSION_RUN_ID);
 const profile = sessionProfile(env.DOMIDEX_COLLECTION_SESSION_DEVICE_PROFILE);
 const require = createRequire(path.join(root, 'package.json'));
 const { initializeApp, applicationDefault, deleteApp } = require('firebase-admin/app');
-const { getAuth } = require('firebase-admin/auth'); const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth'); const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const app = initializeApp({ projectId: PROJECT, credential: applicationDefault() }, `collection-session-admin-${runId}`);
 const db = getFirestore(app); const auth = getAuth(app);
-const proof = { project: PROJECT, runId, verified: false, phases: [], seeds: [], preflights: [], readbacks: [], revocations: [], accountUnchanged: false, errors: [], readbackErrors: [] };
+const proof = { project: PROJECT, runId, verified: false, phases: [], seeds: [], preflights: [], readbacks: [], revocations: [], mutations: [], accountUnchanged: false, errors: [], readbackErrors: [] };
 function saveProof() { writeFileSync(path.join(directory, 'server-proof.json'), JSON.stringify(proof, null, 2)); }
 async function deviceRead(args) {
   let output = '';
@@ -61,11 +64,11 @@ async function databaseSnapshot(scenario) {
   async function visit(collection, depth) {
     assert.ok(depth <= 4 && collectionPaths.length < 16, 'Unexpected emulator collection tree');
     if (collection.path === 'scanKnowledge' || collection.path.startsWith('scanKnowledge/')) {
-      assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16], 'No knowledge inventory before its own case');
+      assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === MUTATION || scenario === SCENARIOS[17], 'No knowledge inventory before its own case');
       assert.equal(collection.path, 'scanKnowledge', 'No knowledge child collections');
     }
     if (collection.path.startsWith(`${FULL_BUDGET_PARENT}/`)) {
-      assert.equal(scenario, SCENARIOS[16], 'No paging-owner inventory before its own case');
+      assert.equal(scenario, SCENARIOS[17], 'No paging-owner inventory before its own case');
       assert.equal(collection.path, FULL_BUDGET_COLLECTION, 'No additional large-owner collections');
     }
     collectionPaths.push(collection.path);
@@ -86,18 +89,21 @@ async function databaseSnapshot(scenario) {
     }
   }
   for (const collection of await db.listCollections()) await visit(collection, 0);
-  if (scenario === SCENARIOS[16]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+  if (scenario === SCENARIOS[17]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     [FULL_BUDGET_PARENT, ...FULL_BUDGET_PATHS].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     'Only the complete fixed paging-owner inventory may exceed the ordinary reference bound');
-  if (scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16]) {
+  if (scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === MUTATION || scenario === SCENARIOS[17]) {
     assert.ok(documentPaths.includes(KNOWLEDGE_PATH), 'Require the exact knowledge seed in the complete inventory');
     assert.equal((await db.doc(KNOWLEDGE_MISSING_PATH).get()).exists, false, 'The second knowledge fingerprint must remain absent');
   }
-  if (scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16]) {
+  if (scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === MUTATION || scenario === SCENARIOS[17]) {
     assert.ok(documentPaths.includes(KNOWLEDGE_MALFORMED_PATH), 'Require the exact malformed knowledge seed in the complete inventory');
   }
-  if (scenario === REVOCATION || scenario === SCENARIOS[16]) {
+  if (scenario === REVOCATION || scenario === MUTATION || scenario === SCENARIOS[17]) {
     assert.ok(documentPaths.includes('scanKnowledge/' + '6'.repeat(64)), 'Exact revocation knowledge seed required');
+  }
+  if (scenario === MUTATION || scenario === SCENARIOS[17]) {
+    assert.ok(documentPaths.includes(MUTATION_PATH), 'Exact data-change seed required');
   }
   return { entries: entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
     collectionPaths: collectionPaths.sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
@@ -114,14 +120,14 @@ async function revocationAdb(args, timeoutMs = 1500) {
 const revocationDevice = (args, timeoutMs) => revocationAdb([
   'shell', '-T', 'run-as', 'com.dominik.cardvault', '/system/bin/toybox', ...args,
 ], timeoutMs);
-async function assertRevocationReadyAbsent() {
+async function assertRevocationReadyAbsent(readyPath = revocationReadyPath(runId)) {
   assertRevocationShellV2(await revocationAdb(['features']));
   for (const args of [['test', '-d', 'files'], ['test', '-r', 'files']]) {
     const value = await revocationDevice(args);
     assert.equal(value.result.code, 0, 'Known readable app-private files directory required');
     assert.equal(value.output, ''); assertRevocationDeviceResult(value);
   }
-  const absent = await revocationDevice(['test', '-e', revocationReadyPath(runId)]);
+  const absent = await revocationDevice(['test', '-e', readyPath]);
   assert.equal(revocationReadyExists(absent), false, 'Exact ready file must not exist before launch');
 }
 const revocationTree = async () => ({
@@ -211,17 +217,53 @@ async function finishRevocation(state, preflight) {
     receipt.events.push('restored-readback'); saveProof();
   });
 }
+function mutationIo() {
+  const seedReference = db.doc(MUTATION_PATH); const lockReference = db.doc(MUTATION_LOCK_PATH);
+  const timestamp = value => new Timestamp(value.seconds, value.nanoseconds);
+  return {
+    now: () => performance.now(), sleep: () => new Promise(resolve => setTimeout(resolve, 100)), save: saveProof,
+    probeReady: timeout => revocationDevice(['test', '-e', mutationReadyPath(runId)], timeout),
+    readReady: timeout => revocationDevice(['base64', '-w', '0', mutationReadyPath(runId)], timeout),
+    snapshot: async () => ({ method: MUTATION.method, ...await databaseSnapshot(MUTATION), accounts: await accountsSnapshot() }),
+    documents: async () => {
+      const documents = await db.getAll(seedReference, lockReference);
+      assert.equal(documents.length, 2);
+      const value = document => document.exists
+        ? { path: document.ref.path, exists: true, data: normalize(document.data()), writeTime: normalize(document.updateTime) }
+        : { path: document.ref.path, exists: false };
+      return { seed: value(documents[0]), lock: value(documents[1]) };
+    },
+    createLock: async data => normalize((await lockReference.create(data)).writeTime),
+    mutateSeed: async seedTime => normalize((await seedReference.update({ confidence: 90 },
+      { lastUpdateTime: timestamp(seedTime) })).writeTime),
+    restoreAndDelete: async (seed, seedTime, lockTime) => {
+      assert.equal(seed.path, MUTATION_PATH);
+      const data = mutationFixture(runId, timestamp(seed.data.lastUpdatedAt)).data;
+      assert.deepEqual(normalize(data), seed.data);
+      const batch = db.batch();
+      batch.update(seedReference, data, { lastUpdateTime: timestamp(seedTime) });
+      batch.delete(lockReference, { lastUpdateTime: timestamp(lockTime) });
+      return (await batch.commit()).map(result => normalize(result.writeTime));
+    },
+    deletePristineLock: async lockTime => lockReference.delete({ lastUpdateTime: timestamp(lockTime) }),
+  };
+}
 async function android(method, preflight) {
   await noInstrumentation(); let output = '';
   const isRevocation = method === REVOCATION.method;
+  const isMutation = method === MUTATION.method;
   if (isRevocation) await assertRevocationReadyAbsent();
+  if (isMutation) await assertRevocationReadyAbsent(mutationReadyPath(runId));
   const state = isRevocation ? revocationState() : null;
+  const mutation = isMutation ? createMutationState(runId) : null;
+  const mutationAdapter = isMutation ? mutationIo() : null;
+  if (mutation) { proof.mutations.push(mutation); saveProof(); }
   const lifecycle = { running: true, cancelled: false, output: '' };
   const execution = runChild(adb, ['-s', profile.serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', TEST_CLASS + '#' + method,
     '-e', 'domidexCollectionSessionProof', 'demo-loopback-only', '-e', 'domidexCollectionSessionRunId', runId,
     'com.dominik.cardvault.test/androidx.test.runner.AndroidJUnitRunner'], {
     cwd: directory, env, timeoutMs: 180_000,
-    ...(isRevocation ? { onStop: () => { lifecycle.cancelled = true; } } : {}),
+    ...(isRevocation || isMutation ? { onStop: () => { lifecycle.cancelled = true; } } : {}),
     onOutput: chunk => {
       output += String(chunk); lifecycle.output = output;
       appendFileSync(path.join(directory, method + '.log'), chunk); process.stdout.write(chunk);
@@ -231,12 +273,17 @@ async function android(method, preflight) {
   const barrier = state ? beginRevocation(state, preflight, lifecycle).catch(error => {
     state.receipt.errors.push({ stage: 'barrier', error: error.message }); saveProof();
   }) : null;
+  const mutationBarrier = mutation ? beginMutation(mutation, preflight, lifecycle, mutationAdapter).catch(error => {
+    mutation.errors.push({ stage: 'barrier', error: error.message }); saveProof();
+  }) : null;
   let result;
   try { result = await execution; }
   finally {
     if (state) { await barrier; await finishRevocation(state, preflight); }
+    if (mutation) { await mutationBarrier; await finishMutation(mutation, preflight, mutationAdapter); }
   }
   if (state) validateRevocationReceipt(state.receipt, runId, preflight, state.receipt.afterDelete);
+  if (mutation) validateMutationReceipt(mutation, runId, preflight, mutation.afterRestore);
   if (result.code !== 0) throw Error('Android collection session failed: ' + method + ' (' + (result.stopped ?? result.error ?? result.code) + ')');
   return validateInstrumentation(output, method);
 }
@@ -245,7 +292,7 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 18); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 19); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
     const scenario = SCENARIOS[index]; const { method } = scenario;
@@ -267,7 +314,7 @@ try {
     // Knowledge-malformed also gets exactly one create-only Admin seed. Its sole
     // schema violation is knowledgeVersion string "1"; Android's real listener
     // must decode/reject it. Admin preserves the exact malformed payload.
-    if (scenario === SCENARIOS[16]) {
+    if (scenario === SCENARIOS[17]) {
       // Bounded create-only fixture setup, not an SDK commit/ACK. Only this new
       // owner has 1001 seeds. Every complete payload is independently read back;
       // no existing scenario's seed or execution semantics are changed.

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { MUTATION, MUTATION_PATH, mutationFixture, validateMutationReceipt } from './revocation-mutation.mjs';
+export { MUTATION, MUTATION_PATH, mutationFixture, validateMutationReceipt };
 import { REVOCATION, REVOCATION_KNOWLEDGE_PATH, revocationKnowledgeFixture, validateRevocationReceipt } from './revocation.mjs';
 export { REVOCATION, REVOCATION_KNOWLEDGE_PATH, revocationKnowledgeFixture, validateRevocationReceipt };
 import { parseRulesOptions } from '../rules-local/run.mjs';
@@ -52,6 +54,7 @@ export const SCENARIOS = Object.freeze([
   { key: 'knowledge-listener', owner: 'sdk-proof-collection-knowledge-listener', method: 'knowledgeListenerReplacesCacheRemovesMissingAndInvalidatesOnSignOut' },
   { key: 'knowledge-malformed', owner: 'sdk-proof-collection-knowledge-malformed', method: 'malformedKnowledgeListenerRemovesOnlyExactCacheAndPreservesLocalState' },
   REVOCATION,
+  MUTATION,
   { key: 'private-full-budget', owner: 'sdk-proof-collection-private-full-budget', method: 'largePrivateFullPullContinuesAfterBudgetAndRoomReopen' },
 ]);
 const isReadOnlySession = scenario => ['session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key);
@@ -62,12 +65,14 @@ export const KNOWLEDGE_MISSING_PATH = `scanKnowledge/${'2'.repeat(64)}`;
 export const KNOWLEDGE_MALFORMED_PATH = `scanKnowledge/${'4'.repeat(64)}`;
 export function assertKnowledgeInventoryPath(documentPath, scenario) {
   if (!documentPath.startsWith('scanKnowledge/')) return;
-  if (documentPath === REVOCATION_KNOWLEDGE_PATH) {
-    assert.ok(scenario === SCENARIOS[15] || scenario === SCENARIOS[16], 'Revocation seed cannot exist before its own case');
+  if (documentPath === MUTATION_PATH) {
+    assert.ok(scenario === MUTATION || scenario === SCENARIOS[17], 'Data-change seed cannot precede its own case');
+  } else if (documentPath === REVOCATION_KNOWLEDGE_PATH) {
+    assert.ok(scenario === SCENARIOS[15] || scenario === MUTATION || scenario === SCENARIOS[17], 'Revocation seed cannot exist before its own case');
   } else if (documentPath === KNOWLEDGE_MALFORMED_PATH) {
-    assert.ok(scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16], 'Malformed knowledge fixture cannot exist before its own case');
+    assert.ok(scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === MUTATION || scenario === SCENARIOS[17], 'Malformed knowledge fixture cannot exist before its own case');
   } else {
-    assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16], 'Knowledge fixture cannot exist before its own case');
+    assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === MUTATION || scenario === SCENARIOS[17], 'Knowledge fixture cannot exist before its own case');
     assert.equal(documentPath, KNOWLEDGE_PATH, 'Only the exact positive or malformed knowledge seed may exist');
   }
 }
@@ -97,7 +102,7 @@ const fullBudgetDocuments = new Set(FULL_BUDGET_PATHS);
 // not ignored records; the generic 16-collection/32-reference limits stay intact.
 export function isFullBudgetInventoryPath(documentPath, scenario) {
   if (documentPath !== FULL_BUDGET_PARENT && !documentPath.startsWith(`${FULL_BUDGET_PARENT}/`)) return false;
-  assert.equal(scenario, SCENARIOS[16], 'Large fixture is allowed only during its exact final scenario');
+  assert.equal(scenario, SCENARIOS[17], 'Large fixture is allowed only during its exact final scenario');
   assert.ok(documentPath === FULL_BUDGET_PARENT || fullBudgetDocuments.has(documentPath), 'Unexpected large-owner reference');
   return true;
 }
@@ -105,7 +110,7 @@ export function fullBudgetBinderFixture(documentPath, runId, timestamp) {
   validRunId(runId); assert.ok(fullBudgetDocuments.has(documentPath), 'Exact paging identity required');
   const binderId = documentPath.slice(FULL_BUDGET_COLLECTION.length + 1);
   return { path: documentPath, data: {
-    binderId, ownerUid: SCENARIOS[16].owner, name: `Synthetic paging binder ${binderId}`,
+    binderId, ownerUid: SCENARIOS[17].owner, name: `Synthetic paging binder ${binderId}`,
     description: null, coverStyle: 'DOMIDEX', minimumPageCount: 1,
     createdAtClient: 1700000000000, updatedAtClient: 1700000000000,
     lastOpenedAtClient: null, deleted: false, revision: 1,
@@ -217,6 +222,7 @@ export function seedFixtures(scenario, runId, timestamp) {
   if (scenario.key === 'knowledge-listener') return [knowledgeFixture(runId, timestamp)];
   if (scenario.key === 'knowledge-malformed') return [malformedKnowledgeFixture(runId, timestamp)];
   if (scenario === REVOCATION) return [revocationKnowledgeFixture(runId, timestamp)];
+  if (scenario === MUTATION) return [mutationFixture(runId, timestamp)];
   if (scenario.key === 'private-full-budget') return FULL_BUDGET_PATHS.map(documentPath => fullBudgetBinderFixture(documentPath, runId, timestamp));
   if (scenario.key === 'late-parent') return lateParentSeedFixtures(runId, timestamp);
   if (scenario.key === 'deferred-point-read') return deferredPointReadSeedFixtures(runId, timestamp);
@@ -238,6 +244,7 @@ export function assertEntry(data, scenario, runId, stage = 'final') {
   assert.notEqual(scenario.key, 'knowledge-listener', 'Read-only knowledge case must never create a collection entry');
   assert.notEqual(scenario.key, 'knowledge-malformed', 'Read-only malformed knowledge case must never create a collection entry');
   assert.notEqual(scenario.key, 'knowledge-revoked', 'Revocation listener case must never create a collection entry');
+  assert.notEqual(scenario.key, MUTATION.key, 'Data-change revocation case must never create a collection entry');
   assert.equal(isReadOnlySession(scenario), false, 'Session-only owners must never create a server entry');
   assert.ok(stage === 'seed' || stage === 'final');
   const normalized = normalize(data); const stamp = confirmedStamp(normalized);
@@ -249,7 +256,7 @@ export function assertSeed(seed, scenario, runId) {
   assert.deepEqual(Object.keys(seed).sort(lexical), ['data', 'method', 'path']);
   assert.equal(seed.method, scenario.method);
   const normalized = normalize(seed.data);
-  const stamp = confirmedStamp(['knowledge-listener', 'knowledge-malformed', 'knowledge-revoked'].includes(scenario.key) ? { updatedAt: normalized.lastUpdatedAt } : normalized);
+  const stamp = confirmedStamp(['knowledge-listener', 'knowledge-malformed', 'knowledge-revoked', 'knowledge-revoked-on-data-change'].includes(scenario.key) ? { updatedAt: normalized.lastUpdatedAt } : normalized);
   const expected = scenario.key === 'private-full-budget'
     ? fullBudgetBinderFixture(seed.path, runId, stamp)
     : seedFixtures(scenario, runId, stamp).find(item => item.path === seed.path);
@@ -282,7 +289,7 @@ function expectedDocuments(phaseIndex, before, runId) {
     const scenario = SCENARIOS[index];
     if (before && index === phaseIndex) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
-    } else if (['deferred-point-read', 'private-full-budget', 'knowledge-listener', 'knowledge-malformed', 'knowledge-revoked'].includes(scenario.key)) {
+    } else if (['deferred-point-read', 'private-full-budget', 'knowledge-listener', 'knowledge-malformed', 'knowledge-revoked', 'knowledge-revoked-on-data-change'].includes(scenario.key)) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
     } else if (scenario.key === 'private-offline-retry') {
       records.push({ ...offlinePrivateBinderFixture(runId, null), scenario, privateBinder: true });
@@ -298,7 +305,7 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All eighteen nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All nineteen nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
@@ -349,7 +356,7 @@ export function validateReadbacks(readbacks, seeds, runId, preflights) {
     validatePreflight(preflights[index], index, runId, readbacks[index - 1], currentSeeds);
     validateReadback(item, index, runId);
     assertPreviousEntriesUnchanged(item, readbacks[index - 1]);
-    if (isReadOnlySession(scenario) || ['deferred-point-read', 'private-full-budget', 'knowledge-listener', 'knowledge-malformed', 'knowledge-revoked'].includes(scenario.key)) {
+    if (isReadOnlySession(scenario) || ['deferred-point-read', 'private-full-budget', 'knowledge-listener', 'knowledge-malformed', 'knowledge-revoked', 'knowledge-revoked-on-data-change'].includes(scenario.key)) {
       // Includes method, all accounts, every collection/document reference,
       // and every field/timestamp in every existing document. No filter drops
       // an unexpected owner, sidecar or access override before comparison.
@@ -377,7 +384,9 @@ export function validateServerProof(proof, runId) {
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
   assert.equal(proof.revocations?.length, 1, 'Exactly one complete revocation barrier receipt is mandatory');
   validateRevocationReceipt(proof.revocations[0], runId, proof.preflights[15], proof.readbacks[15]);
-  return { verified: true, androidCases: 17, independentAdminReadbacks: 17, independentAdminPreflights: 17,
+  assert.equal(proof.mutations?.length, 1, 'Exactly one complete data-change barrier receipt is mandatory');
+  validateMutationReceipt(proof.mutations[0], runId, proof.preflights[16], proof.readbacks[16]);
+  return { verified: true, androidCases: 18, independentAdminReadbacks: 18, independentAdminPreflights: 18,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
     readOnlySessionCharacterizationCases: 2,
@@ -389,5 +398,6 @@ export function validateServerProof(proof, runId) {
     readOnlyKnowledgeListenerAuthCases: 1,
     readOnlyMalformedKnowledgeListenerCases: 1,
     actualKnowledgeListenerRevocationCases: 1,
+    actualKnowledgeListenerDataChangeRevocationCases: 1,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }

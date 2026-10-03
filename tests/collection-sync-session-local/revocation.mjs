@@ -100,7 +100,7 @@ export function revocationStartIsActive(output, childRunning) {
 
 export function expectedLockedSnapshot(preflight, id) {
   assert.equal(preflight.method, REVOCATION.method);
-  assert.equal(preflight.accounts.length, 18, 'All eighteen nominal accounts required');
+  assert.equal(preflight.accounts.length, 19, 'All nineteen nominal accounts required');
   assert.equal(preflight.collectionPaths.includes('accountDeletionLocks'), false, 'No pre-existing lock collection');
   assert.equal(preflight.documentPaths.includes(REVOCATION_LOCK_PATH), false);
   assert.equal(preflight.entries.some(item => item.path.startsWith('accountDeletionLocks/')), false);
