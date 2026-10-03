@@ -6,6 +6,7 @@ import { PROJECT, SERIAL, AVD, SCENARIOS, OTHER_OWNER, ACCOUNTS, TEST_CLASS, val
   offlinePrivateBinderFixture, assertOfflinePrivateBinder,
   twoClientPrivateBinderFixture, assertTwoClientPrivateBinder,
   FULL_BUDGET_PARENT, FULL_BUDGET_COLLECTION, FULL_BUDGET_PATHS, fullBudgetBinderFixture, isFullBudgetInventoryPath,
+  KNOWLEDGE_PATH, KNOWLEDGE_MISSING_PATH, knowledgeFixture, assertKnowledgeInventoryPath,
   validateInstrumentation, validateReadback, validatePreflight, validateReadbacks, validateServerProof,
   assertNoInstrumentation } from './contract.mjs';
 import { PORTS, assertTestEnvironment, isolatedEnvironment } from '../private-operations-local/safety.mjs';
@@ -20,7 +21,7 @@ const documentFixture = scenario => ({ path: entryPath(scenario), data: finalEnt
 const scenarioSeeds = scenario => seedFixtures(scenario, runId, seedStamp(scenario))
   .map(item => ({ method: scenario.method, ...item }));
 const finalDocuments = index => SCENARIOS.slice(0, index + 1).flatMap(scenario => ['missing', 'session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key) ? [] :
-  ['deferred-point-read', 'private-full-budget'].includes(scenario.key) ? seedFixtures(scenario, runId, seedStamp(scenario)) :
+  ['deferred-point-read', 'private-full-budget', 'knowledge-listener'].includes(scenario.key) ? seedFixtures(scenario, runId, seedStamp(scenario)) :
   scenario.key === 'private-offline-retry' ? [offlinePrivateBinderFixture(runId, finalStamp(scenario))] :
   scenario.key === 'private-two-client' ? [twoClientPrivateBinderFixture(runId, finalStamp(scenario))] :
   [...(scenario.key === 'late-parent' ? lateParentSeedFixtures(runId, seedStamp(scenario)) : []), documentFixture(scenario)]);
@@ -32,8 +33,9 @@ const snapshot = (index, before = false) => {
   const collectionPaths = new Set(); const documentPaths = new Set();
   for (const item of entries) {
     const fields = item.path.split('/');
-    collectionPaths.add('users'); collectionPaths.add(fields.slice(0, 3).join('/'));
-    documentPaths.add(fields.slice(0, 2).join('/')); documentPaths.add(item.path);
+    for (let length = 1; length <= fields.length; length++) {
+      (length % 2 === 0 ? documentPaths : collectionPaths).add(fields.slice(0, length).join('/'));
+    }
   }
   return { method: current.method, accounts: structuredClone(ACCOUNTS), entries,
     collectionPaths: [...collectionPaths].sort(lexical), documentPaths: [...documentPaths].sort(lexical) };
@@ -48,8 +50,8 @@ const proof = () => ({ project: PROJECT, runId, verified: true, accountUnchanged
 
 void test('exact demo/AVD and path-safe run ID are fixed, with no project/serial/port override', () => {
   assert.equal(PROJECT, 'demo-domidex-privacy'); assert.equal(SERIAL, 'emulator-5554'); assert.equal(AVD, 'DomiDex_R27_Baseline_API36');
-  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 15);
-  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect', 'deferred-point-read', 'private-offline-retry', 'private-two-client', 'private-full-budget']);
+  assert.equal(OTHER_OWNER, 'sdk-proof-collection-other'); assert.equal(ACCOUNTS.length, 16);
+  assert.deepEqual(SCENARIOS.map(({ key }) => key), ['healthy', 'stale', 'missing', 'malformed', 'confirmed', 'pending-overlay', 'late-parent', 'session-healthy', 'session-offline', 'session-reconnect', 'deferred-point-read', 'private-offline-retry', 'private-two-client', 'knowledge-listener', 'private-full-budget']);
   assert.deepEqual(PORTS, { auth: 9097, firestore: 8187, storage: 9297, hub: 4407, logging: 4507, websocket: 9150 });
   assert.equal(validRunId(runId), runId); assert.ok(parseSessionOptions(['--android-root', '.'])['--android-root']);
   for (const value of ['', '../bad', 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), undefined, 1e31, {}]) assert.throws(() => validRunId(value));
@@ -77,7 +79,7 @@ void test('each SDK method requires exact START+PASS, mandatory numtests and fin
   assert.throws(() => validateInstrumentation(instrumentation(SCENARIOS[0].method), SCENARIOS[1].method));
 });
 void test('exact server fixtures reject extra/missing fields, changed identity and fabricated ACK revision', () => {
-  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline', 'session-reconnect', 'private-offline-retry', 'private-two-client', 'private-full-budget'].includes(value.key))) {
+  for (const scenario of SCENARIOS.filter(value => !['missing', 'session-healthy', 'session-offline', 'session-reconnect', 'private-offline-retry', 'private-two-client', 'knowledge-listener', 'private-full-budget'].includes(value.key))) {
     const make = () => finalEntryFixture(scenario, runId, { seconds: 1700000100, nanoseconds: 1234 });
     assert.equal(assertEntry(make(), scenario, runId).revision, scenario.key === 'pending-overlay' ? 2 : 1);
     for (const mutate of [value => { delete value.notes; }, value => { delete value.acquisitionPriceMinor; },
@@ -110,7 +112,7 @@ void test('every independent readback checks exact Google accounts, no access ov
   }
 });
 void test('remote commit alone, RED, missing teardown PASS or missing readback never count as a passing session proof', () => {
-  assert.equal(validateServerProof(proof(), runId).androidCases, 14);
+  assert.equal(validateServerProof(proof(), runId).androidCases, 15);
   for (const mutate of [value => { value.verified = false; }, value => { value.accountUnchanged = false; },
     value => { value.project = 'production'; }, value => { value.runId = 'b'.repeat(32); },
     value => { value.errors.push({ method: SCENARIOS[1].method, error: 'STALE_SESSION_ACKED_COMMITTED_MUTATION' }); },
@@ -207,7 +209,7 @@ void test('pending overlay requires the exact rev1 seed and actual agreed rev2 w
   const equal = proof();
   for (const item of [...equal.readbacks.slice(5), ...equal.preflights.slice(6)])
     item.entries.find(row => row.path === entryPath(scenario)).data.updatedAt = structuredClone(seed.data.updatedAt);
-  assert.equal(validateServerProof(equal, runId).androidCases, 14);
+  assert.equal(validateServerProof(equal, runId).androidCases, 15);
 });
 void test('late parent preserves all three orphan seeds, requires only the client-created parent and rejects extras', () => {
   const scenario = SCENARIOS[6]; const valid = proof();
@@ -325,7 +327,7 @@ void test('offline private retry has no Admin seed and only one exact worker-cre
   assert.equal(valid.readbacks[11].collectionPaths.length, 13);
   assert.equal(valid.readbacks[11].documentPaths.length, 21);
   const summary = validateServerProof(valid, runId);
-  assert.equal(summary.androidCases, 14);
+  assert.equal(summary.androidCases, 15);
   assert.equal(summary.actualPrivateWorkerOfflineRetryCases, 1);
 });
 
@@ -373,7 +375,7 @@ void test('deferred point-read appends one nominal owner with exactly three immu
   const scenario = SCENARIOS[10];
   assert.deepEqual(scenario, { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read',
     method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' });
-  assert.equal(SCENARIOS.length, 14); assert.equal(ACCOUNTS.length, 15);
+  assert.equal(SCENARIOS.length, 15); assert.equal(ACCOUNTS.length, 16);
   assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
     uid: scenario.owner, email: `${scenario.owner}@example.invalid`, emailVerified: true,
     disabled: false, customClaims: { appAccess: true },
@@ -403,7 +405,7 @@ void test('deferred point-read appends one nominal owner with exactly three immu
   assert.equal(valid.readbacks[10].collectionPaths.length, 12);
   assert.equal(valid.readbacks[10].documentPaths.length, 19);
   const summary = validateServerProof(valid, runId);
-  assert.equal(summary.androidCases, 14);
+  assert.equal(summary.androidCases, 15);
   assert.equal(summary.readOnlyDeferredPointReadCases, 1);
   for (const prior of valid.readbacks[9].entries)
     assert.deepEqual(valid.readbacks[10].entries.find(item => item.path === prior.path), prior);
@@ -504,7 +506,7 @@ void test('two-client private conflict appends one nominal owner, no seed and ex
   const scenario = SCENARIOS[12];
   assert.deepEqual(scenario, { key: 'private-two-client', owner: 'sdk-proof-collection-private-two-client',
     method: 'twoClientPrivateBinderStaleEditConvergesWithoutRemoteRewrite' });
-  assert.equal(SCENARIOS.length, 14); assert.equal(ACCOUNTS.length, 15);
+  assert.equal(SCENARIOS.length, 15); assert.equal(ACCOUNTS.length, 16);
   assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
     uid: scenario.owner, email: `${scenario.owner}@example.invalid`, emailVerified: true,
     disabled: false, customClaims: { appAccess: true },
@@ -537,9 +539,9 @@ void test('two-client private conflict appends one nominal owner, no seed and ex
   assert.ok(valid.readbacks[12].collectionPaths.length < 16);
   assert.ok(valid.readbacks[12].documentPaths.length < 32);
   const summary = validateServerProof(valid, runId);
-  assert.equal(summary.androidCases, 14);
-  assert.equal(summary.independentAdminReadbacks, 14);
-  assert.equal(summary.independentAdminPreflights, 14);
+  assert.equal(summary.androidCases, 15);
+  assert.equal(summary.independentAdminReadbacks, 15);
+  assert.equal(summary.independentAdminPreflights, 15);
   assert.equal(summary.actualPrivateWorkerOfflineRetryCases, 1);
   assert.equal(summary.actualPrivateWorkerTwoClientConflictCases, 1);
   for (const prior of valid.readbacks[11].entries)
@@ -610,11 +612,118 @@ void test('two-client proof rejects stale B or revision3, premature seeding, ext
   }
 });
 
-void test('large full pull appends exactly 1001 immutable seeds and one absent owner parent', () => {
+void test('knowledge listener case is read-only, just-in-time and before the final budget fixture', () => {
   const scenario = SCENARIOS[13];
+  assert.deepEqual(scenario, { key: 'knowledge-listener', owner: 'sdk-proof-collection-knowledge-listener',
+    method: 'knowledgeListenerReplacesCacheRemovesMissingAndInvalidatesOnSignOut' });
+  assert.equal(SCENARIOS[14].key, 'private-full-budget');
+  assert.equal(SCENARIOS.length, 15); assert.equal(ACCOUNTS.length, 16);
+  assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
+    uid: scenario.owner, email: scenario.owner + '@example.invalid', emailVerified: true, disabled: false,
+    customClaims: { appAccess: true },
+    providerData: [{ providerId: 'google.com', uid: scenario.owner + '-google', email: scenario.owner + '@example.invalid' }],
+  });
+  const expected = { path: 'scanKnowledge/' + '1'.repeat(64), data: {
+    fingerprint: '1'.repeat(64), cardId: 'sdk-knowledge-' + runId + '-server',
+    sourceSetId: 'synthetic-server-set', cardNumber: '101/202', status: 'STABLE',
+    confidence: 91, confirmations: 7, corrections: 2, knowledgeVersion: 1, lastUpdatedAt: seedStamp(scenario),
+  } };
+  assert.equal(KNOWLEDGE_PATH, expected.path);
+  assert.equal(KNOWLEDGE_MISSING_PATH, 'scanKnowledge/' + '2'.repeat(64));
+  assert.deepEqual(knowledgeFixture(runId, seedStamp(scenario)), expected);
+  assert.deepEqual(seedFixtures(scenario, runId, seedStamp(scenario)), [expected]);
+  assert.throws(() => assertEntry(entryFixture(scenario, runId, seedStamp(scenario)), scenario, runId));
+  const valid = proof();
+  assert.deepEqual(valid.seeds.filter(item => item.method === scenario.method), [{ method: scenario.method, ...expected }]);
+  assert.deepEqual(valid.preflights[13], valid.readbacks[13]);
+  assert.deepEqual(valid.readbacks[13].entries,
+    [...valid.readbacks[12].entries, expected].sort((left, right) => lexical(left.path, right.path)));
+  assert.equal(valid.readbacks[13].collectionPaths.length, 15);
+  assert.equal(valid.readbacks[13].documentPaths.length, 24);
+  assert.equal(valid.readbacks[13].entries.length, 15);
+  for (const index of [13, 14]) {
+    assert.equal(valid.readbacks[index].entries.filter(item => item.path === KNOWLEDGE_PATH).length, 1);
+    assert.equal(valid.readbacks[index].documentPaths.includes(KNOWLEDGE_MISSING_PATH), false);
+    assert.equal(valid.readbacks[index].documentPaths.includes('users/' + scenario.owner), false);
+  }
+  const summary = validateServerProof(valid, runId);
+  assert.equal(summary.androidCases, 15);
+  assert.equal(summary.independentAdminReadbacks, 15);
+  assert.equal(summary.independentAdminPreflights, 15);
+  assert.equal(summary.readOnlyKnowledgeListenerAuthCases, 1);
+});
+
+void test('knowledge inventory accepts one exact root document at its exact two allowed phases', () => {
+  for (const scenario of [SCENARIOS[13], SCENARIOS[14]]) {
+    assertKnowledgeInventoryPath(KNOWLEDGE_PATH, scenario);
+    for (const path of [KNOWLEDGE_MISSING_PATH, 'scanKnowledge/' + '3'.repeat(64),
+      KNOWLEDGE_PATH + '/extra/document', 'scanKnowledge/invalid'])
+      assert.throws(() => assertKnowledgeInventoryPath(path, scenario));
+  }
+  for (const scenario of [undefined, ...SCENARIOS.slice(0, 13), { ...SCENARIOS[13] }, { ...SCENARIOS[14] }])
+    assert.throws(() => assertKnowledgeInventoryPath(KNOWLEDGE_PATH, scenario));
+  assertKnowledgeInventoryPath(entryPath(SCENARIOS[0]), undefined);
+  assertKnowledgeInventoryPath('accountAccess/unknown', undefined); // Other complete-inventory checks reject it.
+});
+
+void test('knowledge seed rejects every changed field, malformed timestamp and coordinated forgery', () => {
+  const scenario = SCENARIOS[13];
+  const make = () => ({ method: scenario.method, ...knowledgeFixture(runId, seedStamp(scenario)) });
+  assertSeed(make(), scenario, runId);
+  for (const change of [
+    data => { data.fingerprint = '2'.repeat(64); }, data => { data.cardId = 'local-hint'; },
+    data => { data.sourceSetId = null; }, data => { data.cardNumber = '1/1'; },
+    data => { data.status = 'CANDIDATE'; }, data => { data.status = 'DISPUTED'; },
+    data => { data.confidence++; }, data => { data.confirmations++; }, data => { data.corrections++; },
+    data => { data.knowledgeVersion = 2; }, data => { data.knowledgeVersion = 1.5; },
+    data => { data.knowledgeVersion = '1'; }, data => { delete data.knowledgeVersion; },
+    data => { data.extra = true; }, data => { delete data.sourceSetId; },
+    data => { data.lastUpdatedAt = null; }, data => { data.lastUpdatedAt.seconds = 0; },
+    data => { data.lastUpdatedAt.nanoseconds = 1e9; }, data => { data.lastUpdatedAt.extra = true; },
+  ]) {
+    const seed = make(); change(seed.data); assert.throws(() => assertSeed(seed, scenario, runId));
+  }
+  const forged = proof();
+  for (const item of [forged.seeds.find(item => item.path === KNOWLEDGE_PATH),
+    forged.preflights[13].entries.find(item => item.path === KNOWLEDGE_PATH),
+    forged.readbacks[13].entries.find(item => item.path === KNOWLEDGE_PATH)])
+    item.data.cardId = 'matching-forged-value';
+  assert.throws(() => validateServerProof(forged, runId));
+});
+
+void test('knowledge proof rejects missing readback, changes to cache source or identities, and any extra server path', () => {
+  const scenario = SCENARIOS[13];
+  const row = value => value.readbacks[13].entries.find(item => item.path === KNOWLEDGE_PATH);
+  for (const change of [
+    value => { value.seeds = value.seeds.filter(item => item.path !== KNOWLEDGE_PATH); },
+    value => { value.preflights[13].entries = value.preflights[13].entries.filter(item => item.path !== KNOWLEDGE_PATH); },
+    value => { row(value).data.lastUpdatedAt.nanoseconds++; },
+    value => { value.preflights[13].entries.find(item => item.path === KNOWLEDGE_PATH).data.lastUpdatedAt.nanoseconds++; },
+    value => { row(value).data.cardId = 'client-write'; },
+    value => { value.readbacks[13].documentPaths.push(KNOWLEDGE_MISSING_PATH); },
+    value => { value.readbacks[13].entries.push({ path: KNOWLEDGE_MISSING_PATH, data: row(value).data }); },
+    value => { value.readbacks[13].documentPaths.push('users/' + scenario.owner); },
+    value => { value.readbacks[13].collectionPaths.push('accountAccess'); },
+    value => { value.readbacks[13].documentPaths.push('accountAccess/' + scenario.owner); },
+    value => { value.readbacks[13].entries.find(item => item.path === entryPath(SCENARIOS[0])).data.quantity++; },
+    value => { value.preflights[13].accounts.find(item => item.uid === scenario.owner).customClaims.admin = true; },
+    value => { value.readbacks[13].accounts.find(item => item.uid === scenario.owner).providerData[0].uid = 'foreign'; },
+    value => { value.readbacks[13].accounts.find(item => item.uid === scenario.owner).customClaims = {}; },
+    value => { value.phases[13].successEvidence = false; },
+    value => { value.readbacks.splice(13, 1); }, value => { value.preflights.splice(13, 1); },
+    value => { value.errors.push({ method: scenario.method, error: 'Missing local AtomicFile survived' }); },
+    value => { value.readbackErrors.push({ method: scenario.method, error: 'Admin tree incomplete' }); },
+    value => { value.error = 'Owned preference cleanup failed'; },
+  ]) {
+    const broken = proof(); change(broken); assert.throws(() => validateServerProof(broken, runId));
+  }
+});
+
+void test('large full pull appends exactly 1001 immutable seeds and one absent owner parent', () => {
+  const scenario = SCENARIOS[14];
   assert.deepEqual(scenario, { key: 'private-full-budget', owner: 'sdk-proof-collection-private-full-budget',
     method: 'largePrivateFullPullContinuesAfterBudgetAndRoomReopen' });
-  assert.equal(SCENARIOS.length, 14); assert.equal(ACCOUNTS.length, 15);
+  assert.equal(SCENARIOS.length, 15); assert.equal(ACCOUNTS.length, 16);
   assert.deepEqual(ACCOUNTS.find(item => item.uid === scenario.owner), {
     uid: scenario.owner, email: `${scenario.owner}@example.invalid`, emailVerified: true,
     disabled: false, customClaims: { appAccess: true },
@@ -641,32 +750,32 @@ void test('large full pull appends exactly 1001 immutable seeds and one absent o
   assert.throws(() => assertEntry(entryFixture(scenario, runId, timestamp), scenario, runId));
   const valid = proof();
   assert.deepEqual(valid.seeds.filter(item => item.method === scenario.method), expected.map(item => ({ method: scenario.method, ...item })));
-  assert.deepEqual(valid.preflights[13], valid.readbacks[13]);
-  assert.deepEqual(valid.readbacks[13].entries,
-    [...valid.readbacks[12].entries, ...expected].sort((left, right) => lexical(left.path, right.path)));
-  assert.equal(valid.readbacks[12].collectionPaths.length, 14);
-  assert.equal(valid.readbacks[12].documentPaths.length, 23);
-  assert.equal(valid.readbacks[12].entries.length, 14);
+  assert.deepEqual(valid.preflights[14], valid.readbacks[14]);
+  assert.deepEqual(valid.readbacks[14].entries,
+    [...valid.readbacks[13].entries, ...expected].sort((left, right) => lexical(left.path, right.path)));
   assert.equal(valid.readbacks[13].collectionPaths.length, 15);
-  assert.equal(valid.readbacks[13].documentPaths.length, 1025);
-  assert.equal(valid.readbacks[13].entries.length, 1015);
-  assert.equal(valid.readbacks[13].documentPaths.filter(path => path === FULL_BUDGET_PARENT).length, 1);
-  assert.equal(valid.readbacks[13].entries.some(item => item.path === FULL_BUDGET_PARENT), false);
-  for (const prior of valid.readbacks[12].entries)
-    assert.deepEqual(valid.readbacks[13].entries.find(item => item.path === prior.path), prior);
+  assert.equal(valid.readbacks[13].documentPaths.length, 24);
+  assert.equal(valid.readbacks[13].entries.length, 15);
+  assert.equal(valid.readbacks[14].collectionPaths.length, 16);
+  assert.equal(valid.readbacks[14].documentPaths.length, 1026);
+  assert.equal(valid.readbacks[14].entries.length, 1016);
+  assert.equal(valid.readbacks[14].documentPaths.filter(path => path === FULL_BUDGET_PARENT).length, 1);
+  assert.equal(valid.readbacks[14].entries.some(item => item.path === FULL_BUDGET_PARENT), false);
+  for (const prior of valid.readbacks[13].entries)
+    assert.deepEqual(valid.readbacks[14].entries.find(item => item.path === prior.path), prior);
   const summary = validateServerProof(valid, runId);
-  assert.equal(summary.androidCases, 14);
-  assert.equal(summary.independentAdminPreflights, 14);
-  assert.equal(summary.independentAdminReadbacks, 14);
+  assert.equal(summary.androidCases, 15);
+  assert.equal(summary.independentAdminPreflights, 15);
+  assert.equal(summary.independentAdminReadbacks, 15);
   assert.equal(summary.actualPrivateWorkerFullBudgetCases, 1);
   assert.equal(summary.actualPrivateWorkerTwoClientConflictCases, 1);
 });
 
 void test('large inventory exception is exact-path and exact-scenario only, never a global bound lift', () => {
-  const scenario = SCENARIOS[13];
+  const scenario = SCENARIOS[14];
   for (const path of [FULL_BUDGET_PARENT, ...FULL_BUDGET_PATHS]) {
     assert.equal(isFullBudgetInventoryPath(path, scenario), true);
-    for (const wrong of [undefined, SCENARIOS[0], SCENARIOS[12], { ...scenario }])
+    for (const wrong of [undefined, SCENARIOS[0], SCENARIOS[13], { ...scenario }])
       assert.throws(() => isFullBudgetInventoryPath(path, wrong));
   }
   for (const path of [
@@ -685,13 +794,13 @@ void test('large inventory exception is exact-path and exact-scenario only, neve
     `accountAccess/${scenario.owner}`, entryPath(SCENARIOS[0]),
   ]) assert.equal(isFullBudgetInventoryPath(ordinaryPath, scenario), false);
   const value = proof();
-  assert.equal(value.readbacks[13].documentPaths.filter(path => !isFullBudgetInventoryPath(path, scenario)).length, 23);
+  assert.equal(value.readbacks[14].documentPaths.filter(path => !isFullBudgetInventoryPath(path, scenario)).length, 24);
   // Generic traversal still separately enforces <32 ordinary references and
   // <16 collection references. This helper never exempts another owner's paths.
 });
 
 void test('paging seeds reject every payload substitution even if its forged before/after copies agree', () => {
-  const scenario = SCENARIOS[13];
+  const scenario = SCENARIOS[14];
   const path = FULL_BUDGET_PATHS[500];
   const makeSeed = () => ({ method: scenario.method, ...fullBudgetBinderFixture(path, runId, seedStamp(scenario)) });
   assertSeed(makeSeed(), scenario, runId);
@@ -712,14 +821,14 @@ void test('paging seeds reject every payload substitution even if its forged bef
   // because every copy is identical. The independent exact fixture still rules.
   const forged = proof();
   for (const item of [forged.seeds.find(item => item.path === path),
-    forged.preflights[13].entries.find(item => item.path === path), forged.readbacks[13].entries.find(item => item.path === path)])
+    forged.preflights[14].entries.find(item => item.path === path), forged.readbacks[14].entries.find(item => item.path === path)])
     item.data.lastMutationId = 'forged-client-write';
   assert.throws(() => validateServerProof(forged, runId));
 });
 
 void test('full-budget proof rejects missing/extra paths, client writes, privilege changes and partial completion', () => {
-  const scenario = SCENARIOS[13]; const path = FULL_BUDGET_PATHS[1000];
-  const row = value => value.readbacks[13].entries.find(item => item.path === path);
+  const scenario = SCENARIOS[14]; const path = FULL_BUDGET_PATHS[1000];
+  const row = value => value.readbacks[14].entries.find(item => item.path === path);
   const addDocument = (snapshot, path, data) => {
     snapshot.entries.push({ path, data }); snapshot.entries.sort((left, right) => lexical(left.path, right.path));
     const parts = path.split('/');
@@ -733,25 +842,25 @@ void test('full-budget proof rejects missing/extra paths, client writes, privile
   for (const change of [
     value => { value.seeds = value.seeds.filter(item => item.path !== path); },
     value => { value.seeds.push(structuredClone(value.seeds.find(item => item.path === path))); },
-    value => { value.seeds.find(item => item.path === path).method = SCENARIOS[12].method; },
+    value => { value.seeds.find(item => item.path === path).method = SCENARIOS[13].method; },
     value => { value.seeds.find(item => item.path === path).data.updatedAt.nanoseconds++; },
-    value => { value.preflights[13].entries.find(item => item.path === path).data.updatedAt.nanoseconds++; },
+    value => { value.preflights[14].entries.find(item => item.path === path).data.updatedAt.nanoseconds++; },
     value => { row(value).data.updatedAt.nanoseconds++; },
     value => { row(value).data.revision = 2; }, value => { row(value).data.name = 'client rewrite'; },
-    value => { value.preflights[13].entries = value.preflights[13].entries.filter(item => item.path !== path); },
-    value => { value.readbacks[13].entries = value.readbacks[13].entries.filter(item => item.path !== path); },
-    value => { value.readbacks[13].documentPaths = value.readbacks[13].documentPaths.filter(item => item !== path); },
-    value => { value.readbacks[13].entries.push(structuredClone(row(value))); },
-    value => { addDocument(value.readbacks[13], `${FULL_BUDGET_COLLECTION}/paging-1001`, row(value).data); },
-    value => { addDocument(value.readbacks[13], FULL_BUDGET_PARENT, { ownerUid: scenario.owner }); },
-    value => { addDocument(value.preflights[13], `accountAccess/${scenario.owner}`, { appAccess: true }); },
-    value => { addDocument(value.readbacks[13], `${FULL_BUDGET_PARENT}/collectionEntries/entry`, entryFixture(scenario, runId, finalStamp(scenario))); },
-    value => { value.readbacks[13].collectionPaths.push(`${FULL_BUDGET_PARENT}/collectionPriceSelections`); },
-    value => { value.readbacks[13].documentPaths.push(`${FULL_BUDGET_COLLECTION}/paging-0000/child/empty`); },
-    value => { value.readbacks[13].entries.find(item => item.path === entryPath(SCENARIOS[0])).data.updatedAt.nanoseconds++; },
-    value => { value.preflights[13].accounts.find(item => item.uid === scenario.owner).customClaims.admin = true; },
-    value => { value.readbacks[13].accounts.find(item => item.uid === scenario.owner).providerData[0].uid = 'wrong-google'; },
-    value => { value.phases.pop(); }, value => { value.phases[13].successEvidence = false; },
+    value => { value.preflights[14].entries = value.preflights[14].entries.filter(item => item.path !== path); },
+    value => { value.readbacks[14].entries = value.readbacks[14].entries.filter(item => item.path !== path); },
+    value => { value.readbacks[14].documentPaths = value.readbacks[14].documentPaths.filter(item => item !== path); },
+    value => { value.readbacks[14].entries.push(structuredClone(row(value))); },
+    value => { addDocument(value.readbacks[14], `${FULL_BUDGET_COLLECTION}/paging-1001`, row(value).data); },
+    value => { addDocument(value.readbacks[14], FULL_BUDGET_PARENT, { ownerUid: scenario.owner }); },
+    value => { addDocument(value.preflights[14], `accountAccess/${scenario.owner}`, { appAccess: true }); },
+    value => { addDocument(value.readbacks[14], `${FULL_BUDGET_PARENT}/collectionEntries/entry`, entryFixture(scenario, runId, finalStamp(scenario))); },
+    value => { value.readbacks[14].collectionPaths.push(`${FULL_BUDGET_PARENT}/collectionPriceSelections`); },
+    value => { value.readbacks[14].documentPaths.push(`${FULL_BUDGET_COLLECTION}/paging-0000/child/empty`); },
+    value => { value.readbacks[14].entries.find(item => item.path === entryPath(SCENARIOS[0])).data.updatedAt.nanoseconds++; },
+    value => { value.preflights[14].accounts.find(item => item.uid === scenario.owner).customClaims.admin = true; },
+    value => { value.readbacks[14].accounts.find(item => item.uid === scenario.owner).providerData[0].uid = 'wrong-google'; },
+    value => { value.phases.pop(); }, value => { value.phases[14].successEvidence = false; },
     value => { value.preflights.pop(); }, value => { value.readbacks.pop(); },
     value => { value.errors.push({ method: scenario.method, error: 'FULL checkpoint lost after Room reopen' }); },
     value => { value.readbackErrors.push({ method: scenario.method, error: 'Admin inventory incomplete' }); },

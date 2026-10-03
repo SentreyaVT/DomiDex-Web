@@ -18,11 +18,27 @@ export const SCENARIOS = Object.freeze([
   { key: 'deferred-point-read', owner: 'sdk-proof-collection-deferred-point-read', method: 'deferredPlacementPointReadSurvivesRoomReopenUntilParentDelivery' },
   { key: 'private-offline-retry', owner: 'sdk-proof-collection-private-offline-retry', method: 'offlinePrivateMutationSurvivesRoomReopenAndCompletesFullPull' },
   { key: 'private-two-client', owner: 'sdk-proof-collection-private-two-client', method: 'twoClientPrivateBinderStaleEditConvergesWithoutRemoteRewrite' },
+  { key: 'knowledge-listener', owner: 'sdk-proof-collection-knowledge-listener', method: 'knowledgeListenerReplacesCacheRemovesMissingAndInvalidatesOnSignOut' },
   { key: 'private-full-budget', owner: 'sdk-proof-collection-private-full-budget', method: 'largePrivateFullPullContinuesAfterBudgetAndRoomReopen' },
 ]);
 const isReadOnlySession = scenario => ['session-healthy', 'session-offline', 'session-reconnect'].includes(scenario.key);
 export const OTHER_OWNER = 'sdk-proof-collection-other';
 const lexical = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+export const KNOWLEDGE_PATH = `scanKnowledge/${'1'.repeat(64)}`;
+export const KNOWLEDGE_MISSING_PATH = `scanKnowledge/${'2'.repeat(64)}`;
+export function assertKnowledgeInventoryPath(documentPath, scenario) {
+  if (!documentPath.startsWith('scanKnowledge/')) return;
+  assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14], 'Knowledge fixture cannot exist before its own case');
+  assert.equal(documentPath, KNOWLEDGE_PATH, 'Only the single exact positive knowledge seed may exist');
+}
+export function knowledgeFixture(runId, timestamp) {
+  validRunId(runId);
+  return { path: KNOWLEDGE_PATH, data: {
+    fingerprint: '1'.repeat(64), cardId: `sdk-knowledge-${runId}-server`,
+    sourceSetId: 'synthetic-server-set', cardNumber: '101/202', status: 'STABLE',
+    confidence: 91, confirmations: 7, corrections: 2, knowledgeVersion: 1, lastUpdatedAt: timestamp,
+  } };
+}
 export const FULL_BUDGET_PARENT = 'users/sdk-proof-collection-private-full-budget';
 export const FULL_BUDGET_COLLECTION = `${FULL_BUDGET_PARENT}/privateBinders`;
 export const FULL_BUDGET_PATHS = Object.freeze(Array.from({ length: 1001 }, (_, index) =>
@@ -33,7 +49,7 @@ const fullBudgetDocuments = new Set(FULL_BUDGET_PATHS);
 // not ignored records; the generic 16-collection/32-reference limits stay intact.
 export function isFullBudgetInventoryPath(documentPath, scenario) {
   if (documentPath !== FULL_BUDGET_PARENT && !documentPath.startsWith(`${FULL_BUDGET_PARENT}/`)) return false;
-  assert.equal(scenario, SCENARIOS[13], 'Large fixture is allowed only during its exact final scenario');
+  assert.equal(scenario, SCENARIOS[14], 'Large fixture is allowed only during its exact final scenario');
   assert.ok(documentPath === FULL_BUDGET_PARENT || fullBudgetDocuments.has(documentPath), 'Unexpected large-owner reference');
   return true;
 }
@@ -41,7 +57,7 @@ export function fullBudgetBinderFixture(documentPath, runId, timestamp) {
   validRunId(runId); assert.ok(fullBudgetDocuments.has(documentPath), 'Exact paging identity required');
   const binderId = documentPath.slice(FULL_BUDGET_COLLECTION.length + 1);
   return { path: documentPath, data: {
-    binderId, ownerUid: SCENARIOS[13].owner, name: `Synthetic paging binder ${binderId}`,
+    binderId, ownerUid: SCENARIOS[14].owner, name: `Synthetic paging binder ${binderId}`,
     description: null, coverStyle: 'DOMIDEX', minimumPageCount: 1,
     createdAtClient: 1700000000000, updatedAtClient: 1700000000000,
     lastOpenedAtClient: null, deleted: false, revision: 1,
@@ -150,6 +166,7 @@ export function deferredPointReadSeedFixtures(runId, timestamp) {
 }
 export function seedFixtures(scenario, runId, timestamp) {
   entryPath(scenario);
+  if (scenario.key === 'knowledge-listener') return [knowledgeFixture(runId, timestamp)];
   if (scenario.key === 'private-full-budget') return FULL_BUDGET_PATHS.map(documentPath => fullBudgetBinderFixture(documentPath, runId, timestamp));
   if (scenario.key === 'late-parent') return lateParentSeedFixtures(runId, timestamp);
   if (scenario.key === 'deferred-point-read') return deferredPointReadSeedFixtures(runId, timestamp);
@@ -168,6 +185,7 @@ export function assertEntry(data, scenario, runId, stage = 'final') {
   assert.notEqual(scenario.key, 'private-offline-retry', 'Private-only case must never create a collection entry');
   assert.notEqual(scenario.key, 'private-two-client', 'Two-client private-only case must never create a collection entry');
   assert.notEqual(scenario.key, 'private-full-budget', 'Read-only paging case must never create a collection entry');
+  assert.notEqual(scenario.key, 'knowledge-listener', 'Read-only knowledge case must never create a collection entry');
   assert.equal(isReadOnlySession(scenario), false, 'Session-only owners must never create a server entry');
   assert.ok(stage === 'seed' || stage === 'final');
   const normalized = normalize(data); const stamp = confirmedStamp(normalized);
@@ -178,7 +196,8 @@ export function assertEntry(data, scenario, runId, stage = 'final') {
 export function assertSeed(seed, scenario, runId) {
   assert.deepEqual(Object.keys(seed).sort(lexical), ['data', 'method', 'path']);
   assert.equal(seed.method, scenario.method);
-  const normalized = normalize(seed.data); const stamp = confirmedStamp(normalized);
+  const normalized = normalize(seed.data);
+  const stamp = confirmedStamp(scenario.key === 'knowledge-listener' ? { updatedAt: normalized.lastUpdatedAt } : normalized);
   const expected = scenario.key === 'private-full-budget'
     ? fullBudgetBinderFixture(seed.path, runId, stamp)
     : seedFixtures(scenario, runId, stamp).find(item => item.path === seed.path);
@@ -211,7 +230,7 @@ function expectedDocuments(phaseIndex, before, runId) {
     const scenario = SCENARIOS[index];
     if (before && index === phaseIndex) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
-    } else if (scenario.key === 'deferred-point-read' || scenario.key === 'private-full-budget') {
+    } else if (['deferred-point-read', 'private-full-budget', 'knowledge-listener'].includes(scenario.key)) {
       records.push(...seedFixtures(scenario, runId, null).map(item => ({ ...item, scenario, seed: true })));
     } else if (scenario.key === 'private-offline-retry') {
       records.push({ ...offlinePrivateBinderFixture(runId, null), scenario, privateBinder: true });
@@ -227,13 +246,14 @@ function expectedDocuments(phaseIndex, before, runId) {
 function validateTree(item, phaseIndex, runId, before) {
   assert.ok(Number.isInteger(phaseIndex) && phaseIndex >= 0 && phaseIndex < SCENARIOS.length); validRunId(runId);
   assert.equal(item.method, SCENARIOS[phaseIndex].method);
-  assert.deepEqual(item.accounts, ACCOUNTS, 'All fifteen nominal Google accounts and exact claims stay unchanged');
+  assert.deepEqual(item.accounts, ACCOUNTS, 'All sixteen nominal Google accounts and exact claims stay unchanged');
   const expected = expectedDocuments(phaseIndex, before, runId);
   const collections = new Set(); const documents = new Set();
   for (const { path: documentPath } of expected) {
     const parts = documentPath.split('/');
-    collections.add(parts[0]); collections.add(parts.slice(0, 3).join('/'));
-    documents.add(parts.slice(0, 2).join('/')); documents.add(documentPath);
+    for (let length = 1; length <= parts.length; length++) {
+      (length % 2 === 0 ? documents : collections).add(parts.slice(0, length).join('/'));
+    }
   }
   assert.deepEqual(item.collectionPaths, [...collections].sort(lexical));
   assert.deepEqual(item.documentPaths, [...documents].sort(lexical));
@@ -277,7 +297,7 @@ export function validateReadbacks(readbacks, seeds, runId, preflights) {
     validatePreflight(preflights[index], index, runId, readbacks[index - 1], currentSeeds);
     validateReadback(item, index, runId);
     assertPreviousEntriesUnchanged(item, readbacks[index - 1]);
-    if (isReadOnlySession(scenario) || scenario.key === 'deferred-point-read' || scenario.key === 'private-full-budget') {
+    if (isReadOnlySession(scenario) || ['deferred-point-read', 'private-full-budget', 'knowledge-listener'].includes(scenario.key)) {
       // Includes method, all accounts, every collection/document reference,
       // and every field/timestamp in every existing document. No filter drops
       // an unexpected owner, sidecar or access override before comparison.
@@ -303,7 +323,7 @@ export function validateServerProof(proof, runId) {
   assert.deepEqual(proof.readbacks?.map(item => item.method), SCENARIOS.map(item => item.method));
   assert.deepEqual(proof.preflights?.map(item => item.method), SCENARIOS.map(item => item.method));
   validateReadbacks(proof.readbacks, proof.seeds, runId, proof.preflights);
-  return { verified: true, androidCases: 14, independentAdminReadbacks: 14, independentAdminPreflights: 14,
+  return { verified: true, androidCases: 15, independentAdminReadbacks: 15, independentAdminPreflights: 15,
     unrelatedOwnerUntouched: true, resumedCheckpointCases: 4, actualWorkerCommitCases: 2,
     actualPrivateWorkerLateParentCases: 1,
     readOnlySessionCharacterizationCases: 2,
@@ -312,5 +332,6 @@ export function validateServerProof(proof, runId) {
     actualPrivateWorkerOfflineRetryCases: 1,
     actualPrivateWorkerTwoClientConflictCases: 1,
     actualPrivateWorkerFullBudgetCases: 1,
+    readOnlyKnowledgeListenerAuthCases: 1,
     intermediateEvidence: 'Android named control SDK and Room assertions; Admin independently samples before and after each method' };
 }

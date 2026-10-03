@@ -1,6 +1,21 @@
 # Collection/private-worker session proof — local only
 
-Latest additive proof: **13/13 actual SDK cases PASS**, 2026-10-02 local time,
+Verified local extension: the registry now contains fifteen methods, with the narrow
+knowledge listener/Auth case immediately before the final 1001-binder method.
+Root result **15/15 PASS**, 2026-10-02, 139.382s complete harness; knowledge case
+1.294s and final budget case14.710s. Independent complete preflight/readback for
+all15 methods and all16 accounts, cleanup, free ports, empty reverse mappings and
+frozen inputs pass. Evidence: `outputs/collection-sync-session-local/`
+`2026-10-02T13-17-53-019Z-705ccc68641040b7a510cdc6d836b152/manifest.json`.
+App SHA256 `09cdad1dfafd62f37f482cf2d63a7c287009b074f0dd8ba2402a531e1a864633`;
+test APK `1c17553d33e41edd2a5c0e05b4ef0eefbf3cbfc22858fb3e2d25ecf9099a94fe`.
+Root's separate installed-file receipt is in Android's ignored dated engineering
+`knowledge-listener-review/installed-apks.json`. The26 pure validators and focused
+lint also pass. An earlier operator-aborted run with the old test APK is retained
+as **not PASS** (`d4d5f88b...`); it is not an Android product failure.
+The dated receipts below remain historical and are not relabelled as15-case runs.
+
+Earlier additive proof: **13/13 actual SDK cases PASS**, 2026-10-02 local time,
 `outputs/collection-sync-session-local/2026-10-01T23-24-15-174Z-448b17e0ba034f5796a0336a0290f8f0/`.
 Complete harness 100.475 s; thirteenth case 6.726 s. All thirteen full preflight/
 readbacks, fourteen nominal accounts, exact previous owner payloads, free ports,
@@ -34,9 +49,9 @@ node tests/collection-sync-session-local/run.mjs --android-root C:/Users/Dominik
 
 Allowed preinstalled path overrides are `--firebase-cli`, `--java-home`, `--emulator-cache`. Project, ports, serial, account list, method registry and run-ID shape are fixed. New run IDs are lowercase 32-hex. Pure validator tests are not SDK evidence.
 
-## Exact fixtures and fourteen methods (fourteenth case pending verification)
+## Exact fixtures and fifteen methods
 
-Host requires entirely empty Auth/Firestore emulators. It imports exactly fifteen nominal Google users: the fourteen `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
+Host requires entirely empty Auth/Firestore emulators. It imports exactly sixteen nominal Google users: the fifteen `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
 
 Class remains `com.dominik.cardvault.data.sync.CollectionSyncSessionSdkInstrumentedTest`. Existing arguments remain `domidexCollectionSessionProof=demo-loopback-only` and `domidexCollectionSessionRunId=<32hex>`.
 
@@ -114,7 +129,7 @@ whole-case 120s; timeouts are never converted into passing retry evidence.
 
 ## Independent complete-tree evidence
 
-Before **every** method, Admin captures the complete bounded database tree plus all fifteen Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents. Only the final 1001-binder scenario has the exact-path inventory exception described below.
+Before **every** method, Admin captures the complete bounded database tree plus all sixteen Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents. Only the final 1001-binder scenario has the exact-path inventory exception described below. The knowledge document consumes an ordinary reference; the generic limits remain sixteen collections and thirty-two ordinary references.
 
 Each preflight must equal the previous method's complete final state plus exactly this method's allowed seeds. Healthy/stale remain unseeded; missing remains absent. Pending-overlay must still be revision1. Late-parent must have exactly two binders/one placement and **no Collection parent**. Earlier owners, exact fields/timestamps and accounts must remain unchanged.
 
@@ -124,7 +139,7 @@ Raw preflights/readbacks are saved before validation. A server commit alone, inc
 
 ## Fail-closed completion, scope and cleanup
 
-- Exactly fourteen START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
+- Exactly fifteen START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
 - Each host invocation retains its 180-second bound and the unchanged launcher keeps an overall 18-minute budget. A slow case can exhaust the total budget; no timeout is converted to success.
 - Existing `run.mjs` changes only its descriptive cleanup scope: it still hashes the entire product Kotlin source set (including the new scheduling seam), the existing SDK class/gate, APK inputs and all five host files (including this README). No manifest list entry is needed.
 - Original Android bounds: setup60s / test120s / Task20s / held-gate15s. Late-parent adds 45s per real worker pass and control queries limit8. Actual product FULL queries retain limit200 / logical budget1000. This small fixture does not instrument total RPC/read billing or establish scale.
@@ -137,6 +152,40 @@ Raw preflights/readbacks are saved before validation. A server commit alone, inc
 Evidence belongs to `outputs/collection-sync-session-local/<timestamp>-<runId>/`:
 manifest, complete server-proof, per-method logs and emulator log. Source alone is
 not evidence that a later build or environment passed.
+
+## Narrow knowledge listener/Auth proof (locally verified)
+
+14. `knowledgeListenerReplacesCacheRemovesMissingAndInvalidatesOnSignOut` uses the
+    actual `FirebaseScanKnowledge.observeRelevant` adapter, real nominal Google
+    Auth and Firestore SDK, and the existing guarded demo transport. Admin creates
+    exactly `scanKnowledge/` plus 64 ones just before this method. The complete
+    payload and actual `lastUpdatedAt` are independently checked by Admin and the
+    separate control SDK. The matching local hint differs in every ranking field;
+    the callback and AtomicFile cache must both equal the complete server record.
+    A second fingerprint (64 twos) starts locally cached but is confirmed absent
+    on the server. Its null callback only passes if its exact base/backup/new files
+    are absent, while the positive and a third unobserved cache file remain exact.
+    The positive listener remains open for real subject `auth.signOut()` and must
+    then publish null with no canonical account; the control account stays signed
+    in. No explicit observation close can supply that null assertion.
+15. `largePrivateFullPullContinuesAfterBudgetAndRoomReopen` remains the final
+    1001-binder case, with unchanged worker semantics and exact inventory exception.
+
+The knowledge case owns a run/UUID directory and a uniquely named real preference
+file. Its ContextWrapper returns itself as applicationContext and redirects both
+filesDir and consent preferences, so the default app cache/consent are untouched.
+Observation close, SDK teardown, preference deletion and exact file cleanup are
+attempted independently. Deletion checks the ownership marker and exact allowed
+paths; it never recursively removes a shared directory. Full Admin before/after
+trees and all accounts must match exactly. The final tree contains 16 collection
+references, 1026 document references (24 ordinary), and 1016 existing documents.
+
+This case proves neither nonempty evidence/receipt preservation, malformed server
+payload handling, transport-failure fallback, revoked Rules/claims, A->B->A auth,
+late callbacks after close, process death, physical devices, scanner UI/ranking
+accuracy, nor production latency. Empty outbox/upload directories and unchanged
+preference contents prove only absence of writes in this observe-only path. There
+are no enqueue, consent setter, worker, default Firebase or app behavior changes.
 
 ## Twelve-case Root verification on 2026-10-02
 

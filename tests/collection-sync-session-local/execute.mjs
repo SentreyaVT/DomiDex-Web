@@ -12,6 +12,7 @@ const { assertTestEnvironment, runChild } = await import(pathToFileURL(path.join
 const { PROJECT, SERIAL, TEST_CLASS, SCENARIOS, ACCOUNTS, validRunId, normalize, validateInstrumentation,
   assertNoInstrumentation, seedFixtures, assertSeed, validatePreflight, validateReadbacks,
   FULL_BUDGET_PARENT, FULL_BUDGET_COLLECTION, FULL_BUDGET_PATHS, isFullBudgetInventoryPath,
+  KNOWLEDGE_PATH, KNOWLEDGE_MISSING_PATH, assertKnowledgeInventoryPath,
   validateServerProof } = await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/contract.mjs')));
 const env = { ...process.env }; delete env.FIREBASE_CONFIG;
 assertTestEnvironment(env); delete process.env.FIREBASE_CONFIG;
@@ -44,12 +45,17 @@ async function databaseSnapshot(scenario) {
   const largeReferences = new Set();
   async function visit(collection, depth) {
     assert.ok(depth <= 4 && collectionPaths.length < 16, 'Unexpected emulator collection tree');
+    if (collection.path === 'scanKnowledge' || collection.path.startsWith('scanKnowledge/')) {
+      assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14], 'No knowledge inventory before its own case');
+      assert.equal(collection.path, 'scanKnowledge', 'No knowledge child collections');
+    }
     if (collection.path.startsWith(`${FULL_BUDGET_PARENT}/`)) {
-      assert.equal(scenario, SCENARIOS[13], 'No paging-owner inventory before its own case');
+      assert.equal(scenario, SCENARIOS[14], 'No paging-owner inventory before its own case');
       assert.equal(collection.path, FULL_BUDGET_COLLECTION, 'No additional large-owner collections');
     }
     collectionPaths.push(collection.path);
     for (const reference of await collection.listDocuments()) {
+      assertKnowledgeInventoryPath(reference.path, scenario);
       if (isFullBudgetInventoryPath(reference.path, scenario)) {
         assert.equal(largeReferences.has(reference.path), false, 'Duplicate large-owner reference');
         largeReferences.add(reference.path);
@@ -65,9 +71,13 @@ async function databaseSnapshot(scenario) {
     }
   }
   for (const collection of await db.listCollections()) await visit(collection, 0);
-  if (scenario === SCENARIOS[13]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+  if (scenario === SCENARIOS[14]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     [FULL_BUDGET_PARENT, ...FULL_BUDGET_PATHS].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     'Only the complete fixed paging-owner inventory may exceed the ordinary reference bound');
+  if (scenario === SCENARIOS[13] || scenario === SCENARIOS[14]) {
+    assert.ok(documentPaths.includes(KNOWLEDGE_PATH), 'Require the exact knowledge seed in the complete inventory');
+    assert.equal((await db.doc(KNOWLEDGE_MISSING_PATH).get()).exists, false, 'The second knowledge fingerprint must remain absent');
+  }
   return { entries: entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
     collectionPaths: collectionPaths.sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     documentPaths: documentPaths.sort((left, right) => left < right ? -1 : left > right ? 1 : 0) };
@@ -88,7 +98,7 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 15); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 16); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
     const scenario = SCENARIOS[index]; const { method } = scenario;
@@ -105,7 +115,9 @@ try {
     // worker may create its final binder after transport is enabled again.
     // Two-client private conflict also starts empty; Android workers alone create
     // initial revision1 and winner revision2. Host never seeds or changes that owner.
-    if (scenario === SCENARIOS[13]) {
+    // Knowledge-listener uses the normal create-only branch below: one complete
+    // aggregate, with lastUpdatedAt supplied by the real emulator server clock.
+    if (scenario === SCENARIOS[14]) {
       // Bounded create-only fixture setup, not an SDK commit/ACK. Only this new
       // owner has 1001 seeds. Every complete payload is independently read back;
       // no existing scenario's seed or execution semantics are changed.
