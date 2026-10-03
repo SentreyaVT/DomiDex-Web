@@ -14,6 +14,10 @@ const { PROJECT, TEST_CLASS, SCENARIOS, ACCOUNTS, validRunId, normalize, validat
   FULL_BUDGET_PARENT, FULL_BUDGET_COLLECTION, FULL_BUDGET_PATHS, isFullBudgetInventoryPath,
   KNOWLEDGE_PATH, KNOWLEDGE_MISSING_PATH, KNOWLEDGE_MALFORMED_PATH, assertKnowledgeInventoryPath,
   validateServerProof } = await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/contract.mjs')));
+const { REVOCATION, REVOCATION_LOCK_PATH, revocationReadyPath, assertRevocationDeviceResult,
+  revocationReadyExists, assertRevocationReadyRead, assertRevocationShellV2, assertRevocationMayCreate,
+  revocationLockFixture, revocationStartIsActive, expectedLockedSnapshot, validateRevocationReceipt } =
+  await import(pathToFileURL(path.join(root, 'tests/collection-sync-session-local/revocation.mjs')));
 const env = { ...process.env }; delete env.FIREBASE_CONFIG;
 assertTestEnvironment(env); delete process.env.FIREBASE_CONFIG;
 const runId = validRunId(env.DOMIDEX_COLLECTION_SESSION_RUN_ID);
@@ -23,7 +27,7 @@ const { initializeApp, applicationDefault, deleteApp } = require('firebase-admin
 const { getAuth } = require('firebase-admin/auth'); const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const app = initializeApp({ projectId: PROJECT, credential: applicationDefault() }, `collection-session-admin-${runId}`);
 const db = getFirestore(app); const auth = getAuth(app);
-const proof = { project: PROJECT, runId, verified: false, phases: [], seeds: [], preflights: [], readbacks: [], accountUnchanged: false, errors: [], readbackErrors: [] };
+const proof = { project: PROJECT, runId, verified: false, phases: [], seeds: [], preflights: [], readbacks: [], revocations: [], accountUnchanged: false, errors: [], readbackErrors: [] };
 function saveProof() { writeFileSync(path.join(directory, 'server-proof.json'), JSON.stringify(proof, null, 2)); }
 async function deviceRead(args) {
   let output = '';
@@ -57,11 +61,11 @@ async function databaseSnapshot(scenario) {
   async function visit(collection, depth) {
     assert.ok(depth <= 4 && collectionPaths.length < 16, 'Unexpected emulator collection tree');
     if (collection.path === 'scanKnowledge' || collection.path.startsWith('scanKnowledge/')) {
-      assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15], 'No knowledge inventory before its own case');
+      assert.ok(scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16], 'No knowledge inventory before its own case');
       assert.equal(collection.path, 'scanKnowledge', 'No knowledge child collections');
     }
     if (collection.path.startsWith(`${FULL_BUDGET_PARENT}/`)) {
-      assert.equal(scenario, SCENARIOS[15], 'No paging-owner inventory before its own case');
+      assert.equal(scenario, SCENARIOS[16], 'No paging-owner inventory before its own case');
       assert.equal(collection.path, FULL_BUDGET_COLLECTION, 'No additional large-owner collections');
     }
     collectionPaths.push(collection.path);
@@ -82,29 +86,158 @@ async function databaseSnapshot(scenario) {
     }
   }
   for (const collection of await db.listCollections()) await visit(collection, 0);
-  if (scenario === SCENARIOS[15]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+  if (scenario === SCENARIOS[16]) assert.deepEqual([...largeReferences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     [FULL_BUDGET_PARENT, ...FULL_BUDGET_PATHS].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     'Only the complete fixed paging-owner inventory may exceed the ordinary reference bound');
-  if (scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15]) {
+  if (scenario === SCENARIOS[13] || scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16]) {
     assert.ok(documentPaths.includes(KNOWLEDGE_PATH), 'Require the exact knowledge seed in the complete inventory');
     assert.equal((await db.doc(KNOWLEDGE_MISSING_PATH).get()).exists, false, 'The second knowledge fingerprint must remain absent');
   }
-  if (scenario === SCENARIOS[14] || scenario === SCENARIOS[15]) {
+  if (scenario === SCENARIOS[14] || scenario === SCENARIOS[15] || scenario === SCENARIOS[16]) {
     assert.ok(documentPaths.includes(KNOWLEDGE_MALFORMED_PATH), 'Require the exact malformed knowledge seed in the complete inventory');
+  }
+  if (scenario === REVOCATION || scenario === SCENARIOS[16]) {
+    assert.ok(documentPaths.includes('scanKnowledge/' + '6'.repeat(64)), 'Exact revocation knowledge seed required');
   }
   return { entries: entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
     collectionPaths: collectionPaths.sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     documentPaths: documentPaths.sort((left, right) => left < right ? -1 : left > right ? 1 : 0) };
 }
-async function android(method) {
+async function revocationAdb(args, timeoutMs = 1500) {
+  assert.equal(profile.id, 'owned-regression-avd', 'New host barrier requires the exact owned5556 profile');
+  let output = ''; let bytes = 0;
+  const result = await runChild(adb, ['-s', profile.serial, ...args], { cwd: directory, env, timeoutMs, onOutput: chunk => {
+      bytes += chunk.length; assert.ok(bytes <= 1024, 'Bounded exact barrier-file read only'); output += String(chunk);
+    } });
+  return { result, output };
+}
+const revocationDevice = (args, timeoutMs) => revocationAdb([
+  'shell', '-T', 'run-as', 'com.dominik.cardvault', '/system/bin/toybox', ...args,
+], timeoutMs);
+async function assertRevocationReadyAbsent() {
+  assertRevocationShellV2(await revocationAdb(['features']));
+  for (const args of [['test', '-d', 'files'], ['test', '-r', 'files']]) {
+    const value = await revocationDevice(args);
+    assert.equal(value.result.code, 0, 'Known readable app-private files directory required');
+    assert.equal(value.output, ''); assertRevocationDeviceResult(value);
+  }
+  const absent = await revocationDevice(['test', '-e', revocationReadyPath(runId)]);
+  assert.equal(revocationReadyExists(absent), false, 'Exact ready file must not exist before launch');
+}
+const revocationTree = async () => ({
+  method: REVOCATION.method, ...await databaseSnapshot(REVOCATION), accounts: await accountsSnapshot(),
+});
+function revocationState() {
+  const receipt = { version: 1, method: REVOCATION.method, runId,
+    ready: null, positiveReadyReads: 0, createAttempts: 0, deleteAttempts: 0,
+    lock: revocationLockFixture(runId), lockWriteTime: null, lockObservedWriteTime: null,
+    deleteCheckedWriteTime: null, beforeCreate: null, afterCreate: null,
+    lockedAndroidReadback: null, afterDelete: null, events: [], errors: [] };
+  proof.revocations.push(receipt); saveProof();
+  return { receipt, writeTime: null, created: false };
+}
+async function beginRevocation(state, preflight, lifecycle) {
+  const receipt = state.receipt; let deadline = null; let lastRead = 'No exact ready file yet';
+  for (;;) {
+    assert.equal(lifecycle.running, true, 'Android ended before the ready barrier');
+    assert.equal(lifecycle.cancelled, false, 'Android stopped before the ready barrier');
+    const active = revocationStartIsActive(lifecycle.output, lifecycle.running);
+    if (active && deadline === null) deadline = performance.now() + 20_000;
+    if (deadline !== null) assert.ok(performance.now() < deadline, 'Ready barrier timed out: ' + lastRead);
+    if (active) {
+      const remaining = () => {
+        assert.ok(performance.now() < deadline, 'Ready barrier timed out');
+        return Math.max(1, Math.min(1500, Math.floor(deadline - performance.now())));
+      };
+      const probe = await revocationDevice(['test', '-e', revocationReadyPath(runId)], remaining());
+      // Only a clean shell-v2 false result means pending. Transport, run-as,
+      // timeout, signal, output-limit and unexpected output fail immediately.
+      const exists = revocationReadyExists(probe);
+      lastRead = exists ? 'Exact ready file exists' : 'Exact ready file absent';
+      if (exists) {
+        const value = await revocationDevice(['base64', '-w', '0', revocationReadyPath(runId)], remaining());
+        receipt.ready = assertRevocationReadyRead(value, runId); receipt.positiveReadyReads++;
+        assert.equal(receipt.positiveReadyReads, 1);
+        receipt.events.push('ready-consumed'); saveProof(); break;
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assertRevocationMayCreate(lifecycle);
+  receipt.beforeCreate = await revocationTree(); saveProof();
+  assert.deepEqual(receipt.beforeCreate, preflight, 'Complete Admin state must be unchanged after ready and before lock');
+  receipt.events.push('before-lock-readback'); saveProof();
+  // A completed invocation cannot start a deferred write after the Admin read.
+  assertRevocationMayCreate(lifecycle);
+  assert.equal(receipt.createAttempts, 0); receipt.createAttempts++; saveProof();
+  const reference = db.doc(REVOCATION_LOCK_PATH);
+  const created = await reference.create(receipt.lock.data);
+  state.created = true; state.writeTime = created.writeTime;
+  receipt.lockWriteTime = normalize(created.writeTime);
+  receipt.events.push('lock-create-succeeded'); saveProof();
+  const observed = await reference.get(); assert.equal(observed.exists, true);
+  assert.deepEqual(normalize(observed.data()), receipt.lock.data);
+  receipt.lockObservedWriteTime = normalize(observed.updateTime); saveProof();
+  assert.deepEqual(receipt.lockObservedWriteTime, receipt.lockWriteTime);
+  receipt.afterCreate = await revocationTree(); saveProof();
+  assert.deepEqual(receipt.afterCreate, expectedLockedSnapshot(preflight, runId));
+  receipt.events.push('after-lock-readback'); saveProof();
+}
+async function finishRevocation(state, preflight) {
+  const receipt = state.receipt;
+  receipt.events.push('android-result-joined'); saveProof();
+  async function attempt(label, work) {
+    try { await work(); }
+    catch (error) { receipt.errors.push({ stage: label, error: error.message }); saveProof(); }
+  }
+  // Attempt independent post-Android capture BEFORE cleanup even on Android FAIL.
+  await attempt('locked-android-readback', async () => {
+    receipt.lockedAndroidReadback = await revocationTree(); saveProof();
+    assert.deepEqual(receipt.lockedAndroidReadback, state.created ? expectedLockedSnapshot(preflight, runId) : preflight);
+    receipt.events.push('locked-android-readback'); saveProof();
+  });
+  if (state.created) await attempt('owned-lock-delete', async () => {
+    const reference = db.doc(REVOCATION_LOCK_PATH); const current = await reference.get();
+    assert.equal(current.exists, true); assert.deepEqual(normalize(current.data()), receipt.lock.data);
+    receipt.deleteCheckedWriteTime = normalize(current.updateTime); saveProof();
+    assert.deepEqual(receipt.deleteCheckedWriteTime, receipt.lockWriteTime);
+    assert.equal(receipt.deleteAttempts, 0); receipt.deleteAttempts++; saveProof();
+    await reference.delete({ lastUpdateTime: state.writeTime });
+    receipt.events.push('owned-lock-delete-succeeded'); saveProof();
+  });
+  await attempt('restored-readback', async () => {
+    receipt.afterDelete = await revocationTree(); saveProof();
+    assert.deepEqual(receipt.afterDelete, preflight);
+    receipt.events.push('restored-readback'); saveProof();
+  });
+}
+async function android(method, preflight) {
   await noInstrumentation(); let output = '';
-  const result = await runChild(adb, ['-s', profile.serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', `${TEST_CLASS}#${method}`,
+  const isRevocation = method === REVOCATION.method;
+  if (isRevocation) await assertRevocationReadyAbsent();
+  const state = isRevocation ? revocationState() : null;
+  const lifecycle = { running: true, cancelled: false, output: '' };
+  const execution = runChild(adb, ['-s', profile.serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', TEST_CLASS + '#' + method,
     '-e', 'domidexCollectionSessionProof', 'demo-loopback-only', '-e', 'domidexCollectionSessionRunId', runId,
     'com.dominik.cardvault.test/androidx.test.runner.AndroidJUnitRunner'], {
-    cwd: directory, env, timeoutMs: 180_000, onOutput: chunk => {
-      output += String(chunk); appendFileSync(path.join(directory, `${method}.log`), chunk); process.stdout.write(chunk);
-    } });
-  if (result.code !== 0) throw Error(`Android collection session failed: ${method} (${result.stopped ?? result.error ?? result.code})`);
+    cwd: directory, env, timeoutMs: 180_000,
+    ...(isRevocation ? { onStop: () => { lifecycle.cancelled = true; } } : {}),
+    onOutput: chunk => {
+      output += String(chunk); lifecycle.output = output;
+      appendFileSync(path.join(directory, method + '.log'), chunk); process.stdout.write(chunk);
+    } }).then(result => { lifecycle.running = false; return result; },
+      error => { lifecycle.running = false; throw error; });
+  // Catch immediately, then join: no unhandled or detached barrier promise.
+  const barrier = state ? beginRevocation(state, preflight, lifecycle).catch(error => {
+    state.receipt.errors.push({ stage: 'barrier', error: error.message }); saveProof();
+  }) : null;
+  let result;
+  try { result = await execution; }
+  finally {
+    if (state) { await barrier; await finishRevocation(state, preflight); }
+  }
+  if (state) validateRevocationReceipt(state.receipt, runId, preflight, state.receipt.afterDelete);
+  if (result.code !== 0) throw Error('Android collection session failed: ' + method + ' (' + (result.stopped ?? result.error ?? result.code) + ')');
   return validateInstrumentation(output, method);
 }
 try {
@@ -112,7 +245,7 @@ try {
   assert.deepEqual(await accountsSnapshot(), [], 'Require fresh empty Auth emulator');
   assert.deepEqual(await databaseSnapshot(), { entries: [], collectionPaths: [], documentPaths: [] }, 'Require fresh empty Firestore emulator');
   const imported = await auth.importUsers(ACCOUNTS);
-  assert.equal(imported.successCount, 17); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
+  assert.equal(imported.successCount, 18); assert.equal(imported.failureCount, 0); assert.deepEqual(imported.errors, []);
   assert.deepEqual(await accountsSnapshot(), ACCOUNTS);
   for (let index = 0; index < SCENARIOS.length; index++) {
     const scenario = SCENARIOS[index]; const { method } = scenario;
@@ -134,7 +267,7 @@ try {
     // Knowledge-malformed also gets exactly one create-only Admin seed. Its sole
     // schema violation is knowledgeVersion string "1"; Android's real listener
     // must decode/reject it. Admin preserves the exact malformed payload.
-    if (scenario === SCENARIOS[15]) {
+    if (scenario === SCENARIOS[16]) {
       // Bounded create-only fixture setup, not an SDK commit/ACK. Only this new
       // owner has 1001 seeds. Every complete payload is independently read back;
       // no existing scenario's seed or execution semantics are changed.
@@ -165,7 +298,7 @@ try {
     // Full preflight rejects unexpected roots/access docs, earlier-owner changes,
     // and a prematurely existing late parent before any Android call can begin.
     validatePreflight(preflight, index, runId, proof.readbacks[index - 1], currentSeeds);
-    try { proof.phases.push(await android(method)); }
+    try { proof.phases.push(await android(method, preflight)); }
     catch (error) { proof.errors.push({ method, error: error.message }); process.exitCode = 1; console.error(error); }
     // Always retain independent readback after a failed assertion too. A real remote
     // commit followed by a forbidden local ACK is RED, never a server-write success.

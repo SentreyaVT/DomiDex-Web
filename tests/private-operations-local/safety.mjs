@@ -135,7 +135,7 @@ export function assertTestEnvironment(env, suite = 'private-operations') {
   }
 }
 
-export function runChild(command, args, { cwd, env, timeoutMs, onOutput = () => {} }) {
+export function runChild(command, args, { cwd, env, timeoutMs, onOutput = () => {}, onStop = () => {} }) {
   return new Promise((resolve) => {
     let stopped = null;
     let settled = false;
@@ -145,6 +145,8 @@ export function runChild(command, args, { cwd, env, timeoutMs, onOutput = () => 
     function stop(reason) {
       if (settled || stopped) return;
       stopped = reason;
+      // Optional synchronous observer; it cannot prevent actual termination.
+      try { onStop(reason); } catch { /* Preserve stop/settlement even if the observer throws. */ }
       // Only our still-running, directly spawned PID/tree; never kill by port/name.
       if (child.pid && child.exitCode === null && child.signalCode === null) {
         if (process.platform === 'win32') {

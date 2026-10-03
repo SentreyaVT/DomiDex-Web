@@ -1,6 +1,24 @@
 # Collection/private-worker session proof — local only
 
-Current sixteen-case checkpoint: Root independently passes **16/16**, 2026-10-03,
+Current source registry: seventeen cases. The added live-listener revocation case
+remains runtime RED;16/17 pass, and the overall gate is not closed. The independently
+verified sixteen-case checkpoint below retains its original inputs and is not
+relabelled as seventeen-case evidence.
+
+Latest diagnostic run `outputs/collection-sync-session-local/`
+`2026-10-03T15-26-22-772Z-96672a3985a449928db77db74f57fb57/` retains the original
+30s denial requirement and fails31.636s. A separate existing CONTROL knowledge
+document returns actual SDK PERMISSION_DENIED under the lock, whereas the original
+target6 stays ADD1/CURRENT/ready/denied0 before/after that control with identical
+Auth epoch1 and subject/control owner. This is fresh-authorization versus existing
+listener behavior in this local setup, not a proven emulator-internal cause.
+The local-preservation success tail is not reached. All38 full Admin snapshots,
+eighteen accounts, exact one-lock barrier/update-time CAS restoration, frozen172
+inputs and final resource guards pass. Final1001 case17.338s. App SHA5158a655…,
+test8fd0f5b5… match Root's separate exact installed-file receipt. No Rules, claims
+or product workaround; no control read substitutes for the missing original denial.
+
+Historical sixteen-case checkpoint: Root independently passes **16/16**, 2026-10-03,
 162.627s total harness, malformed case1.550s/final1001 case18.941s. All16 complete
 Admin preflights/readbacks and17 accounts, exact earlier owners, source hashes,
 fixture cleanup, AVD/offline identity, free ports, empty reverses and inactive
@@ -58,15 +76,15 @@ This reuses the existing launcher, actual named Google SDK clients, isolated Roo
 After Root-owned APK preparation, from the Web project:
 
 ```powershell
-node --test tests/collection-sync-session-local/validation.test.mjs
+node --test tests/collection-sync-session-local/validation.test.mjs tests/collection-sync-session-local/revocation-stop.test.mjs
 node tests/collection-sync-session-local/run.mjs --android-root C:/Users/Dominik/AndroidStudioProjects/CardVault --owned-regression-avd
 ```
 
 Allowed preinstalled path overrides are `--firebase-cli`, `--java-home`, `--emulator-cache`. The sole device option is the fixed boolean `--owned-regression-avd` profile above. Project, ports, account list, method registry and run-ID shape are fixed. New run IDs are lowercase 32-hex. Pure validator tests are not SDK evidence.
 
-## Exact fixtures and sixteen methods
+## Exact fixtures and seventeen methods
 
-Host requires entirely empty Auth/Firestore emulators. It imports exactly seventeen nominal Google users: the sixteen `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
+Host requires entirely empty Auth/Firestore emulators. It imports exactly eighteen nominal Google users: the seventeen `SCENARIOS` owners in `contract.mjs` plus `sdk-proof-collection-other`. Each uses `<uid>@example.invalid`, verified email, Google provider UID `<uid>-google`, and only `{appAccess:true}`. No account-access override or admin claim.
 
 Class remains `com.dominik.cardvault.data.sync.CollectionSyncSessionSdkInstrumentedTest`. Existing arguments remain `domidexCollectionSessionProof=demo-loopback-only` and `domidexCollectionSessionRunId=<32hex>`.
 
@@ -144,7 +162,7 @@ whole-case 120s; timeouts are never converted into passing retry evidence.
 
 ## Independent complete-tree evidence
 
-Before **every** method, Admin captures the complete bounded database tree plus all seventeen Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents. Only the final 1001-binder scenario has the exact-path inventory exception described below. Both knowledge documents consume ordinary references; the generic limits remain sixteen collections and thirty-two ordinary references.
+Before **every** method, Admin captures the complete bounded database tree plus all eighteen Auth accounts. For seeded methods it first uses create-only writes, reads back and validates each exact fixture, then records the complete preflight. No filter drops unknown documents. Only the final 1001-binder scenario has the exact-path inventory exception described below. All three knowledge documents consume ordinary references; the generic limits remain sixteen collections and thirty-two ordinary references.
 
 Each preflight must equal the previous method's complete final state plus exactly this method's allowed seeds. Healthy/stale remain unseeded; missing remains absent. Pending-overlay must still be revision1. Late-parent must have exactly two binders/one placement and **no Collection parent**. Earlier owners, exact fields/timestamps and accounts must remain unchanged.
 
@@ -154,9 +172,9 @@ Raw preflights/readbacks are saved before validation. A server commit alone, inc
 
 ## Fail-closed completion, scope and cleanup
 
-- Exactly sixteen START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
+- Exactly seventeen START/PASS pairs, each `numtests=1`, `OK (1 test)` and one final instrumentation code; duplicate/skip/assumption/missing/partial/failure status fails.
 - Each host invocation retains its 180-second bound and the unchanged launcher keeps an overall 18-minute budget. A slow case can exhaust the total budget; no timeout is converted to success.
-- Existing `run.mjs` changes only its descriptive cleanup scope: it still hashes the entire product Kotlin source set (including the new scheduling seam), the existing SDK class/gate, APK inputs and all five host files (including this README). No manifest list entry is needed.
+- The launcher still hashes the entire product Kotlin source set (including the scheduling seam), the SDK class/gate and APK inputs. Its explicit host input list now includes the revocation helper and controlled-child test alongside the existing files, including this README; shared safety.mjs was already frozen.
 - Original Android bounds: setup60s / test120s / Task20s / held-gate15s. Late-parent adds 45s per real worker pass and control queries limit8. Actual product FULL queries retain limit200 / logical budget1000. This small fixture does not instrument total RPC/read billing or establish scale.
 - Android attempts every owned-resource cleanup: gate cancellation/restoration, named Firestore termination, named Auth sign-out/app deletion and Room close. File-backed cases verify the exact run/owner/UUID marker before deleting only their owned fixture and SQLite sidecars. PASS includes successful teardown. RED alone does not independently prove cleanup.
 - Host checks instrumentation idle before/after cases/exit. It never starts a case over uncertain live instrumentation, force-stops packages on timeout, resets a shared emulator or deletes user databases.
@@ -185,7 +203,9 @@ not evidence that a later build or environment passed.
     in. No explicit observation close can supply that null assertion.
 15. `malformedKnowledgeListenerRemovesOnlyExactCacheAndPreservesLocalState` is the
     additional negative listener case described below; locally verified above.
-16. `largePrivateFullPullContinuesAfterBudgetAndRoomReopen` remains the final
+16. `knowledgeListenerPermissionDeniedInvalidatesHintAndPreservesLocalState` is the
+    additional runtime-unverified revocation case described below.
+17. `largePrivateFullPullContinuesAfterBudgetAndRoomReopen` remains the final
     1001-binder case, with unchanged worker semantics and exact inventory exception.
 
 The knowledge case owns a run/UUID directory and a uniquely named real preference
@@ -453,3 +473,70 @@ The existing Node loopback guard does not instrument Java/native code or the OS
 and is not a security sandbox; exact emulator endpoints and Android offline checks
 must not be described as host-wide no-egress proof. This case makes no transport
 failure, revoked-access, late-callback, physical-device or production claim.
+
+## Live listener revocation addition (real runtime RED, 2026-10-03)
+
+The actual owned5556 run `2026-10-03T14-59-03-323Z-e748b8810d2d4b25bc5ed0453cb5f2ee`
+passes all sixteen existing methods but FAILS the new method: no real SDK denial
+arrived within its unchanged30-second window. Unlike the preceding transport-only
+failure, this run successfully consumed exactly one ready marker, created exactly
+one lock, retained all four complete intermediate Admin snapshots and deleted only
+that exact lock with its original write-time precondition. All eight receipt events
+and the restored tree pass; that does NOT convert the missing Android denial to PASS.
+Inputs, eighteen accounts and earlier owners stay unchanged; offline/no-reverse,
+inactive instrumentation and free ports are confirmed afterward. Emulator-dependent
+rule reevaluation versus product behavior requires further diagnosis. No production
+behavior or complete Gate9 success is claimed, and no timeout/parser was relaxed.
+
+Earlier RED `2026-10-03T14-45-20-685Z-6a9a01eb63104d4c81eb22e018f4e9f3` never created
+a lock: Windows adb translated the raw marker LF to CRLF. The narrow transport fix
+uses `toybox base64 -w 0` over shell-v2 and compares its output to the exact canonical
+encoding of the original LF bytes. It never trims, permissively decodes or accepts
+CRLF inside the file. All63 host/stop/safety tests pass (0skips), including malformed
+encodings and unchanged strict original-marker validation. Evidence is retained in
+`outputs/collection-sync-session-local/base64-host-validation-20261003.tap`.
+
+The new synthetic owner is `sdk-proof-collection-knowledge-revoked`. Admin seeds
+exactly `scanKnowledge/` plus 64 sixes with the full fresh positive record. Android
+must first observe the actual adapter's SERVER hint and exact cache replacement,
+then a second real listener on the same subject document confirms the snapshot.
+A passive transport audit requires their single original call/target identity.
+
+Only after that readiness does Android atomically publish its exact run-owned
+`ready.txt`. The host reads only that file through the fixed owned5556 profile,
+requires the sole live START status and recaptures the entire Admin tree/accounts.
+It then creates exactly `accountDeletionLocks/<owner>` with the run-owned `jobId`.
+Rules, claims, Auth identity and the knowledge record remain unchanged. No extra
+instrumentation status is accepted and the original result parser is unchanged.
+
+Android must observe all three: genuine remote target REMOVE with cause7, the
+real SDK `PERMISSION_DENIED` callback, and adapter null with the same signed-in
+owner and unchanged Auth epoch. The wire denial must already be observed when null
+is published. Explicit close, sign-out, timeout and early entitlement failure
+cannot supply success. The positive cache, nonempty synthetic evidence/receipts,
+isolated preferences and local Room snapshot remain unchanged.
+
+The host retains complete Admin snapshots before creating the lock, after its
+creation, after Android finishes while still locked, and after scoped cleanup.
+It deletes only its exact unchanged payload and original write timestamp using
+a `lastUpdateTime` precondition. The normal per-case readback is the restored tree;
+an additional mandatory barrier receipt retains the locked post-Android evidence.
+A cleaned tree or Android PASS without that receipt cannot pass the whole proof.
+
+The temporary lock phase has16 collections/27 references/18 documents. After its
+removal the final1001 case ends at16 collections/1028 references (26ordinary) and
+1018 existing documents. Existing16/32 bounds and the exact-final-only paging
+exception remain. All sixteen prior methods keep their original semantics.
+
+The exact file probes require advertised shell_v2 and use shell -T without -x,
+so a clean test exit1 alone means pending. Every other probe/read error fails
+immediately; marker bytes are never trimmed or normalized. The byte-exact no-wrap
+Base64 transport avoids Windows adb stdout newline conversion. A synchronous child-stop observer
+revokes permission for a new lock create before termination begins, including
+signal, timeout and output failures. Exact owned-lock cleanup remains allowed.
+
+Readiness has a20-second bound after exact START; each marker read is bounded to
+1500ms and1024bytes. The full method and harness retain180seconds/18minutes. No
+timeout becomes success. The retained RED leaves emulator dependency reevaluation
+unproved; the single original SDK target is observed before readiness. It does not establish
+production behavior, physical multi-device behavior, or host-wide no-egress.
