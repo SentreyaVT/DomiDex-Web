@@ -1,6 +1,7 @@
 // Explicit unit-test groups only. Never execute or expand package-script shell text.
 export const unitGroups = ['test', 'test:rate-limits', 'test:app-check', 'test:owner-snapshots'];
 const extraFiles = [
+  'tests/deployment-paths.test.ts',
   'tests/admin-body-limits.test.mjs',
   'tests/cardmarket-root-identity.test.ts',
   'tests/collection-prices-incremental.test.ts',

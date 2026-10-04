@@ -1,5 +1,7 @@
 FROM node:22-bookworm-slim AS dependencies
-WORKDIR /app
+# Keep the build root distinct from the App Router's app/ directory. With /app,
+# Vite can resolve /app/app/layout.tsx as app/app/layout.tsx instead of the root layout.
+WORKDIR /srv/domidex
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 
@@ -22,9 +24,9 @@ ENV FIREBASE_ADMIN_PROJECT_ID=cardvault-715ac
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY --from=builder --chown=node:node /app/dist/standalone ./
+COPY --from=builder --chown=node:node /srv/domidex/dist/standalone ./
 COPY --from=private-dependencies --chown=node:node /private/node_modules ./backend/security/node_modules
-COPY --from=builder --chown=node:node /app/.env.production.local ./.env.production.local
+COPY --from=builder --chown=node:node /srv/domidex/.env.production.local ./.env.production.local
 USER node
 EXPOSE 8080
 CMD ["node", "--env-file=.env.production.local", "server.js"]

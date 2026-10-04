@@ -6,7 +6,8 @@ const scripts = () => Object.fromEntries(unitGroups.map((name) => [name,
   'vitest run --config vitest.config.ts tests/safe.test.ts tests/other.test.tsx']));
 await test('unit selection deduplicates groups and includes the targeted regression suites', () => {
   const result = unitFiles(scripts());
-  assert.equal(result.length, 21);
+  assert.equal(result.length, 22);
+  assert.ok(result.includes('tests/deployment-paths.test.ts'));
   assert.ok(result.includes('tests/collection-prices-incremental.test.ts'));
   assert.ok(result.includes('tests/account-deletion-session.test.tsx'));
   assert.ok(result.includes('tests/shared-binder-price-parity.test.mjs'));

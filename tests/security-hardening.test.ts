@@ -3,8 +3,25 @@ import { describe, expect, it } from 'vitest';
 import { securityHeaders } from '@/lib/security-headers';
 import { createScannerDraft } from '@/lib/scanner-profile';
 import { profileHistoryReducer } from '@/lib/scanner-profile-history';
+import nextConfig from '../next.config';
+import { matchHeaders, requestContextFromRequest } from '../node_modules/vinext/dist/config/config-matchers.js';
 
 describe('release security contract', () => {
+  it('applies configured security headers to the root and non-root routes with the installed production matcher', async () => {
+    const rules = (await nextConfig.headers!()).map((rule) => {
+      expect(rule.has).toBeUndefined();
+      expect(rule.missing).toBeUndefined();
+      return { source: rule.source, headers: rule.headers, basePath: rule.basePath };
+    });
+    for (const route of ['/', '/app', '/datenschutz', '/api/binder-shares']) {
+      const context = requestContextFromRequest(new Request(`https://domidex.web.app${route}`));
+      const matched = Object.fromEntries(matchHeaders(route, rules, context).map(({ key, value }) => [key, value]));
+      expect(matched['X-Content-Type-Options'], route).toBe('nosniff');
+      expect(matched['X-Frame-Options'], route).toBe('DENY');
+      expect(matched['Content-Security-Policy'], route).toContain("frame-ancestors 'none'");
+      expect(matched['Cross-Origin-Opener-Policy'], route).toBe('same-origin-allow-popups');
+    }
+  });
   it('uses identical Android and Web rules so a deployment cannot erase the other platform contract', () => {
     for (const file of ['firestore.rules', 'storage.rules']) {
       expect(readFileSync(file, 'utf8').replaceAll('\r\n', '\n')).toBe(readFileSync(`../CardVault/${file}`, 'utf8').replaceAll('\r\n', '\n'));
