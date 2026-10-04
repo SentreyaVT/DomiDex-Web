@@ -4,6 +4,29 @@ Stand: 04.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
+### Neuer offener Live-Befund und GitHub-Übergabe — 04.10.2026, nach 22:32
+
+Ein Sprung ans Ende der angemeldeten Web-Sammlung löste um22:32:11 Europe/Berlin
+React185 (Maximum update depth) aus. Der Produktionsstack zeigt auf
+`WindowedCollectionGrid` und dessen synchrones `setMetrics` im LayoutEffect:
+Das Maximum nur sichtbarer Kartenhöhen kann Fensterstart und anschließend das
+gemessene Maximum erneut ändern. Fix und Regression stehen noch aus. Die frühere
+1.299-Test-Regression verwendete konstante Geometrie und deckte diesen Fall nicht ab.
+Die früheren PASS-Nachweise bleiben erhalten, sind aber keine Crash-Freiheitsgarantie.
+
+GitHub-Entwickler verwenden `codex/release-27-hardening`; der zuletzt vor dieser
+Dokukorrektur remote bestätigte Stand ist `77b37a1`. Standardbranch-Portal und
+Android-Binärarchiv dienen der Übergabe, nicht einem erneuten Deployment.
+Web-PR1 wurde am04.10. um22:47 in `main` gemergt (`eb75501`), ausschließlich README.
+Android-PR1 aktualisiert entsprechend dessen Standard-README (`b2e41ee`). Der
+ältere Default-Produktcode bleibt unangetastet; die Portale nennen ausdrücklich
+den Engineeringbranch. Das vorhandene signierte R27-AAB ist im
+[GitHub-Archiv](https://github.com/nandedomi/DomiDex/releases/tag/archive/v27-1.0-closed-alpha.6) samt exaktem Mapping,
+partiellen Symbolen, Prüfsummen und Lizenzhinweisen archiviert. Kein Neubau.
+Die drei lokal ergänzten Operator-Testfälle sind noch nicht ausgeführt und werden in diesem
+Dokumentations-Push nicht mit aufgenommen. Zwei nicht auflösbare private
+Binder-Verknüpfungen bleiben gesondert offen; es ist kein Bild404 nachgewiesen.
+
 ### Aktueller Stand: ausdrücklich freigegebenes Web-Deployment vom 04.10.2026
 
 Web und Backend sind seit 21:47:30 Europe/Berlin unter Hosting-Version
