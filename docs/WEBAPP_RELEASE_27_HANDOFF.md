@@ -1,8 +1,53 @@
 # Web-App: Übergabe für Release 27
 
-Stand: 02.10.2026. Dieses Dokument gehört ausschließlich zum separaten Repository
+Stand: 04.10.2026. Dieses Dokument gehört ausschließlich zum separaten Repository
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
+
+### Aktueller Stand: ausdrücklich freigegebenes Web-Deployment vom 04.10.2026
+
+Web und Backend sind seit 21:47:30 Europe/Berlin unter Hosting-Version
+`334fdfd6961039a1` live, gebunden an Tag/Revision `domidex-web-r27-20261004d`.
+Image-Digest: `sha256:4ac5de98703c567cef2ec07fdad1c77f60a1654849965a6dc25eff61cf9af4e8`.
+Firebase-Regeln wurden veröffentlicht und bytegleich zurückgelesen. Functions,
+IAM, Testerrechte und Geräte wurden dabei nicht geändert. Die folgenden älteren
+„nicht deployed“-Aussagen sind historische Zwischenstände, keine aktuelle Aussage.
+
+Der tatsächliche Rootlayout-/Startseitenfehler im Container wurde reproduziert:
+Build-WORKDIR `/app` kollidierte mit absoluten App-Router-Imports. Builder und
+abhängige COPY-Quellen nutzen nun `/srv/domidex`; Runtime bleibt `/app`.
+Ein eigener Gegenbeispieltest bewahrt die alte Kollision. Außerdem braucht der
+installierte vinext-Header-Matcher einen expliziten `/`-Eintrag. Die erste
+ineffektive CSS-Brücke wurde verworfen, nicht mit veröffentlicht. Alle 309
+Produktionsinputs des finalen Stages wurden erneut mit dem Checkout abgeglichen.
+Ungeprüftes `backend/market-data` ist ausdrücklich ausgeschlossen.
+
+Nachweise: Candidate und Live jeweils45/45 HTTP-/Header-/Asset-/Auth-Prüfungen;
+zusätzliche Browserkontrolle bestätigt das tatsächliche Design, angemeldete
+Sammlung, verbundene Synchronisierung, private Binder und Freigaben. Erneute
+isolierte Web-Regression: **1.299/1.299 in79 Dateien**,24,45s, keine Fehler/Skips,
+`outputs/release-local/2026-10-04T20-07-35-687Z-21596.{json,log}`. Typecheck bestanden;
+vorhandene React-act-/Canvas-Warnungen bleiben sichtbar.
+
+Git-Abschlussprüfung: zusätzliche92 SDK-Hostkontrollen plus10 Selection-Tests
+bestanden erneut102/102,10,035s. Scoped Oxlint der aufgenommenen Produkt-/Testdateien
+ist bestanden. Neue Proof-Helper benötigten lediglich explizites `await test(...)`
+und UTF-16-Stringkomparatoren; keine Assertion/Frist wurde abgeschwächt. Dies ist
+kein neuer Android-Emulatorlauf und ersetzt keinen früheren fehlgeschlagenen
+SDK-Beleg. Der ungeprüfte Rest des Workspaces bleibt außerhalb dieses Lint-PASS.
+
+Frische Löschaufträge erhalten die minimale deaktivierte `accountAccess`-Sperre
+bis zum bestehenden Ablaufzeitpunkt. Echte lokale Backend-Regression36/36 und der
+separate Android-Session-/Consumer-Löschworkflow1/1 sind bestanden. Alte Jobs ohne
+dieses Dokument werden nicht automatisch repariert. Der ursprüngliche
+Lock-only-Listenerfall bleibt ausdrücklich **17/18 Gesamt-SDK-RED**; sein
+unverändertes30s-Ziel ist nicht durch einen anderen Test ersetzt worden.
+
+Die unveränderte signierte Android27-AAB ist seit21:54 im geschlossenen Alpha-Test
+verfügbar. Das ist keine pauschale technische Gesamtfreigabe. Hardware-/Mehrgeräte-,
+Last-/Betriebs-/Datenschutz-Nachweise und sechs fehlende Originalsymbole bleiben
+offen. Full-Sync bleibt aktiv, Delta deaktiviert. Die spätere Git-Sicherung
+veröffentlicht weder einen neuen App-Build noch eine neue Web-Version.
 
 ### R27-Entscheidung: vollständigen Sync beibehalten (02.10.2026)
 
