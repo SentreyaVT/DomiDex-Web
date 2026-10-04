@@ -4,6 +4,50 @@ Stand: 04.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
+### Lokaler Web-Crash-Fix und Datenschutz-Nachweise — 04.10.2026, 23:16
+
+Der unten beschriebene Live-Fehler wurde lokal exakt reproduziert: wechselnde
+Maximalhöhen der sichtbaren Karten ändern das virtuelle Fenster und wechseln dann
+wieder zurück. Neuer Regressionstest zunächst **1.299 PASS / 1 FAIL** mit derselben
+Maximum-update-depth-Schleife, Beleg
+`outputs/release-local/2026-10-04T20-55-25-131Z-9108.{json,log}`.
+
+Die Höhe bleibt nun pro Spalten-/Breiten-/Abstandsgeometrie monoton abgesichert;
+bei Breitenwechsel wird erst nach Commit der neuen Kachelbreite neu gemessen.
+Alle gerenderten Kacheln werden beobachtet. Tastaturziele einschließlich ihrer
+Nachbarn werden vor dem Scroll vermessen, wiederholtes End/Home erhält eine eigene
+Anforderung. Die virtuelle Darstellung bleibt auf sichtbares und Fokusfenster
+begrenzt. Filter, exakte Kartenidentität, Preise, Listener und Sync bleiben unverändert.
+Kürzer gewordener Text kann bei unveränderter Geometrie mehr Leerraum hinterlassen.
+
+Der zusätzliche reale Browserfall mit einer erst am Listenende höheren Nachbarkarte
+war zunächst ebenfalls rot (Ziel außerhalb des Viewports) und ist nach gezielter
+Korrektur grün. Finale isolierte Regression **1.306/1.306 in79 Dateien**,23,13s,
+keine Fehler/Skips;13 Fälle direkt für die Sammlung. Typecheck und fokussierter
+Oxlint bestehen. Beleg`outputs/release-local/2026-10-04T21-13-27-372Z-23092.{json,log}`.
+Bestehende React-act-/Canvas-Warnungen sind unverändert sichtbar.
+[Reproduzierbare Browserfixture](../tests/collection-grid-browser/README.md): echte
+Produktkomponente/CSS, minifizierter Build,351/10.000 künstliche Einträge,
+1280×720 und390×844, End/Home, lange Preise, Filter/Leerliste/Sortierung;
+keine Kartenüberlappung und keine Browserfehler in diesen geprüften Fällen.
+Keine angemeldete Firebase-/Liveprüfung und kein vollständiger Produktionsbuild.
+
+Die zuvor ungetesteten drei Operatorfälle sind jetzt enthalten und bestanden:
+**39/39 echte lokale Auth-/Firestore-/Storage-Fälle**,0skip, Exit0, unveränderte
+Inputs, Ports vorher/nachher frei. Nachweis
+`outputs/private-operations-local/2026-10-04T20-55-49-732Z-1c8432ed/manifest.json`;
+Starter-Sicherheit zusätzlich17/17. Gespeicherte historische Zeitanker sind eine
+explizite Fixture, keine tatsächlich abgewartete65-Minuten-Frist. Neue benannte
+SDK-Instanz ist kein Betriebssystem-Neustart; Serviceaufrufe ersetzen keine
+HTTP-/Alt-Token-/Provider-Purge-Prüfung. [Details](../tests/private-operations-local/README.md).
+
+**Noch nicht produktiv veröffentlicht.** Das aktive Web-Deployment, Android-AAB,
+Signing, Play, Rules und Geräte bleiben unverändert. Der ursprüngliche17/18-SDK-RED,
+zwei Binder-Verknüpfungen, Hardware/Mehrgeräte/WorkManager, operative Datenschutz-
+und Live-/Lastnachweise sowie Hersteller-Symbole werden dadurch nicht geschlossen.
+Full-Sync bleibt aktiv, Delta deaktiviert. Die folgenden Abschnitte sind historische
+Checkpoints; „Fix noch ausstehend“ bezieht sich dort auf den damaligen Stand.
+
 ### Neuer offener Live-Befund und GitHub-Übergabe — 04.10.2026, nach 22:32
 
 Ein Sprung ans Ende der angemeldeten Web-Sammlung löste um22:32:11 Europe/Berlin

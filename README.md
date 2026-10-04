@@ -40,9 +40,10 @@ Server stammen aus demselben geprüften Image; Details und Belegpfade im Handoff
 ## Bekannte Grenzen und nächster Debugging-Einstieg
 
 - **Offener Livefehler, 04.10.2026, 22:32 Europe/Berlin:** Beim Scrollen bis zum
-  Ende der Sammlung wurde React-Fehler **185** beobachtet. Ursache und Korrektur
-  sind nicht abgeschlossen; frühere erfolgreiche Smokechecks widerlegen diesen
-  späteren Befund nicht.
+  Ende der Sammlung wurde React-Fehler **185** beobachtet. Ursache ist lokal
+  reproduziert und korrigiert, **noch nicht deployed**. Variierende Kachelhöhen,
+  Zielfenster-Nachbarn und wiederholte Tastaturaktionen sind jetzt abgesichert;
+  frühere Smokechecks widerlegen den ursprünglichen Livebefund nicht.
 - Private Binderpositionen **6/7** zeigten bereits vor dem Deployment nicht
   verfügbare Eintragsreferenzen. Die genaue Ursache bleibt offen; das ist kein
   belegter Bild-404 und darf nicht durch geratenes Umhängen von Karten behoben werden.
@@ -54,13 +55,15 @@ Server stammen aus demselben geprüften Image; Details und Belegpfade im Handoff
   Web-Artefakt und werden durch diese Übergabe nicht nachgeliefert.
 
 Zuletzt bestanden Typecheck und die isolierte Web-Regression mit
-**1.299/1.299 Tests in 79 Dateien**, ohne Fehler/Skips
-(`outputs/release-local/2026-10-04T20-07-35-687Z-21596.{json,log}`).
+**1.306/1.306 Tests in 79 Dateien**, ohne Fehler/Skips
+(`outputs/release-local/2026-10-04T21-13-27-372Z-23092.{json,log}`).
 React-act-/JSDOM-Canvas-Warnungen bleiben sichtbar. Scoped Lint ist kein pauschales
 Whole-Workspace-PASS: experimentelles `backend/market-data` wurde weder deployed
-noch in diesen GitHub-Stand aufgenommen. Die lokal vorbereiteten drei zusätzlichen
-Operatorfälle (Private-Operations 36 → 39) sind noch nicht ausgeführt und gehören
-nicht zum gesicherten 77b37a1-Stand oder dessen bestandenen Nachweisen.
+noch in diesen GitHub-Stand aufgenommen. Die drei zusätzlichen Operatorfälle sind
+nun Teil der **39/39** bestandenen lokalen Private-Operations-Tests; der frühere
+36er-Nachweis wird dadurch nicht rückwirkend erweitert. Die minifizierte
+[Browserfixture](tests/collection-grid-browser/README.md) prüft den Sammlung-Fix
+mit künstlichen Daten und ersetzt keine Live-/Firebase-Abnahme.
 
 ## Enthalten
 
