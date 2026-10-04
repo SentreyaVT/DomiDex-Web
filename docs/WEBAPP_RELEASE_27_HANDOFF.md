@@ -4,7 +4,61 @@ Stand: 04.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
-### Lokaler Web-Crash-Fix und Datenschutz-Nachweise — 04.10.2026, 23:16
+### Aktueller Stand: Grid-Hotfix veröffentlicht und Legacy-SDK-RED — 04.10.2026, nach 23:46
+
+Der ausdrücklich freigegebene Grid-Hotfix ist seit **23:42:33 Europe/Berlin** live
+(`2026-10-04T21:42:33.948Z`): Hosting `5719d197695f2e1c`, Tag `r27-20261004e`,
+Cloud-Run-Revision `domidex-web-r27-20261004e`, Image-Digest
+`sha256:eda5084e7d99600b282c6e3580c000aeec7017f5321792d381d094bda7015f8b`.
+Buildquelle ist der eingefrorene Commit `39742dd9a3aba5eacf7126d4c7248c295cc0a661`.
+Von 309 Produktionsdateien weicht gegenüber dem vorherigen Deployment genau eine ab:
+`components/windowed-collection-grid.tsx`, SHA256
+`671fa7e9140e862cf685a54d631b3da431aa168e2c207aafd99ccb6f51b14863`.
+Neue Agent-/Hosttests und experimentelles `backend/market-data` sind nicht enthalten.
+
+Client und Server wurden aus genau diesem Image extrahiert: 158 Clientdateien und
+139 Serverdateien, mit vollständig geprüften Archivpfaden/Bytes und unveränderten
+309 Quellen/311 Kontextdateien. Kandidat und Live bestanden jeweils **45/45**
+HTTP-/Header-/Asset-/Auth-Smokeprüfungen. Konsistente Metadatenreads vor/nach belegen
+gleiche Runtime-Konfiguration, IAM und prozentuale Default-Traffic-Zuweisung;
+Hosting wurde auf den neuen Tag/Revisions-Pin umgestellt. Rules und Functions
+wurden nicht geändert. Die unveränderte prozentuale Cloud-Run-Zuweisung ist nicht
+mit der gesonderten, jetzt neuen Hosting-Tagroute gleichzusetzen.
+
+Belege im benachbarten Android-Checkout:
+`artifacts/r27-grid-hotfix-20261004/{after,client-extraction,server-extraction,candidate-smoke,live-smoke}.json`.
+Das ist keine Last-, globale Verfügbarkeits- oder vollständige Browserprüfung.
+Die zusätzliche angemeldete Root-Livekontrolle beobachtete 348 eindeutige Einträge/
+351 Kopien, End/Home auf Desktop 1280×720 und Mobil 390×844, Zielindex 347 sichtbar,
+keine Kartenüberlappung und keine erfassten Browserfehler. Die abschließende
+`browser-live.json` liegt dort mit drei Screenshots; SHA256 der Receipt:
+`f40839086b7693bed4e7eeb69ad092f50254abf0fd49b2077a2dd7b1adac7fee`.
+Suchfilter und temporäre Viewport-Vorgabe sind zurückgesetzt.
+Eine pauschale Crash-Freiheit wird nicht behauptet.
+Die unten belegten 1306 lokalen Tests und 39 Privacyfälle bleiben eigenständige Nachweise.
+
+Separat wurde `legacyDeletionLockWithoutAccessFenceInvalidatesSharedKnowledgeConsumer`
+mit echten lokalen SDKs ausgeführt und bleibt **RED**: innerhalb der unveränderten
+30s erfolgte keine tatsächliche Session-/Consumer-Invalidierung. Lock/Job-Erzeugung,
+Auth-Disable und Token-Revoke wurden serverseitig bestätigt; 14 Room-Entity-
+Tabellen plus `sqlite_sequence`, Dateien, Verzeichnisse und Preferences
+blieben erhalten. Die vollständige eigene Serverfixture wurde anschließend leer
+zurückgelesen; Ports, Reverse und Instrumentierung waren frei, Inputs unverändert.
+Der Lauf bleibt Exit 1, kein durch erfolgreiche Bereinigung umgedeuteter PASS.
+Nachweis:
+`outputs/collection-sync-session-legacy-local/2026-10-04T21-45-30-197Z-7b40a84aa021497b858f9cca5a55d201/`
+mit `manifest.json`, `server-proof.json` und dem tatsächlichen Instrumentierungslog.
+Dies ist ein synthetisch geformter Altzustand ohne Access-Fence, keine produktive
+Altjob-Migration oder vollständige Löschengine-Prüfung. Der ursprüngliche
+17/18-Lock-only-RED bleibt unverändert bestehen.
+
+Nicht alle R27-Gates sind abgeschlossen. Binder-Verknüpfungen, physische Mehrgeräte-
+und verbleibende OS-/Sync-Grenzen, operative Datenschutz-/Lastnachweise sowie fehlende
+Vendor-Symbole bleiben getrennte Aufgaben. Android-AAB, Signierung und Play wurden
+durch diesen Web-Hotfix nicht geändert; Full-Sync bleibt aktiv, Delta deaktiviert.
+Die folgenden Checkpoints bewahren ausdrücklich ihren damaligen Stand.
+
+### Historischer lokaler Web-Crash-Fix und Datenschutz-Nachweise — 04.10.2026, 23:16
 
 Der unten beschriebene Live-Fehler wurde lokal exakt reproduziert: wechselnde
 Maximalhöhen der sichtbaren Karten ändern das virtuelle Fenster und wechseln dann
@@ -41,14 +95,14 @@ explizite Fixture, keine tatsächlich abgewartete65-Minuten-Frist. Neue benannte
 SDK-Instanz ist kein Betriebssystem-Neustart; Serviceaufrufe ersetzen keine
 HTTP-/Alt-Token-/Provider-Purge-Prüfung. [Details](../tests/private-operations-local/README.md).
 
-**Noch nicht produktiv veröffentlicht.** Das aktive Web-Deployment, Android-AAB,
+**Zu diesem lokalen Checkpoint noch nicht produktiv veröffentlicht.** Das aktive Web-Deployment, Android-AAB,
 Signing, Play, Rules und Geräte bleiben unverändert. Der ursprüngliche17/18-SDK-RED,
 zwei Binder-Verknüpfungen, Hardware/Mehrgeräte/WorkManager, operative Datenschutz-
 und Live-/Lastnachweise sowie Hersteller-Symbole werden dadurch nicht geschlossen.
 Full-Sync bleibt aktiv, Delta deaktiviert. Die folgenden Abschnitte sind historische
 Checkpoints; „Fix noch ausstehend“ bezieht sich dort auf den damaligen Stand.
 
-### Neuer offener Live-Befund und GitHub-Übergabe — 04.10.2026, nach 22:32
+### Historischer offener Live-Befund und GitHub-Übergabe — 04.10.2026, nach 22:32
 
 Ein Sprung ans Ende der angemeldeten Web-Sammlung löste um22:32:11 Europe/Berlin
 React185 (Maximum update depth) aus. Der Produktionsstack zeigt auf
@@ -71,7 +125,7 @@ Die drei lokal ergänzten Operator-Testfälle sind noch nicht ausgeführt und we
 Dokumentations-Push nicht mit aufgenommen. Zwei nicht auflösbare private
 Binder-Verknüpfungen bleiben gesondert offen; es ist kein Bild404 nachgewiesen.
 
-### Aktueller Stand: ausdrücklich freigegebenes Web-Deployment vom 04.10.2026
+### Historischer Stand: ausdrücklich freigegebenes Web-Deployment vom 04.10.2026, 21:47
 
 Web und Backend sind seit 21:47:30 Europe/Berlin unter Hosting-Version
 `334fdfd6961039a1` live, gebunden an Tag/Revision `domidex-web-r27-20261004d`.

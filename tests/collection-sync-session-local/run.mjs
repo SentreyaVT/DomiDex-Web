@@ -10,6 +10,7 @@ import { PROJECT, SCENARIOS, validRunId, parseSessionOptions, sessionProfile, as
   assertNoInstrumentation, validateServerProof } from './contract.mjs';
 import { CONSUMER, validateConsumerInstrumentation, validateConsumerProof } from './consumer-access.mjs';
 import { WORKFLOW, validateWorkflowInstrumentation, validateWorkflowProof } from './deletion-workflow.mjs';
+import { LEGACY, validateLegacyInstrumentation, validateLegacyProof } from './legacy-lock.mjs';
 
 function kotlinFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? kotlinFiles(path.join(directory, entry.name)) :
@@ -22,13 +23,15 @@ async function main() {
   const consumerOnly = args.includes('--consumer-access-only');
   if (args.filter(value => value === '--deletion-workflow-only').length > 1) throw Error('Duplicate deletion-only mode');
   const deletionOnly = args.includes('--deletion-workflow-only');
-  if (consumerOnly && deletionOnly) throw Error('Singleton modes are mutually exclusive');
-  const options = parseSessionOptions(args.filter(value => !['--consumer-access-only', '--deletion-workflow-only'].includes(value))); const androidRoot = options['--android-root'];
+  if (args.filter(value => value === '--legacy-lock-only').length > 1) throw Error('Duplicate legacy-only mode');
+  const legacyOnly = args.includes('--legacy-lock-only');
+  if ([consumerOnly, deletionOnly, legacyOnly].filter(Boolean).length > 1) throw Error('Singleton modes are mutually exclusive');
+  const options = parseSessionOptions(args.filter(value => !['--consumer-access-only', '--deletion-workflow-only', '--legacy-lock-only'].includes(value))); const androidRoot = options['--android-root'];
   const profile = sessionProfile(options.deviceProfile);
-  if ((consumerOnly || deletionOnly) && profile.id !== 'owned-regression-avd') throw Error('Singleton proof requires fixed owned5556');
-  const scenarios = deletionOnly ? [WORKFLOW] : consumerOnly ? [CONSUMER] : SCENARIOS;
-  const validateAndroid = deletionOnly ? validateWorkflowInstrumentation : consumerOnly ? validateConsumerInstrumentation : validateInstrumentation;
-  const validateProof = deletionOnly ? validateWorkflowProof : consumerOnly ? validateConsumerProof : validateServerProof;
+  if ((consumerOnly || deletionOnly || legacyOnly) && profile.id !== 'owned-regression-avd') throw Error('Singleton proof requires fixed owned5556');
+  const scenarios = legacyOnly ? [LEGACY] : deletionOnly ? [WORKFLOW] : consumerOnly ? [CONSUMER] : SCENARIOS;
+  const validateAndroid = legacyOnly ? validateLegacyInstrumentation : deletionOnly ? validateWorkflowInstrumentation : consumerOnly ? validateConsumerInstrumentation : validateInstrumentation;
+  const validateProof = legacyOnly ? validateLegacyProof : deletionOnly ? validateWorkflowProof : consumerOnly ? validateConsumerProof : validateServerProof;
   if (Number(process.versions.node.split('.')[0]) < 24 || process.platform !== 'win32') throw Error('Preinstalled Node 24+ on Windows required');
   if (PROJECT !== SAFETY_PROJECT || PROJECT !== 'demo-domidex-privacy') throw Error('Unexpected project');
   const cli = requireFile(options['--firebase-cli'] ?? path.join(process.env.APPDATA ?? '', 'npm/node_modules/firebase-tools/lib/bin/firebase.js'));
@@ -51,7 +54,8 @@ async function main() {
     'tests/private-operations-local/safety.mjs', 'tests/private-operations-local/network-preload.cjs',
     'tests/rules-local/run.mjs', 'tests/android-web-price-local/contract.mjs',
     ...['run.mjs', 'execute.mjs', 'contract.mjs', 'revocation.mjs', 'revocation-mutation.mjs', 'validation.test.mjs', 'revocation-stop.test.mjs', 'README.md',
-      'consumer-access.mjs', 'consumer-access.test.mjs', 'execute-consumer.mjs', 'deletion-workflow.mjs'].map(name => `tests/collection-sync-session-local/${name}`)];
+      'consumer-access.mjs', 'consumer-access.test.mjs', 'execute-consumer.mjs', 'deletion-workflow.mjs', 'legacy-lock.mjs'].map(name => `tests/collection-sync-session-local/${name}`)];
+  if (legacyOnly) webInputs.push(...['legacy-lock.test.mjs', 'execute-legacy.mjs'].map(name => `tests/collection-sync-session-local/${name}`));
   if (deletionOnly) webInputs.push(
     ...['deletion-workflow.test.mjs', 'execute-deletion.mjs'].map(name => `tests/collection-sync-session-local/${name}`),
     ...['deletion.mjs', 'firebase.mjs', 'app-check.mjs', 'rate-limit.mjs', 'read-rate-limit.mjs'].map(name => `backend/security/${name}`),
@@ -61,13 +65,14 @@ async function main() {
   const hashes = Object.fromEntries(await Promise.all(Object.entries(inputs).map(async ([name, file]) => [name, await sha256(file)])));
   for (const file of ['firestore.rules', 'storage.rules']) if (hashes[`android/${file}`] !== hashes[`web/${file}`]) throw Error('Rules must match byte-for-byte');
   await assertPortsFree(); const runId = validRunId(randomUUID().replaceAll('-', ''));
-  const directory = path.join(root, deletionOnly ? 'outputs/collection-sync-session-deletion-local' : consumerOnly ? 'outputs/collection-sync-session-consumer-local' : 'outputs/collection-sync-session-local', `${new Date().toISOString().replace(/[:.]/g, '-')}-${runId}`);
+  const directory = path.join(root, legacyOnly ? 'outputs/collection-sync-session-legacy-local' : deletionOnly ? 'outputs/collection-sync-session-deletion-local' : consumerOnly ? 'outputs/collection-sync-session-consumer-local' : 'outputs/collection-sync-session-local', `${new Date().toISOString().replace(/[:.]/g, '-')}-${runId}`);
   mkdirSync(directory, { recursive: true });
   const env = isolatedEnvironment(process.env, { directory, root, java, cache, preload: path.join(root, 'tests/private-operations-local/network-preload.cjs') });
   env.DOMIDEX_COLLECTION_SESSION_ADB = adb; env.DOMIDEX_COLLECTION_SESSION_RUN_ID = runId;
   env.DOMIDEX_COLLECTION_SESSION_DEVICE_PROFILE = profile.id;
   if (consumerOnly) env.DOMIDEX_COLLECTION_SESSION_CONSUMER_ONLY = 'true';
   if (deletionOnly) env.DOMIDEX_COLLECTION_SESSION_DELETION_ONLY = 'true';
+  if (legacyOnly) env.DOMIDEX_COLLECTION_SESSION_LEGACY_ONLY = 'true';
   for (const name of ['temp', 'home', 'appdata', 'localappdata', 'xdg', 'cloudsdk']) mkdirSync(path.join(directory, name));
   assertTestEnvironment(env);
   const adbCommand = args => {
@@ -87,16 +92,16 @@ async function main() {
   const javaVersion = spawnSync(java, ['-version'], { env, encoding: 'utf8', timeout: 10_000, windowsHide: true, shell: false });
   if (javaVersion.status !== 0 || !/version "(?:2[1-9]|[3-9]\d)\./.test(javaVersion.stderr + javaVersion.stdout)) throw Error('Java 21+ required');
   for (const file of ['firestore.rules', 'storage.rules']) copyFileSync(path.join(root, file), path.join(directory, file));
-  copyFileSync(path.join(here, deletionOnly ? 'execute-deletion.mjs' : consumerOnly ? 'execute-consumer.mjs' : 'execute.mjs'), path.join(directory, 'execute.mjs'));
-  const config = firebaseConfiguration(); if (!deletionOnly) delete config.emulators.storage;
+  copyFileSync(path.join(here, legacyOnly ? 'execute-legacy.mjs' : deletionOnly ? 'execute-deletion.mjs' : consumerOnly ? 'execute-consumer.mjs' : 'execute.mjs'), path.join(directory, 'execute.mjs'));
+  const config = firebaseConfiguration(); if (!(deletionOnly || legacyOnly)) delete config.emulators.storage;
   writeFileSync(path.join(directory, 'firebase.json'), JSON.stringify(config, null, 2));
   const manifest = { project: PROJECT, runId, deviceProfile: profile.id, serial: profile.serial, avd: profile.avd,
-    scenarioScope: deletionOnly ? 'REAL_DELETION_PENDING_RETRY_SESSION_CONSUMER_NOT_FINAL_EXPIRY' : consumerOnly ? 'ACCESS_DOC_SESSION_CONSUMER_SINGLETON_NOT_LOCK_ONLY_REEVALUATION' : 'ORIGINAL_EIGHTEEN_SCENARIOS',
+    scenarioScope: legacyOnly ? 'SYNTHETIC_LEGACY_LOCK_REAL_AUTH_REVOKE_NO_ACCESS_FENCE' : deletionOnly ? 'REAL_DELETION_PENDING_RETRY_SESSION_CONSUMER_NOT_FINAL_EXPIRY' : consumerOnly ? 'ACCESS_DOC_SESSION_CONSUMER_SINGLETON_NOT_LOCK_ONLY_REEVALUATION' : 'ORIGINAL_EIGHTEEN_SCENARIOS',
     beforeDevice, afterDevice: null, startedAt: new Date().toISOString(), inputs: hashes,
     apkHashScope: 'Local APK files only; operator must separately verify exact installed APKs on this AVD',
     roomCleanupScope: 'Android @After closes owned Room; persistent cases verify exact owner/run-marked file before deleting only that fixture; PASS includes teardown, RED alone does not prove teardown',
     node: process.version, java: (javaVersion.stderr + javaVersion.stdout).trim(), firebaseCli: cliPackage.version,
-    cliMetadataSha256: await sha256(metadataFile), jars: entries, ports: PORTS, startedEmulators: deletionOnly ? ['auth', 'firestore', 'storage'] : ['auth', 'firestore'],
+    cliMetadataSha256: await sha256(metadataFile), jars: entries, ports: PORTS, startedEmulators: deletionOnly || legacyOnly ? ['auth', 'firestore', 'storage'] : ['auth', 'firestore'],
     beforePortsFree: true, afterPortsFree: false, beforeReverseEmpty: true, afterReverseEmpty: false,
     beforeInstrumentationEmpty: true, afterInstrumentationEmpty: false, inputsUnchanged: false,
     serverVerified: false, result: null };
@@ -107,7 +112,7 @@ async function main() {
       deviceSnapshot();
       adbCommand(['reverse', '--no-rebind', `tcp:${port}`, `tcp:${port}`]); ownedReverse.push(port);
     }
-    manifest.result = await runChild(process.execPath, [cli, 'emulators:exec', '--only', deletionOnly ? 'auth,firestore,storage' : 'auth,firestore', '--project', PROJECT,
+    manifest.result = await runChild(process.execPath, [cli, 'emulators:exec', '--only', deletionOnly || legacyOnly ? 'auth,firestore,storage' : 'auth,firestore', '--project', PROJECT,
       '--config', path.join(directory, 'firebase.json'), 'node execute.mjs'], {
       cwd: directory, env, timeoutMs: 1_080_000, onOutput: chunk => {
         appendFileSync(path.join(directory, 'emulator.log'), chunk); process.stdout.write(chunk);

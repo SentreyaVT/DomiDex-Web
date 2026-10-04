@@ -9,8 +9,10 @@ Release-27-Gates bestanden sind**.
 
 ## Welchen Stand übernehmen?
 
-Der vor dieser Dokumentationskorrektur geprüfte GitHub-Engineeringstand ist `77b37a145dbd5aacdc018124a2251637ce63f991`
-auf **`codex/release-27-hardening`** im Repository `nandedomi/DomiDex-Web`.
+Der veröffentlichte Grid-Hotfix wurde aus dem eingefrorenen Engineeringstand
+`39742dd9a3aba5eacf7126d4c7248c295cc0a661` auf **`codex/release-27-hardening`**
+im Repository `nandedomi/DomiDex-Web` gebaut. Dies bezeichnet die Buildquelle,
+nicht automatisch den jeweils neuesten Remote- oder Dokumentationsstand.
 Der Defaultbranch `main` ist nicht dieser Produktstand: PR1 aktualisiert dort
 nur den Entwickler-Wegweiser (`eb75501`, vorher `d169c9e`). Für die Übergabe daher ausdrücklich:
 
@@ -24,11 +26,12 @@ nennt ihn standardmäßig `origin`. GitHub-Quellbackup, Defaultbranch-Merge,
 GitHub Release und Deployment sind getrennte Aktionen. Dieser Einstieg beschreibt
 den geprüften Stand, keine automatische Veröffentlichung beim lokalen Setup.
 
-Der am 04.10.2026 geprüfte Live-Stand unter `https://domidex.web.app`:
+Der am 04.10.2026 um **23:42:33 Europe/Berlin** veröffentlichte und anschließend
+geprüfte Live-Stand unter `https://domidex.web.app`:
 
-- Firebase Hosting: `334fdfd6961039a1`
-- Image-Tag: `r27-20261004d`; Cloud-Run-Revision: `domidex-web-r27-20261004d`
-- Image-Digest: `sha256:4ac5de98703c567cef2ec07fdad1c77f60a1654849965a6dc25eff61cf9af4e8`
+- Firebase Hosting: `5719d197695f2e1c`
+- Image-Tag: `r27-20261004e`; Cloud-Run-Revision: `domidex-web-r27-20261004e`
+- Image-Digest: `sha256:eda5084e7d99600b282c6e3580c000aeec7017f5321792d381d094bda7015f8b`
 
 Enthalten sind die reproduzierten Deploymentkorrekturen: Docker-Builder unter
 `/srv/domidex` statt `/app`, damit Rootlayout und verschachtelte App-Routen nicht
@@ -36,20 +39,32 @@ zusammenfallen; die Runtime bleibt `/app`. Die bestehenden Sicherheitsheader
 werden zusätzlich mit einem expliziten `/`-Matcher auf der Startseite angewendet.
 Der verworfene GlobalStyles-Brückenversuch ist nicht enthalten. Clientassets und
 Server stammen aus demselben geprüften Image; Details und Belegpfade im Handoff.
+Gegenüber dem vorigen Deployment änderte sich unter 309 Produktionsquellen nur
+`components/windowed-collection-grid.tsx`. Kandidat und Live bestanden jeweils
+45/45 Smokeprüfungen. Runtime-Konfiguration, IAM und prozentuale Default-Traffic-
+Zuweisung blieben unverändert; Hosting verwendet den neuen Revisions-Pin.
+Rules und Functions wurden beim Hotfix nicht verändert.
 
 ## Bekannte Grenzen und nächster Debugging-Einstieg
 
-- **Offener Livefehler, 04.10.2026, 22:32 Europe/Berlin:** Beim Scrollen bis zum
-  Ende der Sammlung wurde React-Fehler **185** beobachtet. Ursache ist lokal
-  reproduziert und korrigiert, **noch nicht deployed**. Variierende Kachelhöhen,
-  Zielfenster-Nachbarn und wiederholte Tastaturaktionen sind jetzt abgesichert;
-  frühere Smokechecks widerlegen den ursprünglichen Livebefund nicht.
+- **React185-Hotfix veröffentlicht:** Der Livefehler vom 04.10. um 22:32 wurde lokal
+  reproduziert, korrigiert und um 23:42 veröffentlicht. Variierende Kachelhöhen,
+  Zielfenster-Nachbarn und wiederholte Tastaturaktionen sind lokal abgesichert.
+  Die angemeldete Livekontrolle beobachtete bei 348 eindeutigen Einträgen/351 Kopien
+  End/Home auf 1280×720 und 390×844, Ziel 347 sichtbar, keine Überlappung und bisher
+  keine Browserfehler. Die Browser-Receipt und Screenshots liegen im Android-Checkout
+  unter `artifacts/r27-grid-hotfix-20261004/`; das ist keine allgemeine
+  Crash-Freiheitsgarantie und widerlegt nicht den alten Fehler.
 - Private Binderpositionen **6/7** zeigten bereits vor dem Deployment nicht
   verfügbare Eintragsreferenzen. Die genaue Ursache bleibt offen; das ist kein
   belegter Bild-404 und darf nicht durch geratenes Umhängen von Karten behoben werden.
 - R27 behält **Full-Sync**; **Delta bleibt deaktiviert**. Lokale Tests garantieren
   weder sofortige Synchronisierung noch vollständige Hardware-/Mehrgeräte-,
   Last-, Betriebs- oder Datenschutzabnahme.
+- **Legacy-Löschzustand bleibt offen:** Ein neuer echter lokaler SDK-Fall ohne
+  Access-Fence bleibt nach unveränderten 30s RED, obwohl alle drei Servermutationen
+  bestätigt wurden. Lokale Daten blieben erhalten; der ursprüngliche 17/18-Lock-only-
+  RED ist separat unverändert. Der Web-Gridfix löst diese Android-/SDK-Grenze nicht.
 - Android-AAB, R8-Mapping und native Symbole gehören zum separaten `CardVault`-
   Repository/Releasearchiv. Die sechs fehlenden Original-Vendorsymbole sind kein
   Web-Artefakt und werden durch diese Übergabe nicht nachgeliefert.

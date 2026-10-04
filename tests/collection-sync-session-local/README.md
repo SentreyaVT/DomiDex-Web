@@ -622,3 +622,60 @@ The original17 evidence remains RED; no production fix or behavior is claimed.
 New host unit controls exercise only orchestration/validators, not Android SDK
 behavior. The Node loopback guard and offline device checks remain observations,
 not a host-wide network sandbox. Root alone builds, installs and executes.
+
+## Separate legacy-lock Session/Consumer singleton (runtime UNVERIFIED)
+
+`--legacy-lock-only --owned-regression-avd` selects only
+`legacyDeletionLockWithoutAccessFenceInvalidatesSharedKnowledgeConsumer` on the
+existing fixed API36 owned5556 profile. It cannot be combined with the consumer
+or fresh-deletion singleton flags. Original18 and both existing singleton bodies,
+outcome parsers, Rules and 30-second Android observation limits are unchanged.
+
+This is a synthetic **legacy-shaped STARTED fixture**, not a replay of an old
+production job. Own `accountAccess` is absent from the initial complete inventory
+and remains absent. The real Android Session must already confirm SERVER access
+using its genuine Auth claims and observe fresh positive Knowledge before its
+canonical run-owned ready marker. The host then atomically creates only its exact
+run-derived UUID job plus lock; it separately invokes actual Auth-emulator
+`updateUser(disabled:true)` and `revokeRefreshTokens`. The job's current timestamp
+and 65-minute field describe the fixture; no historical or elapsed65-minute proof
+is claimed. No `deletionRequest`/`advanceDeletion`, accountAccess fence, Knowledge
+write, Rules change, forced refresh/relisten or post-ready Android read is used.
+
+Each host mutation records its attempt, acknowledged outcome, nondecreasing
+wall-clock timestamps, full before/after inventories and (for Firestore) exact
+commit timestamps. The revocation readback must contain the real Auth timestamp
+within its acknowledged operation's second-resolution interval. Every original
+Firestore payload/updateTime, private/foreign control row, full foreign Auth
+metadata and independently empty Storage listing is checked. Auth has no
+cross-service CAS: this proof is restricted to freshly owned sole-writer local
+emulators, never production resources. Android signs in with the existing
+synthetic Google-provider fixture; this is not real Google authentication.
+
+The first mutation requires the still-active exact START plus ready marker.
+A sufficiently fast genuine Session denial can finish Android before the later
+Auth calls. Those calls may continue only after fresh exact inventories and
+either the still-active START or the **joined exact singleton PASS**, with no
+cancellation. RED, unknown/partial terminal, timeout, stopped/error child or a
+foreign method never authorizes continuation. Receipts explicitly distinguish
+Auth writes before versus after Android join. Success proves the combined
+legacy-lock/real-Auth-revocation scenario, not that Auth revocation caused the
+observed callback or that a particular listener reacted first.
+
+After both the child and all host work are joined, even RED can independently
+remove only the last acknowledged unchanged synthetic fixture. Firestore removal
+uses one full-inventory CAS batch; the exact remaining complete Auth inventory is
+rechecked before each own-account delete. Unknown mutation/cleanup outcomes are
+never inferred from appearances or retried. This is fixture removal, not the
+production account-deletion final sweep. Cleanup cannot promote a failed Android
+observation to PASS. Missing access, Knowledge immutability, all acknowledgments,
+exact Android PASS, local preservation tail, cleanup and frozen input hashes are
+all required for an overall green result. The terminal `legacyG9Snapshot` is
+preserved verbatim in the method log on PASS or RED; it does not replace assertions.
+
+The additive20 pure controls in `legacy-lock.test.mjs` are authored but not yet
+executed at preparation time. They cover the exact identity/inventory/marker,
+unexpected fences, changed Knowledge, Auth timestamps, cancellation, joined-PASS
+continuation and cleanup boundaries. Node-level checks do not prove SDK delivery.
+Root must review, build/install the matching Android tests and independently run
+the new mode; no runtime or device action was performed while preparing it.
