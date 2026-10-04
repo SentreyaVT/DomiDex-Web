@@ -137,13 +137,16 @@ async function saveInventory(job, found) {
   }
 }
 
-async function deleteItems(context, job, uid) {
+async function deleteItems(context, job, uid, deferAccessFence = false) {
   // Evidence first, then contributors. Current-evidence transaction guard prevents re-creation.
   const all = (await job.collection('items').get()).docs;
   const priority = (item) => item.kind === 'document' && item.path.includes('/scanEvidence/') ? 0 : item.kind === 'contributor' ? 1 : item.kind === 'document' ? 2 : 3;
   all.sort((a, b) => priority(a.data()) - priority(b.data()) || b.data().path.length - a.data().path.length);
   for (const snapshot of all) {
     const item = snapshot.data();
+    // Fresh jobs keep the owner-readable denial through session expiry. It stays
+    // inventoried and unfinished until the existing final post-expiry sweep.
+    if (deferAccessFence && item.kind === 'document' && item.path === `accountAccess/${uid}`) continue;
     if (item.done || item.kind === 'retained') continue;
     await context.beforeDelete?.(item);
     if (item.kind === 'contributor') await removeContribution(context, uid, item.path);
@@ -194,7 +197,7 @@ export async function advanceDeletion(context, uid, jobId) {
       return { jobId, status: 'REVIEW_REQUIRED', blockers: found.blockers };
     }
     await saveInventory(job, found);
-    await deleteItems(context, job, uid);
+    await deleteItems(context, job, uid, true);
     await checkpoint();
     state = (await job.get()).data();
     if (clock(context) < state.settleAfter) {
@@ -290,7 +293,8 @@ export async function deletionRequest(request, context = services()) {
     await context.db.runTransaction(async (tx) => {
       if ((await tx.get(lock)).exists) fail('JOB_BUSY');
       tx.create(lock, { jobId, startedAt: now });
-      tx.set(context.db.doc(`accountAccess/${uid}`), { disabled: true, updatedAt: now }, { merge: true });
+      // Replace prior role/lease metadata with the minimal deletion-start fence.
+      tx.set(context.db.doc(`accountAccess/${uid}`), { disabled: true, updatedAt: now });
       tx.create(context.db.doc(`accountDeletionJobs/${jobId}`), { uid, startedAt: now, status: 'STARTED', settleAfter: now + 65 * 60_000, leaseUntil: 0 });
     });
     return json(await advanceDeletion(context, uid, jobId), 202);

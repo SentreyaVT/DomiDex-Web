@@ -67,6 +67,7 @@ const javaVersion = spawnSync(java, ['-version'], { env, encoding: 'utf8', timeo
 if (javaVersion.status !== 0 || !/version "(?:2[1-9]|[3-9]\d)\./.test(javaVersion.stderr + javaVersion.stdout)) throw Error('Working Java 21+ required.');
 
 const inputs = ['firestore.rules', 'storage.rules', 'tests/private-operations.test.mjs',
+  'backend/security/deletion.mjs',
   'lib/collection.ts', 'lib/domain.ts', 'lib/cardmarket-identity.ts',
   'lib/sync-id.ts', 'lib/tcgdex.ts', 'lib/owner-document-state.ts',
   'lib/firebase-client.ts', 'package.json', 'package-lock.json',
@@ -131,6 +132,7 @@ try {
       'reports a partial deletion truthfully and completes safely on retry',
       'denies anonymous and foreign user deletion without modifying either account',
       'deletes all owned classes, recalculates contributions, preserves global/foreign data and is repeatable',
+      'retains a fresh deletion access fence through session expiry and removes it on completion',
       'records partial failure, retries safely, and never reports provider retention as complete',
       'blocks protected attribution before disabling or deleting the account',
       'starts the token expiry interval only after a successful disable/revoke',
@@ -141,9 +143,9 @@ try {
       'rejects a colliding positive product for empty and stale current without any server mutation',
     ];
     const assertions = results.testResults?.flatMap(suite => suite.assertionResults ?? []) ?? [];
-    if (results.success !== true || results.numTotalTests !== 35 || results.numPassedTests !== 35
+    if (results.success !== true || results.numTotalTests !== 36 || results.numPassedTests !== 36
         || results.numFailedTests !== 0 || results.numPendingTests !== 0 || (results.numTodoTests ?? 0) !== 0
-        || assertions.length !== 35 || assertions.some(test => test.status !== 'passed')
+        || assertions.length !== 36 || assertions.some(test => test.status !== 'passed')
         || !isDeepStrictEqual(assertions.map(test => test.title).sort(), [...expectedTitles].sort())) process.exitCode = 1;
     try { manifest.webAdd = await verifyWebAddProofs(directory); }
     catch (error) { console.error(error.message); process.exitCode = 1; }

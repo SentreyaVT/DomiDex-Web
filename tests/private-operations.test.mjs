@@ -659,10 +659,12 @@ describe('Account deletion: isolated real Firebase emulators', () => {
     const first = await response.json();
     expect(first.status).toBe('PENDING_SESSION_EXPIRY');
     expect((await context.auth.getUser('owner-a')).disabled).toBe(true);
+    expect((await context.db.doc('accountAccess/owner-a').get()).get('disabled')).toBe(true);
     expect((await context.db.doc('users/owner-a/collectionEntries/one').get()).exists).toBe(false);
     context.now = () => first.nextActionAt + 1000;
     const done = await advanceDeletion(context, 'owner-a', first.jobId);
     expect(done.status).toBe('COMPLETE');
+    expect((await context.db.doc('accountAccess/owner-a').get()).exists).toBe(false);
     await expect(context.auth.getUser('owner-a')).rejects.toMatchObject({ code: 'auth/user-not-found' });
     expect((await context.db.doc('users/owner-a/preferences/nested/history/one').get()).exists).toBe(false);
     expect((await context.db.collection('scannerReports').get()).size).toBe(0);
@@ -686,12 +688,67 @@ describe('Account deletion: isolated real Firebase emulators', () => {
     expect((await repeat.json()).status).toBe('COMPLETE');
     expect((await context.db.doc('accountDeletionLocks/owner-a').get()).exists).toBe(false);
   }, 45_000);
+  it('retains a fresh deletion access fence through session expiry and removes it on completion', async () => {
+    const startedAt = Date.now();
+    context.now = () => startedAt;
+    const access = context.db.doc('accountAccess/owner-a');
+    const foreignAccess = context.db.doc('accountAccess/owner-b');
+    const foreignData = { appAccess: true, pretester: false, label: 'synthetic-foreign-keep' };
+    await access.set({ appAccess: true, pretester: true, lease: 'synthetic-old-lease',
+      leaseUntil: startedAt - 1, label: 'synthetic-private-remove' });
+    await foreignAccess.set(foreignData);
+    const owned = context.db.doc('users/owner-a/preferences/private');
+    await owned.set({ setting: 'synthetic-owned-remove' });
+    const response = await deletionRequest(request(tokens.a, { confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context);
+    expect(response.status).toBe(202);
+    const first = await response.json();
+    expect(first.status).toBe('PENDING_SESSION_EXPIRY');
+    expect(first.nextActionAt).toBe(startedAt + 65 * 60_000);
+    const fence = { disabled: true, updatedAt: startedAt };
+    expect((await access.get()).data()).toEqual(fence);
+    expect((await owned.get()).exists).toBe(false);
+    expect((await foreignAccess.get()).data()).toEqual(foreignData);
+    expect((await context.auth.getUser('owner-a')).disabled).toBe(true);
+    const lock = context.db.doc('accountDeletionLocks/owner-a');
+    expect((await lock.get()).data()).toEqual({ jobId: first.jobId, startedAt });
+    const job = context.db.doc(`accountDeletionJobs/${first.jobId}`);
+    const initialItems = (await job.collection('items').get()).docs;
+    const accessItems = initialItems.filter(item => item.get('kind') === 'document' && item.get('path') === access.path);
+    expect(accessItems).toHaveLength(1);
+    expect(accessItems[0].data()).toEqual({ kind: 'document', path: access.path, done: false });
+    expect(initialItems.every(item => item.get('kind') === 'document')).toBe(true);
+    const receipt = context.db.doc(`accountDeletionReceipts/${first.jobId}`);
+    expect((await receipt.get()).exists).toBe(false);
+
+    context.now = () => first.nextActionAt - 1;
+    expect(await advanceDeletion(context, 'owner-a', first.jobId)).toEqual({
+      jobId: first.jobId, status: 'PENDING_SESSION_EXPIRY', nextActionAt: first.nextActionAt,
+    });
+    expect((await access.get()).data()).toEqual(fence);
+    expect((await accessItems[0].ref.get()).data()).toEqual({ kind: 'document', path: access.path, done: false });
+    expect((await lock.get()).data()).toEqual({ jobId: first.jobId, startedAt });
+    expect((await receipt.get()).exists).toBe(false);
+
+    context.now = () => first.nextActionAt;
+    const done = await advanceDeletion(context, 'owner-a', first.jobId);
+    expect(done.status).toBe('COMPLETE');
+    expect((await access.get()).exists).toBe(false);
+    expect((await lock.get()).exists).toBe(false);
+    expect((await job.get()).exists).toBe(false);
+    expect((await job.collection('items').get()).empty).toBe(true);
+    expect((await receipt.get()).get('status')).toBe('COMPLETE');
+    expect((await receipt.get()).get('counts.document')).toBe(initialItems.length);
+    await expect(context.auth.getUser('owner-a')).rejects.toMatchObject({ code: 'auth/user-not-found' });
+    expect((await context.auth.getUser('owner-b')).disabled).toBe(false);
+    expect((await foreignAccess.get()).data()).toEqual(foreignData);
+  }, 45_000);
   it('records partial failure, retries safely, and never reports provider retention as complete', async () => {
     await seedAccount();
     context.beforeDelete = () => { throw new Error('INJECTED_FAILURE'); };
     const first = await (await deletionRequest(request(tokens.admin, { uid: 'owner-a', confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context)).json();
     expect(first.status).toBe('PARTIAL_FAILURE');
     expect((await context.db.doc('users/owner-a/collectionEntries/one').get()).exists).toBe(true);
+    expect((await context.db.doc('accountAccess/owner-a').get()).get('disabled')).toBe(true);
     expect((await context.db.doc(anchorQuotaPath('owner-a')).get()).exists).toBe(true);
     delete context.beforeDelete;
     const job = (await context.db.doc(`accountDeletionJobs/${first.jobId}`).get()).data();
@@ -699,6 +756,8 @@ describe('Account deletion: isolated real Firebase emulators', () => {
     context.bucket.getMetadata = async () => [{ softDeletePolicy: { retentionDurationSeconds: '604800' } }];
     const resumed = await advanceDeletion(context, 'owner-a', first.jobId);
     expect(resumed.status).toBe('ACTIVE_DATA_DELETED_PENDING_PROVIDER_RETENTION');
+    expect((await context.db.doc('accountAccess/owner-a').get()).exists).toBe(false);
+    expect((await context.db.doc('accountDeletionLocks/owner-a').get()).get('jobId')).toBe(first.jobId);
     expect((await context.db.doc(anchorQuotaPath('owner-a')).get()).exists).toBe(false);
     expect((await context.db.doc(anchorQuotaPath('owner-b')).get()).exists).toBe(true);
     expect((await context.db.doc(`accountDeletionReceipts/${first.jobId}`).get()).exists).toBe(false);
@@ -718,12 +777,15 @@ describe('Account deletion: isolated real Firebase emulators', () => {
     try { first = await (await deletionRequest(request(tokens.admin, { uid: 'owner-a', confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context)).json(); }
     finally { context.auth.updateUser = update; }
     expect(first.status).toBe('PARTIAL_FAILURE');
+    const firstFence = (await context.db.doc('accountAccess/owner-a').get()).data();
+    expect(firstFence).toEqual({ disabled: true, updatedAt: expect.any(Number) });
     const later = Date.now() + 70 * 60_000;
     context.now = () => later;
     const result = await advanceDeletion(context, 'owner-a', first.jobId);
     expect(result.status).toBe('PENDING_SESSION_EXPIRY');
     expect(result.nextActionAt).toBe(later + 65 * 60_000);
     expect((await context.auth.getUser('owner-a')).disabled).toBe(true);
+    expect((await context.db.doc('accountAccess/owner-a').get()).data()).toEqual(firstFence);
   });
   it('tracks old soft-deleted versions even with a current zero-retention policy', async () => {
     const list = context.bucket.getFiles.bind(context.bucket);
@@ -735,6 +797,7 @@ describe('Account deletion: isolated real Firebase emulators', () => {
       context.now = () => first.nextActionAt + 1000;
       const pending = await advanceDeletion(context, 'owner-a', first.jobId);
       expect(pending.status).toBe('PROVIDER_PURGE_NOT_CONFIRMED');
+      expect((await context.db.doc('accountAccess/owner-a').get()).exists).toBe(false);
       expect((await context.db.doc(`accountDeletionReceipts/${first.jobId}`).get()).exists).toBe(false);
       retained = false;
       expect((await advanceDeletion(context, 'owner-a', first.jobId)).status).toBe('COMPLETE');
@@ -749,8 +812,10 @@ describe('Account deletion: isolated real Firebase emulators', () => {
       expect((await advanceDeletion(context, 'owner-a', first.jobId)).status).toBe('PARTIAL_FAILURE');
       expect((await context.db.doc(`accountDeletionReceipts/${first.jobId}`).get()).exists).toBe(false);
       expect((await context.db.doc(`accountDeletionJobs/${first.jobId}`).get()).exists).toBe(true);
+      expect((await context.db.doc('accountAccess/owner-a').get()).exists).toBe(false);
     } finally { context.db.recursiveDelete = cleanup; }
     expect((await advanceDeletion(context, 'owner-a', first.jobId)).status).toBe('COMPLETE');
+    expect((await context.db.doc('accountAccess/owner-a').get()).exists).toBe(false);
   });
   it('does not replay stale/deleted Evidence, even if a trigger arrived before deletion', async () => {
     const ref = context.db.doc(`users/owner-a/scanEvidence/${'b'.repeat(64)}`);

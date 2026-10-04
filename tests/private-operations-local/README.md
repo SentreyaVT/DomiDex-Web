@@ -1,6 +1,6 @@
 # Lokale Private-Operations-Regression
 
-Dieser versionierte Starter führt ausschließlich die **35 bestehenden/erweiterten Tests**
+Dieser versionierte Starter führt ausschließlich die **36 bestehenden/erweiterten Tests**
 aus `tests/private-operations.test.mjs` gegen lokale Auth-, Firestore- und
 Storage-Emulatoren aus. Das Projekt ist fest `demo-domidex-privacy`.
 Es gibt keine Anmeldung an echten Konten, Veröffentlichung, Produktionslöschung
@@ -26,6 +26,18 @@ Stimmen, unveränderter Wiederzustellung, alten Evidence-Versionen und Löschspe
 Alle bisherigen 33 Fälle bleiben unverändert erhalten. Der Callback wird bewusst
 direkt mit echten Server-Snapshots aufgerufen; Eventarc/Functions-Zustellung und
 produktive Retry-/Lastbedingungen werden damit nicht simuliert oder bewiesen.
+
+Ein zusätzlicher Fall prüft frische Löschaufträge: Der eigene deaktivierte
+Access-Status bleibt bis zum Ende der Session-Ablauffrist erhalten, sein
+Inventareintrag bleibt offen, und die bestehende Schlussbereinigung entfernt ihn.
+Wiederaufnahme vor/nach der Frist, Fremdschutz und die minimale Startnutzlast
+werden mit echten lokalen Admin-SDKs geprüft; die Uhr bleibt gezielt injiziert.
+Die bisherigen 35 Fälle bleiben erhalten und erhalten ergänzende Fence-Prüfungen.
+Ältere Läufe sind kein 36er-Nachweis. Bereits früher entfernte Statusdokumente
+alter laufender Jobs werden nicht rekonstruiert. Parallele Rollenverwaltung bleibt
+unverändert und kann weitere Metadaten ergänzen; eine dauerhaft minimale Nutzlast
+unter solchen parallelen Änderungen wird nicht behauptet. Dies ist kein Nachweis
+einer Android-Listener-Zustellung und ändert den separaten Lock-only-30s-RED nicht.
 
 ## Voraussetzungen und Aufruf
 
@@ -90,7 +102,7 @@ Unter dem ignorierten `outputs/private-operations-local/<Lauf-ID>/` liegen
 `emulator.log`, `vitest-results.json` und `manifest.json`. Das Manifest enthält
 Werkzeugversionen, SHA256/Größe der beiden JARs, Hashes der Regeln/Tests/des
 Harness, Portprüfungen, Testzahlen und Exitstatus. Erfolg setzt ausdrücklich
-**35 exakt benannte Fälle bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
+**36 exakt benannte Fälle bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
 Ports nach Emulatorende voraus.
 
 Getestet werden echte lokale Admin-SDK-Aufrufe der Sharing-, Bild-/Berechtigungs-
