@@ -1,93 +1,44 @@
-# DomiDex Web
+# DomiDex Web – Entwicklerzugang für Release 27
 
-Offizielle Webplattform und Desktop-Sammlungsoberfläche für DomiDex. Die Web-App nutzt dieselbe Firebase-Authentifizierung und denselben privaten Sammlungsbestand wie die Android-App, ohne deren Quellcode oder Datenmodell zu verändern.
+**Stand: 04.10.2026 · geschlossene Alpha.** Web-App, Website und Backend werden
+hier getrennt vom Android-Repository gepflegt.
 
-## Enthalten
+## Richtiger Branch
 
-- öffentliche DomiDex-Website mit Funktionen, Updates, Roadmap, FAQ und Rechtsseiten
-- Google-Anmeldung über Firebase Authentication
-- Desktop-Sammlung mit Binderansicht, Kartensuche, Varianten und Portfolio
-- exakte TCGdex-/Cardmarket-Zuordnung; keine erfundenen Preise
-- Echtzeit-Synchronisierung mit `users/{uid}/collectionEntries/{syncId}`
-- geschützter Adminbereich für öffentliche Website-Inhalte
-- geschütztes Scanner Control Center unter `/admin/scanner-lab` mit normalisierten Analysezonen, Profilversionen, explizitem Production-Publish und Rollback
-- lokaler, paginierter Referenzbrowser für das deutsche TCGdex-Kalibrierungsarchiv; Bilder und absolute Pfade werden nicht veröffentlicht
-- Master-Set-Binder mit allen Set-Karten, Besitzstatus, exakter Preiszuordnung und direktem Hinzufügen zur bestehenden Sammlung
-- Firestore-Regeln mit strikter Benutzertrennung und `admin`-Custom-Claim
+**Für die aktuelle Entwicklung
+[`codex/release-27-hardening`](https://github.com/nandedomi/DomiDex-Web/tree/codex/release-27-hardening)
+auschecken.** Der Quellcode auf `main` ist älter. Diese Startseite ist eine
+Dokumentationsübergabe, kein vollständiger Produktcode-Merge.
 
-## Lokal starten
-
-Voraussetzungen: Node.js 22.13 oder neuer sowie Java (für die Firestore-Emulatortests).
-
-```bash
-npm install
-copy .env.example .env.local
-npm run dev
+```sh
+git clone --branch codex/release-27-hardening https://github.com/nandedomi/DomiDex-Web.git
 ```
 
-Die öffentlichen Firebase-Webwerte der registrierten Web-App kommen in `.env.local`. Private Schlüssel, Service-Account-Dateien und Tokens dürfen nicht in das Repository eingecheckt werden.
+- [Aktuelles README: Installation, Konfiguration und Testbefehle](https://github.com/nandedomi/DomiDex-Web/blob/codex/release-27-hardening/README.md)
+- [Web-Handoff: Deployment, Nachweise und offene Gates](https://github.com/nandedomi/DomiDex-Web/blob/codex/release-27-hardening/docs/WEBAPP_RELEASE_27_HANDOFF.md)
+- [Firebase-/Sammlungsvertrag](https://github.com/nandedomi/DomiDex-Web/blob/codex/release-27-hardening/docs/FIREBASE_COLLECTION_CONTRACT.md)
+- [API-Vertrag](https://github.com/nandedomi/DomiDex-Web/blob/codex/release-27-hardening/docs/openapi.release27.yaml)
+- [Android-Entwicklerübergabe](https://github.com/nandedomi/DomiDex/blob/codex/release-27-hardening/docs/DEVELOPER_HANDOFF_R27.md)
+- [Unverändertes Android-R27-Binärarchiv](https://github.com/nandedomi/DomiDex/releases/tag/archive/v27-1.0-closed-alpha.6)
 
-### Lokales Scanner-Referenzarchiv
+## Aktueller Betrieb und Nachweisgrenzen
 
-Für das Scanner Control Center werden die privaten lokalen Quellen ausschließlich serverseitig konfiguriert:
+Web/Backend wurden am04.10.2026 um21:47:30 Europe/Berlin veröffentlicht:
+Firebase Hosting `334fdfd6961039a1`, Cloud Run `domidex-web-r27-20261004d`.
+Der aktuelle Betrieb ist **Firebase Hosting + Cloud Run**, nicht die alte
+OpenAI-Sites-Hosting-Angabe. Kanonische Functions-Quelle: `backend/scan-knowledge`
+im Engineeringbranch; nicht ungeprüft aus dem Android-Repo deployen.
 
-```env
-DOMIDEX_SCANNER_INDEX_PATH=
-DOMIDEX_SCANNER_IMAGE_DIR=
-DOMIDEX_TCGDEX_DATABASE_DIR=
-```
+Zuletzt dokumentiert:1.299 bestandene lokale Tests in79 Dateien und bestandener
+Typecheck. Danach wurde am04.10. um22:32 ein echter Live-Scroll-Crash in der
+Web-Sammlung (React185) nachgewiesen. Er ist noch nicht behoben; die vorhandene
+Regression deckte variable Kartenhöhen im virtuellen Fenster nicht ab.
+Zwei nicht auflösbare private Binder-Verknüpfungen und weitere Entzugs-/Betriebs-
+Nachweise bleiben offen. Daher **keine pauschale Gesamtfreigabe**.
 
-Danach erzeugt `npm run scanner:index` den lokalen Master-Index unter `.domidex/`. Der Generator erhält `localId` vollständig als String, verbindet Bild- und Kartendaten und meldet fehlende Dateien, Metadaten, Duplikate und Einzelfehler. `.domidex/`, die Referenzbilder und die lokalen Pfade bleiben vom Repository und Deployment ausgeschlossen.
-
-## Qualitätsprüfung
-
-```bash
-npm run typecheck
-npm run lint
-npm test
-npm run test:rules
-npm run test:android-contract
-npm run build
-```
-
-`test:android-contract` führt die aus dem Android-Projekt übernommenen Vertragsprüfungen gegen die erweiterten Web-Regeln aus. Damit bleibt der bestehende Mobile-Sync kompatibel.
-
-## Firebase-Vertrag
-
-Der vollständige Feld- und Sicherheitsvertrag steht in [docs/FIREBASE_COLLECTION_CONTRACT.md](docs/FIREBASE_COLLECTION_CONTRACT.md). Wichtige Grundsätze:
-
-- Jeder Benutzer liest und schreibt ausschließlich unter seiner eigenen UID.
-- Änderungen erhöhen `revision` exakt um eins und verwenden `serverTimestamp()`.
-- Löschen erfolgt als Tombstone; physisches Löschen und Wiederherstellen sind gesperrt.
-- `sourceSetId` und `sourceCardId` bilden zusammen die stabile Kartenidentität.
-- Ein Preis wird nur bei eindeutiger Variante und real vorhandener Cardmarket-Zuordnung verwendet.
-
-## Adminzugriff einmalig aktivieren
-
-1. Der Eigentümer meldet sich mindestens einmal über `/login` an.
-2. Die Firebase-UID wird lokal als `DOMIDEX_ADMIN_UID` gesetzt.
-3. Für die Admin-SDK-Anmeldung werden Application Default Credentials oder ein ausschließlich lokal gespeicherter Service Account verwendet.
-4. `npm run admin:bootstrap` setzt den Custom Claim `admin: true`.
-5. Ab- und erneut anmelden, damit ein frisches ID-Token geladen wird.
-
-Der Adminbereich verwaltet öffentliche Website-Inhalte und Scannerprofile. Private Sammlungen anderer Nutzer sind weder in der UI noch über die Regeln zugänglich. Scannerprofile werden als Draft, Testing, Candidate, Production oder Deprecated versioniert; normales Speichern veröffentlicht niemals eine Production-Version.
-
-## Umgebungsvariablen
-
-Siehe `.env.example`. `NEXT_PUBLIC_*` enthält ausschließlich öffentliche Client-Konfiguration. `DOMIDEX_ADMIN_UID` und `GOOGLE_APPLICATION_CREDENTIALS` sind lokal/private und werden nie an den Browser ausgeliefert.
-
-## Deployment
-
-Vor dem öffentlichen Einsatz:
-
-1. Firestore-Regeln aus `firestore.rules` deployen.
-2. Die endgültige Hosting-Domain als autorisierte Domain in Firebase Authentication eintragen.
-3. `NEXT_PUBLIC_SITE_URL` auf die kanonische HTTPS-Adresse setzen.
-4. Impressum, Datenschutz und Kontakt mit den vollständigen Betreiberangaben vervollständigen.
-5. Optional Discord- und Kickstarter-URLs setzen; ohne Kickstarter-URL zeigt die Seite korrekt „Coming Soon“.
-
-Das Hosting erfolgt mit OpenAI Sites. Eine spätere eigene Domain (inklusive `www`-Weiterleitung) kann ohne Änderung der Anwendung verbunden werden.
-
-## Repository-Sicherheit
-
-Das Projekt ignoriert `.env*` (außer `.env.example`), private Schlüssel, Build-Artefakte, Emulatorlogs und lokale Deploymentdaten. Vor jedem Push sollten `git status` und die gestagten Dateien auf Zugangsdaten geprüft werden.
+Full-Sync bleibt R27, Delta deaktiviert. App Check und Write-Limiter nicht ohne
+eigene Konfigurationsprüfung/Freigabe aktivieren. Keine private `.env`,
+Service-Account-Datei, Benutzerbilder oder Tokens in Git übernehmen.
+Diese GitHub-Dokumentationsänderung deployt nichts und ändert keine Firebase-Rechte.
+Ältere Dokumente auf `main` sind historisch; maßgeblich sind die verlinkten
+R27-Engineeringdokumente.
