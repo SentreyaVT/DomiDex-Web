@@ -22,7 +22,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isCurrentEvidence } from '../backend/scan-knowledge/current-evidence.js';
 import sharp from 'sharp';
 import { uploadReport, readReportImage, deleteReport } from '../backend/security/images.mjs';
-import { deletionRequest, advanceDeletion } from '../backend/security/deletion.mjs';
+import { deletionRequest, deletionStatus, advanceDeletion } from '../backend/security/deletion.mjs';
 import { authorize, changeRole } from '../backend/security/access.mjs';
 import { createBinderShare, listBinderShares, readBinderShare, revokeBinderShare } from '../backend/security/sharing.mjs';
 import { rateLimitDocumentId, writePolicies } from '../backend/security/rate-limit.mjs';
@@ -647,6 +647,186 @@ async function seedAccount() {
 }
 
 describe('Account deletion: isolated real Firebase emulators', () => {
+  const jsonRecord = value => JSON.parse(JSON.stringify(value));
+  const statusRequest = (token, jobId) => new Request(`http://localhost/api/admin/testers?action=delete-account&jobId=${jobId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const resumeRequest = (token, uid, jobId) => request(token, { uid, jobId, confirm: 'DELETE_DOMIDEX_ACCOUNT' });
+
+  async function operatorReadback(service) {
+    const documents = {};
+    let inspected = 0;
+    async function visit(collections, depth = 0) {
+      expect(depth).toBeLessThanOrEqual(8);
+      for (const collection of collections) for (const reference of await collection.listDocuments()) {
+        expect(++inspected).toBeLessThanOrEqual(100);
+        const snapshot = await reference.get();
+        if (snapshot.exists) documents[reference.path] = jsonRecord({ data: snapshot.data(), updateTime: snapshot.updateTime });
+        await visit(await reference.listCollections(), depth + 1);
+      }
+    }
+    await visit(await service.db.listCollections());
+    const users = await service.auth.listUsers(20);
+    expect(users.pageToken).toBeUndefined();
+    const [files, next] = await service.bucket.getFiles({ autoPaginate: false, maxResults: 20 });
+    expect(next == null).toBe(true);
+    expect(files.length).toBeLessThanOrEqual(4);
+    const images = [];
+    for (const file of files.sort((a, b) => a.name.localeCompare(b.name))) {
+      const [metadata] = await file.getMetadata();
+      expect(Number(metadata.size)).toBeLessThanOrEqual(png.length);
+      const [bytes] = await file.download();
+      images.push({ path: file.name, metadata: jsonRecord(metadata), bytes: bytes.toString('base64') });
+    }
+    return { documents, users: users.users.map(user => jsonRecord(user.toJSON())).sort((a, b) => a.uid.localeCompare(b.uid)), images };
+  }
+
+  async function freshOperatorFixture() {
+    expect(context.now).toBeUndefined();
+    await context.db.doc('users/owner-a/preferences/private').set({ setting: 'synthetic-owned-remove' });
+    await context.db.doc('users/owner-b/collectionEntries/keep').set({ ownerUid: 'owner-b', variant: 'Reverse', notes: 'synthetic-private-keep' });
+    await context.db.doc('accountAccess/owner-b').set({ appAccess: true, label: 'synthetic-foreign-keep' });
+    await context.db.doc(`scanKnowledge/${'c'.repeat(64)}`).set({ cardId: 'synthetic-public-keep', confirmations: 3 });
+    await context.bucket.file('users/owner-b/keep.png').save(png, { resumable: false, metadata: { contentType: 'image/png' } });
+    const response = await deletionRequest(request(tokens.a, { confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context);
+    expect(response.status).toBe(202);
+    const pending = await response.json();
+    expect(pending).toEqual({ jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), status: 'PENDING_SESSION_EXPIRY', nextActionAt: expect.any(Number) });
+    expect(pending.nextActionAt).toBeGreaterThan(Date.now());
+    expect((await context.auth.getUser('owner-a')).disabled).toBe(true);
+    expect((await context.db.doc('accountAccess/owner-a').get()).get('disabled')).toBe(true);
+    return pending;
+  }
+
+  async function withReopenedOperatorContext(check) {
+    const reopenedApp = initializeApp({ projectId, storageBucket: `${projectId}.appspot.com`, credential: applicationDefault() }, `deletion-operator-${randomUUID()}`);
+    const reopened = { auth: getAuth(reopenedApp), db: getFirestore(reopenedApp), bucket: getStorage(reopenedApp).bucket(), deletionEnabled: true, rateLimitMode: 'off' };
+    // As in the existing suite: emulator policy adapter only, not real provider retention.
+    reopened.bucket.getMetadata = async () => [{ softDeletePolicy: { retentionDurationSeconds: '0' } }];
+    try {
+      expect(reopened.auth).not.toBe(context.auth);
+      expect(reopened.db).not.toBe(context.db);
+      expect(reopened.now).toBeUndefined();
+      const admin = await reopened.auth.verifyIdToken(tokens.admin, true);
+      expect(admin.uid).toBe('operator');
+      expect(admin.admin).toBe(true);
+      expect(Date.now() - admin.auth_time * 1000).toBeGreaterThanOrEqual(0);
+      expect(Date.now() - admin.auth_time * 1000).toBeLessThan(5 * 60_000);
+      await check(reopened);
+    } finally {
+      try { await reopened.db.terminate(); } finally { await deleteApp(reopenedApp); }
+    }
+  }
+
+  it('resumes a stored fresh deletion job through authenticated admin status and request in a new SDK context', async () => {
+    const pending = await freshOperatorFixture();
+    await withReopenedOperatorContext(async reopened => {
+      const jobPath = `accountDeletionJobs/${pending.jobId}`;
+      const receiptPath = `accountDeletionReceipts/${pending.jobId}`;
+      const initial = await operatorReadback(context);
+      expect(await operatorReadback(reopened)).toEqual(initial);
+      const status = await deletionStatus(statusRequest(tokens.admin, pending.jobId), reopened);
+      expect(status.status).toBe(200);
+      expect(await status.json()).toEqual({ ...pending, blockers: [] });
+      expect(await operatorReadback(context)).toEqual(initial);
+      const waiting = await deletionRequest(resumeRequest(tokens.admin, 'owner-a', pending.jobId), reopened);
+      expect(waiting.status).toBe(200);
+      expect(await waiting.json()).toEqual(pending);
+      const stillWaiting = await operatorReadback(context);
+      const expectedWaiting = structuredClone(initial);
+      // Lease acquisition/release legitimately updates this job's server write time only.
+      expectedWaiting.documents[jobPath].updateTime = stillWaiting.documents[jobPath].updateTime;
+      expect(stillWaiting).toEqual(expectedWaiting);
+
+      // Explicit historical fixture, NOT elapsed wall time or a claimed old Auth revocation.
+      // Keep real current clock + genuine current tokens. Existing tests own expiry-boundary proof.
+      const settleAfter = Date.now() - 60_000;
+      const historicalRevocation = settleAfter - 65 * 60_000;
+      await context.db.doc(jobPath).update({ startedAt: historicalRevocation, sessionsRevokedAt: historicalRevocation, settleAfter });
+      const before = await operatorReadback(context);
+      const stored = await deletionStatus(statusRequest(tokens.admin, pending.jobId), reopened);
+      expect(stored.status).toBe(200);
+      expect(await stored.json()).toEqual({ jobId: pending.jobId, status: 'PENDING_SESSION_EXPIRY', nextActionAt: settleAfter, blockers: [] });
+      expect(await operatorReadback(context)).toEqual(before);
+      const started = Date.now();
+      const completed = await deletionRequest(resumeRequest(tokens.admin, 'owner-a', pending.jobId), reopened);
+      const finished = Date.now();
+      expect(completed.status).toBe(200);
+      const counts = { document: Object.entries(before.documents).filter(([path, value]) => path.startsWith(`${jobPath}/items/`) && value.data.kind === 'document').length,
+        image: 0, contributor: 0, redact: 0 };
+      expect(counts.document).toBeGreaterThan(0);
+      expect(await completed.json()).toEqual({ jobId: pending.jobId, status: 'COMPLETE', counts });
+      const after = await operatorReadback(context);
+      const receipt = after.documents[receiptPath];
+      expect(receipt.data).toEqual({ status: 'COMPLETE', counts, completedAt: expect.any(Number) });
+      expect(receipt.data.completedAt).toBeGreaterThanOrEqual(started);
+      expect(receipt.data.completedAt).toBeLessThanOrEqual(finished);
+      const expected = structuredClone(before);
+      for (const path of Object.keys(expected.documents)) {
+        if (path === jobPath || path.startsWith(`${jobPath}/items/`) || ['accountAccess/owner-a', 'accountDeletionLocks/owner-a'].includes(path)) delete expected.documents[path];
+      }
+      expected.documents[receiptPath] = receipt;
+      expected.users = expected.users.filter(user => user.uid !== 'owner-a');
+      expect(after).toEqual(expected);
+      for (const response of [await deletionStatus(statusRequest(tokens.admin, pending.jobId), reopened),
+        await deletionRequest(resumeRequest(tokens.admin, 'owner-a', pending.jobId), reopened)]) {
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ jobId: pending.jobId, ...receipt.data });
+      }
+      expect(await operatorReadback(context)).toEqual(after);
+    });
+  }, 45_000);
+
+  it('denies disabled owner and nonadmin deletion status and foreign resume without any server write', async () => {
+    const pending = await freshOperatorFixture();
+    await withReopenedOperatorContext(async reopened => {
+      const before = await operatorReadback(context);
+      const calls = [
+        [() => deletionStatus(statusRequest(tokens.a, pending.jobId), reopened), 401, 'AUTH_REQUIRED'],
+        [() => deletionStatus(statusRequest(tokens.b, pending.jobId), reopened), 403, 'ACCESS_DENIED'],
+        [() => deletionStatus(statusRequest(null, pending.jobId), reopened), 401, 'AUTH_REQUIRED'],
+        [() => deletionRequest(resumeRequest(tokens.b, 'owner-a', pending.jobId), reopened), 403, 'ACCESS_DENIED'],
+        [() => deletionRequest(resumeRequest(tokens.a, 'owner-b', pending.jobId), reopened), 401, 'AUTH_REQUIRED'],
+      ];
+      for (const [call, code, error] of calls) {
+        const response = await call();
+        expect(response.status).toBe(code);
+        expect(await response.json()).toEqual({ ok: false, error });
+        expect(await operatorReadback(context)).toEqual(before);
+      }
+    });
+  }, 45_000);
+
+  it('preserves a stored deletion job for mismatched admin targets missing jobs and an active lease', async () => {
+    const pending = await freshOperatorFixture();
+    await withReopenedOperatorContext(async reopened => {
+      const before = await operatorReadback(context);
+      const missingJob = randomUUID();
+      for (const [uid, jobId] of [['owner-b', pending.jobId], ['owner-a', missingJob]]) {
+        const response = await deletionRequest(resumeRequest(tokens.admin, uid, jobId), reopened);
+        expect(response.status).toBe(200);
+        // Current service protocol: failed lease acquisition is a truthful partial result.
+        expect(await response.json()).toEqual({ jobId, status: 'PARTIAL_FAILURE' });
+        expect(await operatorReadback(context)).toEqual(before);
+      }
+      const missing = await deletionStatus(statusRequest(tokens.admin, missingJob), reopened);
+      expect(missing.status).toBe(404);
+      expect(await missing.json()).toEqual({ ok: false, error: 'NOT_FOUND' });
+      expect(await operatorReadback(context)).toEqual(before);
+      const lease = randomUUID();
+      await context.db.doc(`accountDeletionJobs/${pending.jobId}`).update({ lease, leaseUntil: Date.now() + 10 * 60_000 });
+      const leased = await operatorReadback(context);
+      const busy = await deletionRequest(resumeRequest(tokens.admin, 'owner-a', pending.jobId), reopened);
+      expect(busy.status).toBe(200);
+      expect(await busy.json()).toEqual({ jobId: pending.jobId, status: 'IN_PROGRESS' });
+      expect(await operatorReadback(context)).toEqual(leased);
+      const status = await deletionStatus(statusRequest(tokens.admin, pending.jobId), reopened);
+      expect(status.status).toBe(200);
+      expect(await status.json()).toEqual({ ...pending, blockers: [] });
+      expect(await operatorReadback(context)).toEqual(leased);
+    });
+  }, 45_000);
+
   it('denies anonymous and foreign user deletion without modifying either account', async () => {
     expect((await deletionRequest(request(null, { uid: 'owner-a', confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context)).status).toBe(401);
     expect((await deletionRequest(request(tokens.a, { uid: 'owner-b', confirm: 'DELETE_DOMIDEX_ACCOUNT' }), context)).status).toBe(403);

@@ -1,6 +1,6 @@
 # Lokale Private-Operations-Regression
 
-Dieser versionierte Starter führt ausschließlich die **36 bestehenden/erweiterten Tests**
+Dieser versionierte Starter führt ausschließlich die **39 bestehenden/erweiterten Tests**
 aus `tests/private-operations.test.mjs` gegen lokale Auth-, Firestore- und
 Storage-Emulatoren aus. Das Projekt ist fest `demo-domidex-privacy`.
 Es gibt keine Anmeldung an echten Konten, Veröffentlichung, Produktionslöschung
@@ -38,6 +38,25 @@ alter laufender Jobs werden nicht rekonstruiert. Parallele Rollenverwaltung blei
 unverändert und kann weitere Metadaten ergänzen; eine dauerhaft minimale Nutzlast
 unter solchen parallelen Änderungen wird nicht behauptet. Dies ist kein Nachweis
 einer Android-Listener-Zustellung und ändert den separaten Lock-only-30s-RED nicht.
+
+Drei additive Operatorfälle verwenden einen tatsächlich frisch erzeugten Löschjob
+und öffnen danach einen neuen benannten Admin-SDK-Kontext auf denselben lokalen
+Emulatorbestand. Echte aktuelle Tokens prüfen Admin-Status und authentifizierte
+Wiederaufnahme vor der Frist, Abschluss und idempotenten Belegabruf. Für den
+Abschluss werden ausschließlich die gespeicherten Jobzeitpunkte ausdrücklich als
+historische Fixture gesetzt; der Service nutzt weiter die echte aktuelle Uhr.
+Dies belegt weder 65 Minuten verstrichene Walltime noch einen historischen echten
+Tokenwiderruf. Die vorhandenen Fristgrenzentests bleiben unverändert.
+
+Owner-/Nichtadmin-Status und fremde Wiederaufnahme werden abgewiesen; falsche
+UID/Job-Zuordnung, fehlender Job und aktive Lease dürfen keine Servermutation
+auslösen. Vollständige begrenzte Firestore-Readbacks einschließlich Writezeiten,
+Auth-Records sowie Storage-Metadaten und Bildbytes schützen den übrigen Bestand.
+Ein neuer SDK-Kontext ist kein Prozess-/OS-Neustart. Aufgerufen werden die echten
+Servicefunktionen, nicht ein HTTP-/Next-Router oder ein produktiver Scheduler.
+Die bisherigen 36 Fälle bleiben unverändert; alte Läufe sind kein 39er-Nachweis.
+Der tatsächliche 39er-Lauf vom 04.10.2026 ist einschließlich dieser drei Fälle
+bestanden; der genaue Beleg und seine Grenzen stehen unten.
 
 ## Voraussetzungen und Aufruf
 
@@ -102,8 +121,18 @@ Unter dem ignorierten `outputs/private-operations-local/<Lauf-ID>/` liegen
 `emulator.log`, `vitest-results.json` und `manifest.json`. Das Manifest enthält
 Werkzeugversionen, SHA256/Größe der beiden JARs, Hashes der Regeln/Tests/des
 Harness, Portprüfungen, Testzahlen und Exitstatus. Erfolg setzt ausdrücklich
-**36 exakt benannte Fälle bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
+**39 exakt benannte Fälle bestanden, 0 fehlgeschlagen/übersprungen**, unveränderte Quellen und freie
 Ports nach Emulatorende voraus.
+
+Aktueller Nachweis: `outputs/private-operations-local/2026-10-04T20-55-49-732Z-1c8432ed/manifest.json`
+und `emulator.log`, gestartet am 04.10.2026 um 20:55:49.854Z, abgeschlossen um
+20:56:55.369Z: **39/39 bestanden, 0 Fehler, 0 übersprungen**, Exitcode 0.
+Das Manifest bestätigt `beforePortsFree`, `afterPortsFree` und `inputsUnchanged`
+jeweils als `true`. Der Vitest-Lauf dauerte 54,67s; die drei Operatorfälle sind
+im Log einzeln als bestanden ausgewiesen. Die separat ausgeführten reinen
+Starter-Sicherheitsprüfungen bestanden ebenfalls **17/17**; sie sind nicht Teil
+der 39 Emulatorfälle. Diese nachträgliche README-Aktualisierung ändert den
+eingefrorenen Quellenhash des ursprünglichen Laufbelegs nicht rückwirkend.
 
 Getestet werden echte lokale Admin-SDK-Aufrufe der Sharing-, Bild-/Berechtigungs-
 und Kontolöschengine, einschließlich Teilfehlern, Wiederaufnahme und Fremdschutz.
@@ -139,7 +168,7 @@ Inventur wieder stimmen. Der bestehende Demo-Reset vor jedem Suitefall bleibt be
 Ein Timeout oder harter Prozessabbruch beweist keine abgeschlossene Einzelbereinigung:
 ohne vollständiges Proofartefakt wird der Lauf nicht erfolgreich gemeldet.
 
-Der Starter prüft alle 35 Titel/Passzustände, beide Proofdateien und die unveränderten
+Der Starter prüft alle 39 Titel/Passzustände, beide Proofdateien und die unveränderten
 Hashes der direkten/transitiven lokalen `addExactCard`-Quellen sowie des Paketstands.
 Keine Browser-UI, Android-Workerplanung, Produktion, echten Marktpreise oder allgemeine
 Idempotenz werden dadurch belegt; wiederholtes erfolgreiches Hinzufügen erhöht bewusst

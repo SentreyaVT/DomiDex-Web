@@ -130,6 +130,9 @@ try {
       'deletes exactly one admin-selected report and image while preserving global scanner data',
       'fails closed on mismatched image metadata without deleting either resource',
       'reports a partial deletion truthfully and completes safely on retry',
+      'resumes a stored fresh deletion job through authenticated admin status and request in a new SDK context',
+      'denies disabled owner and nonadmin deletion status and foreign resume without any server write',
+      'preserves a stored deletion job for mismatched admin targets missing jobs and an active lease',
       'denies anonymous and foreign user deletion without modifying either account',
       'deletes all owned classes, recalculates contributions, preserves global/foreign data and is repeatable',
       'retains a fresh deletion access fence through session expiry and removes it on completion',
@@ -143,9 +146,9 @@ try {
       'rejects a colliding positive product for empty and stale current without any server mutation',
     ];
     const assertions = results.testResults?.flatMap(suite => suite.assertionResults ?? []) ?? [];
-    if (results.success !== true || results.numTotalTests !== 36 || results.numPassedTests !== 36
+    if (results.success !== true || results.numTotalTests !== 39 || results.numPassedTests !== 39
         || results.numFailedTests !== 0 || results.numPendingTests !== 0 || (results.numTodoTests ?? 0) !== 0
-        || assertions.length !== 36 || assertions.some(test => test.status !== 'passed')
+        || assertions.length !== 39 || assertions.some(test => test.status !== 'passed')
         || !isDeepStrictEqual(assertions.map(test => test.title).sort(), [...expectedTitles].sort())) process.exitCode = 1;
     try { manifest.webAdd = await verifyWebAddProofs(directory); }
     catch (error) { console.error(error.message); process.exitCode = 1; }
