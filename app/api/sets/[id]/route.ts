@@ -1,4 +1,5 @@
 import { supplementSet } from '@/lib/catalog-supplement';
+import { hasCompleteDeltaHerrschaft, officializeDeltaSet } from '@/lib/delta-herrschaft';
 import type { TcgSetDetail } from '@/lib/domain';
 
 const base = 'https://api.tcgdex.net/v2/de/sets';
@@ -22,5 +23,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       }
     } catch { /* Cards without an official image remain explicitly image-less. */ }
   }
-  return Response.json(supplementSet(set), { headers: { 'Cache-Control': 'public, max-age=900, stale-while-revalidate=3600' } });
+  const canonical = officializeDeltaSet(supplementSet(set));
+  if (!hasCompleteDeltaHerrschaft(canonical)) {
+    return Response.json({ error: 'Der offizielle DLR-Katalog ist unvollständig; der letzte geprüfte Stand bleibt aktiv.' }, { status: 503 });
+  }
+  return Response.json(canonical, { headers: { 'Cache-Control': 'public, max-age=900, stale-while-revalidate=3600' } });
 }

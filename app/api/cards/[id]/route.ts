@@ -1,4 +1,6 @@
 import { supplementalCard } from '@/lib/catalog-supplement';
+import { officializeDeltaCard } from '@/lib/delta-herrschaft';
+import type { TcgCardDetail } from '@/lib/domain';
 import { enrichAnniversaryPrices } from '@/lib/server/cardmarket-anniversary-prices';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/de';
@@ -30,5 +32,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       if (fallback.ok) card.image = ((await fallback.json()) as { image?: string }).image;
     } catch { /* Exact German identity remains valid without an available image. */ }
   }
-  return Response.json(await enrichAnniversaryPrices(card, id), { headers: { 'Cache-Control': 'public, max-age=300, s-maxage=3600' } });
+  return Response.json(await enrichAnniversaryPrices(officializeDeltaCard(card as unknown as TcgCardDetail), id), { headers: { 'Cache-Control': 'public, max-age=300, s-maxage=3600' } });
 }
