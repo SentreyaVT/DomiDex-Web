@@ -4,6 +4,32 @@ Stand: 04.10.2026. Dieses Dokument gehört ausschließlich zum separaten Reposit
 `DomiDex-Web`; Android liegt im benachbarten Repository `CardVault`. Keine Kopie der
 Web-Implementierung im Android-Repository pflegen.
 
+### Local catalogue verification refresh — 23.11.2026 Europe/Berlin
+
+**Nur lokal geprüft; weder Hosting noch Firebase Rules, Functions oder Android wurden
+dabei veröffentlicht beziehungsweise verändert.**
+
+- Die DLR-/`me06`-Kataloggrenze wird auf die offizielle deutsche 141-Karten-Menge
+  geprüft. Unvollständige oder bildlose Antworten ersetzen keinen verwendbaren
+  lokalen Katalog. Korrigierte deutsche Namen und Sonderraritäten sind in den
+  Web-Regressionsfällen abgedeckt.
+- `npm test` bestand mit **773 Tests in 52 Dateien**; Typecheck und der
+  Produktionsbuild bestanden ebenfalls. Der gezielte Oxlint-Lauf für die
+  eingecheckten App-, Library-, Komponenten-, Hook- und Testquellen ist sauber.
+- Ein vollständiger Repository-Lint bleibt bewusst als separater Fremdbefund
+  markiert: Das unversionierte, nicht bearbeitete `backend/market-data/` enthält
+  vorhandene Lintverletzungen. Es war nicht Teil dieser Änderung und wurde weder
+  bereinigt noch in Produktartefakte aufgenommen.
+- Der Cardmarket-Verweis `me06 -> 6704` ist nur eine bestätigte Setgrenze.
+  Wiederverwendete oder fehlende Root-Produktkennungen reichen nicht für eine
+  Preiszuordnung zu einer konkreten Druck-/Finish-Variante. Solche Karten bleiben
+  transparent unbepreist beziehungsweise nutzen die vorhandene Auswahl, statt
+  einen Preis zu erfinden.
+
+Dies ist keine vollständige R27-Freigabe: Live-/Last-, Mehrgeräte-, Preisquellen-,
+Billing- und weitere historische Gate-Nachweise bleiben offen. Full Sync bleibt aktiv,
+Delta Sync bleibt deaktiviert.
+
 ### Aktueller Stand: Grid-Hotfix veröffentlicht und Legacy-SDK-RED — 04.10.2026, nach 23:46
 
 Der ausdrücklich freigegebene Grid-Hotfix ist seit **23:42:33 Europe/Berlin** live
