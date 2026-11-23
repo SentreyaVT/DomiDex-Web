@@ -3,18 +3,18 @@
 > Historischer Ausgangsstand vor dem freigegebenen technischen Anschlusslauf. Der aktuelle serverseitige Ablauf, Tests und verbliebene Prüfstopps stehen in [PRIVATE_CLOUD_OPERATIONS_2026-09-04.md](PRIVATE_CLOUD_OPERATIONS_2026-09-04.md). Aussagen unten über fehlende Implementierung sind keine Beschreibung des nun veröffentlichten Endpunkts.
 
 Öffentlicher Einstieg: https://domidex.web.app/konto-loeschen
-Kontakt: Dominik.muxifeld@gmail.com
+Kontakt: offizielles DomiDex-Discord-Supportticket
 Status: **Vollständige Cloud-Löschung technisch nachgewiesen: NEIN.**
 
 ## Tatsächlich implementiert
 
-Die öffentliche Seite benötigt weder Firebase-Anmeldung noch appAccess/Admin/Pretester. Ein `mailto:`-Link erstellt lediglich einen Entwurf. Verbundene Kontoadresse trägt der Nutzer selbst ein. Die Seite versendet nichts, speichert keine Eingabe und führt keine destruktive Aktion aus. Ein zusätzlicher Account-Delete-Endpunkt wurde nicht geschaffen. Es wurden keine Produktivkonten zu Testzwecken gelöscht.
+Die öffentliche Seite benötigt weder Firebase-Anmeldung noch appAccess/Admin/Pretester. Der Discord-Link öffnet lediglich den offiziellen Community-Kanal. Die Seite versendet nichts, speichert keine Eingabe und führt keine destruktive Aktion aus. Ein zusätzlicher Account-Delete-Endpunkt wurde nicht geschaffen. Es wurden keine Produktivkonten zu Testzwecken gelöscht.
 
 Das ist ein erreichbarer Anfragemechanismus, keine Zusicherung vollständiger Ausführung. Play lässt Web-Ressourcen mit Anfrageweg zu; tatsächliche Bearbeitung bleibt erforderlich. [Offizielle Anforderung](https://support.google.com/googleplay/android-developer/answer/13327111?hl=de)
 
 ## Vor einer echten Löschung: manueller Betreiberprozess
 
-1. Eingang mit Datum, Umfang und Bearbeitungsstatus im zugriffsgeschützten Betreiberprozess erfassen. Nicht in Discord oder öffentliche Tickets kopieren.
+1. Eingang mit Datum, Umfang und Bearbeitungsstatus im zugriffsgeschützten Betreiberprozess erfassen. Personenbezogene Angaben nicht in öffentliche Beiträge kopieren.
 2. Identität angemessen bestätigen. Eine im Text genannte E-Mail oder UID allein genügt nicht. Kontakt zum verbundenen Konto prüfen; bei Kontoverlust separates geeignetes Verfahren. Keine Passwörter, Tokens oder Ausweiskopien pauschal anfordern.
 3. Vollkonto oder Teilumfang unterscheiden. DomiDex-Konto betrifft Android UND Web, nicht das Google-Konto des Nutzers. Exporte und lokale Kopien erklären.
 4. Frist und etwaige gesetzliche Restaufbewahrung tatsächlich prüfen. Keine Frist oder Ausnahme ausdenken; offene Fragen vor Abschluss mitteilen.
@@ -38,7 +38,7 @@ Zustände: eingegangen → Identität geprüft → Umfang/Bestände geklärt →
 | `users/{uid}`-Storage, `catalog-contributions/{uid}` | Einzelne Receipt-Löschung deckt keine historischen Objekte/Kopien ab | Alle verifizierten kontobezogenen Objekte und verwalteten Kopien berücksichtigen |
 | Community-/Supportpfade | Rules sehen `submitterUid`/`requesterUid` und Community-Storage vor, auch wenn Web sie aktuell nicht neu erzeugt | Tatsächliche Altbestände prüfen; nicht aus fehlendem UI auf leeren Speicher schließen |
 | Scannerprofile, Versionen, Manifest, Audit | `createdBy`, `publishedBy`, `updatedBy`, `actor`, `reviewedBy` können persönliche Admin-IDs enthalten | Persönliche Attribution gezielt prüfen/anonymisieren, ohne Profile/Checksummen/Manifest blind zu zerstören |
-| Mail, Anbieterlogs, Backups, SDK-Kennungen | Nicht vollständig im DomiDex-Auth-Delete enthalten | Anbieterprozesse/Fristen und etwaige begründete Ausnahmen klären und mitteilen |
+| Supportanfragen, Anbieterlogs, Backups, SDK-Kennungen | Nicht vollständig im DomiDex-Auth-Delete enthalten | Anbieterprozesse/Fristen und etwaige begründete Ausnahmen klären und mitteilen |
 | Lokale Android-/Browserdaten, Exportkopien | Cloud-Delete löscht sie nicht verlässlich aus der Ferne | Nutzer über lokale Entfernung informieren; keine Remote-Löschzusage |
 
 ### Warum kein schneller neuer Delete-Button implementiert wurde
@@ -49,4 +49,4 @@ Ein sicherer Voll-Löschlauf braucht eine belastbare Schreibsperre gegen bestehe
 
 Nur Emulator/Testkonten: unauthenticated ablehnen; A darf B nicht löschen; frisch bestätigtes A darf eigenen Vorgang anstoßen; Wiederholung ohne Fremdschaden; Teilfehler niemals Erfolg; Outbox/Function erzeugt keine Daten neu; Orphans und Contributors entfernt; Aggregate anderer Nutzer erhalten; Auth abschließend entfernt; keine privilegierten Credentials im Client. Ein reiner Mail- oder UI-Test ersetzt diese Tests nicht.
 
-Für den aktuellen Run getestet: öffentliche Erreichbarkeit, keine Eingabe-/Datenübertragungsfunktion, korrekter Mailentwurf, keine automatische UID-/Tokenübernahme, keine Fake-Erfolgsanzeige. Tatsächliche Kontolöschung wurde bewusst NICHT ausgeführt.
+Für den aktuellen Run getestet: öffentliche Erreichbarkeit, keine Eingabe-/Datenübertragungsfunktion, korrekter Discord-Kontaktweg, keine automatische UID-/Tokenübernahme, keine Fake-Erfolgsanzeige. Tatsächliche Kontolöschung wurde bewusst NICHT ausgeführt.

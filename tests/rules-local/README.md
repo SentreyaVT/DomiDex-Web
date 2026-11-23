@@ -31,7 +31,7 @@ Aus dem Web-Repository-Stamm, mit dem tatsächlichen Pfad zur Android-Quellkopie
 
 ```powershell
 node --test tests/private-operations-local/safety.test.mjs
-node tests/rules-local/run.mjs --android-root "C:/Users/Dominik/AndroidStudioProjects/CardVault"
+node tests/rules-local/run.mjs --android-root <ANDROID_ROOT>
 ```
 
 Vorhandene Werkzeuge können optional ausdrücklich angegeben werden:

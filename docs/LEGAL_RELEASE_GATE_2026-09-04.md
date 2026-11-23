@@ -16,7 +16,7 @@ Konkrete verbleibende Blocker:
 
 Live: https://domidex.web.app/datenschutz
 
-Dominik Muxfeld ausdrücklich als Verantwortlicher benannt; bestätigte Anschrift Krüzbühelweg 8, 6706 Bürs, Österreich; Kontakt Dominik.muxifeld@gmail.com. Datenflüsse für Google-Anmeldung, eigene Sammlung/Notizen/Kaufdaten, manuellen ScanLab-Fotoversand, getrennte foto-freie Evidence, Katalogbeiträge, Browser-Speicher, SDK-Diagnostik und Löschanfragen dokumentiert.
+Öffentlicher Projektauftritt auf DomiDex TCG, Österreich (AT) und den offiziellen Discord-Kontakt reduziert. Datenflüsse für Google-Anmeldung, eigene Sammlung/Notizen/Kaufdaten, manuellen ScanLab-Fotoversand, getrennte foto-freie Evidence, Katalogbeiträge, Browser-Speicher, SDK-Diagnostik und Löschanfragen dokumentiert.
 
 Aktive Dienste: Firebase Auth, Firestore, Storage, Hosting, Cloud Run; bestehende Android-Evidence-Functions und Android-SDKs sind davon abgegrenzt. Keine Analytics-/Ads-/Crashlytics-Freiheit mit vollständiger Telemetrie-Freiheit verwechselt.
 
@@ -30,7 +30,7 @@ Unverändert: manueller Einzelknopf → Vorschau → ausdrückliches Hochladen. 
 
 Live: https://domidex.web.app/kontakt
 
-Bestätigte Betreiberadresse und Mail für Support, Datenschutz und allgemeine Fragen aufgenommen. Offizieller Discord https://discord.gg/a6DfqBt8N7 per öffentlicher Invite-API überprüft (200, DomiDex TCG). Alle Mailto-Links/Entwurf geprüft; keine Testmail ohne Anlass versendet.
+Öffentliche Kontaktangaben auf DomiDex TCG, Österreich (AT) und den offiziellen Discord-Kontakt reduziert. Der Discord-Kontaktweg wurde geprüft; keine personenbezogenen Kontaktangaben sind mehr in dieser Dokumentation enthalten.
 
 ## E. IMPRESSUM
 

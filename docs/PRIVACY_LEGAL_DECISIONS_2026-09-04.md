@@ -1,6 +1,6 @@
 # DomiDex – konkrete rechtliche Entscheidungen nach technischem Sicherheitslauf
 
-Betreiber: Dominik Muxfeld, Krüzbühelweg 8, 6706 Bürs, Österreich; Dominik.muxifeld@gmail.com. Privates Non-Profit-Pre-Beta-Projekt. Keine Rechtsfreigabe, keine bereits ausgefüllte Play-Erklärung. Diese Prüfhinweise gehören nicht auf die öffentlichen Seiten.
+Öffentlicher Projektauftritt: DomiDex TCG, Österreich (AT), offizieller Discord-Kontakt. Privates Non-Profit-Pre-Beta-Projekt. Keine Rechtsfreigabe, keine bereits ausgefüllte Play-Erklärung. Diese Prüfhinweise gehören nicht auf die öffentlichen Seiten.
 
 | Verarbeitung | Tatsächlicher Zweck | Daten | Dienst | Optional/erforderlich | Aktuelle Speicherung | Konkret zu entscheidende Fragen |
 | --- | --- | --- | --- | --- | --- | --- |

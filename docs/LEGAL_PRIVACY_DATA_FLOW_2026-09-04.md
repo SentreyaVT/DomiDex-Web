@@ -11,7 +11,7 @@ Android wurde nur lesend als Datenflussreferenz berücksichtigt, nicht veränder
 - Android-Handoff: `CardVault/docs/PLAY_DATA_SAFETY_TECHNICAL_2026-09-04.md`; insbesondere manuelle Fotofreigabe, automatische foto-freie Evidence, SDK-Metadaten, Konto-Löschanfrage statt Voll-Löschung.
 - Nur lesend geprüfte Android-Pfade: `FirebaseScannerReportUploader`, `SettingsPrivacy`, Sammlung/Tombstones, Knowledge-Worker, `functions/index.js`.
 - Live-Firebase-Projekt `cardvault-715ac`, Hosting-Site `domidex`, Cloud Run `europe-west1`. Die Cloud-Run-Region ist keine Aussage über sämtliche Auth-/Log-/Speicherorte.
-- Öffentliche Texte enthalten ausschließlich vom Nutzer ausdrücklich freigegebene Betreiberinformationen: Dominik Muxfeld, Krüzbühelweg 8, 6706 Bürs, Österreich; DomiDex, privat/Non-Profit/Pre-Beta; `Dominik.muxifeld@gmail.com`. Name und Anschrift wurden während des laufenden Runs bestätigt, nicht aus lokalen privaten Daten abgeleitet.
+- Öffentliche Texte enthalten ausschließlich die Projektangaben DomiDex TCG, Österreich (AT) sowie den offiziellen Discord-Kontakt. Frühere personenbezogene Betreiberangaben wurden aus dieser Dokumentation entfernt.
 
 ## Technische Data-Safety-Matrix
 

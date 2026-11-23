@@ -15,8 +15,8 @@ This is a separate opt-in genuine SDK regression for the existing PRICE_SELECTIO
 From this Web project, after operator-owned debug compilation/installation:
 
 ```powershell
-node tests/android-web-price-conflict-local/run.mjs --android-root C:/Users/Dominik/AndroidStudioProjects/CardVault --resolution cloud
-node tests/android-web-price-conflict-local/run.mjs --android-root C:/Users/Dominik/AndroidStudioProjects/CardVault --resolution local
+node tests/android-web-price-conflict-local/run.mjs --android-root <ANDROID_ROOT> --resolution cloud
+node tests/android-web-price-conflict-local/run.mjs --android-root <ANDROID_ROOT> --resolution local
 ```
 
 Run sequentially, never concurrently. Optional explicit preinstalled paths use the existing `--firebase-cli`, `--java-home`, `--emulator-cache` options. `--resolution` accepts only exact `cloud` or `local`; there is no default, combined mode, production project, port, serial or account override.

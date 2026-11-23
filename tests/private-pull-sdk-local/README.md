@@ -59,7 +59,7 @@ Aus dem Web-Repository-Stamm:
 
 ```powershell
 node --test tests/private-pull-sdk-local/validation.test.mjs
-node tests/private-pull-sdk-local/run.mjs --android-root "C:/Users/Dominik/AndroidStudioProjects/CardVault"
+node tests/private-pull-sdk-local/run.mjs --android-root <ANDROID_ROOT>
 ```
 
 Optional ausschließlich vorhandene Werkzeugpfade angeben:

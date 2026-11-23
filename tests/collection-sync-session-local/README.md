@@ -96,7 +96,7 @@ After Root-owned APK preparation, from the Web project:
 
 ```powershell
 node --test tests/collection-sync-session-local/validation.test.mjs tests/collection-sync-session-local/revocation-stop.test.mjs
-node tests/collection-sync-session-local/run.mjs --android-root C:/Users/Dominik/AndroidStudioProjects/CardVault --owned-regression-avd
+node tests/collection-sync-session-local/run.mjs --android-root <ANDROID_ROOT> --owned-regression-avd
 ```
 
 Allowed preinstalled path overrides are `--firebase-cli`, `--java-home`, `--emulator-cache`. The sole device option is the fixed boolean `--owned-regression-avd` profile above. Project, ports, account list, method registry and run-ID shape are fixed. New run IDs are lowercase 32-hex. Pure validator tests are not SDK evidence.

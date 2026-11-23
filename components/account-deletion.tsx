@@ -94,7 +94,7 @@ export function AccountDeletion() {
       <p>Die Kontolöschung betrifft deine Sammlung, privaten Binder, Kontoeinstellungen und zugeordneten ScanLab-Daten. Deine Sammlung ist anschließend nicht mehr verfügbar. Sichere vorher Daten, die du behalten möchtest.</p>
       <p>Globale Kartenkataloge und Sammlungen anderer Personen bleiben erhalten. Bei einer erforderlichen Prüfung oder technischen Aufbewahrungsfrist wird der Auftrag noch nicht als abgeschlossen angezeigt.</p>
       <p><a href="/konto-loeschen">Ablauf und Löschfristen nachlesen</a> · <a href="/datenschutz">Datenschutz</a></p>
-      {loading ? <p>Kontostatus wird geladen …</p> : !user && !submitted ? <p><a href="/login">Zur Bestätigung anmelden</a> oder <a href={deletionRequestHref}>Löschanfrage ohne Anmeldung senden</a>.</p> : !submitted && <>
+      {loading ? <p>Kontostatus wird geladen …</p> : !user && !submitted ? <p><a href="/login">Zur Bestätigung anmelden</a> oder <a href={deletionRequestHref}>Discord-Support ohne Anmeldung öffnen</a>.</p> : !submitted && <>
         <label className="admin-check"><input type="checkbox" checked={confirmed} onChange={(event) => {
           const consent = event.target.checked && !!user && session.current.active && session.current.uid === user.uid
             && firebaseAuth.currentUser?.uid === user.uid;

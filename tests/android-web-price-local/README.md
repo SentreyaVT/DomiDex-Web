@@ -58,7 +58,7 @@ proof, not a claim that Gate 4 or all worker E2E coverage is complete.
 From the Web repository, only after these preconditions are verified:
 
 ```powershell
-node tests/android-web-price-local/run.mjs --android-root C:/Users/Dominik/AndroidStudioProjects/CardVault
+node tests/android-web-price-local/run.mjs --android-root <ANDROID_ROOT>
 ```
 
 Optional existing-tool paths: `--firebase-cli PATH`, `--java-home PATH`,

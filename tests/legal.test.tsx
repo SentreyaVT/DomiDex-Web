@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { LegalPage } from '@/components/legal-page';
-import { deletionRequestHref, legalContact, legalContent, legalNavigation, legalOperator, legalAddress } from '@/lib/legal-content';
+import { deletionRequestHref, legalContent, legalDiscord, legalNavigation, legalOperator, legalAddress } from '@/lib/legal-content';
 
 describe('Public privacy and account request pages', () => {
   for (const item of legalNavigation) {
@@ -17,14 +17,9 @@ describe('Public privacy and account request pages', () => {
       expect(new Set(legalContent[item.type].sections.map((section) => section.id)).size).toBe(legalContent[item.type].sections.length);
     });
   }
-  it('only prepares a mail draft; does not submit, enumerate or delete accounts', () => {
-    const url = new URL(deletionRequestHref);
-    expect(url.protocol).toBe('mailto:');
-    expect(url.pathname).toBe(legalContact);
-    expect(url.searchParams.get('subject')).toBe('DomiDex – Konto- und Datenlöschung');
-    expect(url.searchParams.get('body')).toContain('[bitte selbst eintragen]');
-    expect(url.searchParams.get('body')).toContain('noch keine abgeschlossene Löschung');
-    expect(url.searchParams.get('body')).not.toMatch(/uid=|token=|password=/i);
+  it('only opens the approved Discord contact; does not submit, enumerate or delete accounts', () => {
+    expect(deletionRequestHref).toBe(legalDiscord);
+    expect(deletionRequestHref).toMatch(/^https:\/\/discord\.gg\//);
   });
   it('does not confuse manual ScanLab reports with separate photo-free Evidence', () => {
     const content = JSON.stringify(legalContent.datenschutz);
@@ -44,10 +39,10 @@ describe('Public privacy and account request pages', () => {
     expect(JSON.stringify(legalContent['konto-loeschen'])).toContain('siebentägige technische Wiederherstellungsfrist');
     expect(JSON.stringify(legalContent.datenschutz)).toContain('keine allgemeine automatische Löschfrist');
   });
-  it('exposes the same approved support address on all four required pages', () => {
+  it('exposes the approved Discord contact and the minimised project details on all four required pages', () => {
     for (const type of ['datenschutz', 'kontakt', 'impressum', 'konto-loeschen'] as const) {
       const html = renderToStaticMarkup(<LegalPage type={type} />);
-      expect(html).toContain(`mailto:${legalContact}`);
+      expect(html).toContain(legalDiscord);
       expect(html).toContain(legalOperator);
       expect(html).toContain(legalAddress);
       expect(html).not.toMatch(/Betreiberangaben noch|vollständige Betreiberangaben noch|Betreiberangaben und Prüfstand|Anschrift sind noch nicht bestätigt/i);
