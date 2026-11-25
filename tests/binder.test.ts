@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { buildBinderSlots, paginateBinderSlots, variantForBinderSlot } from '@/lib/binder';
+import { orderBinderSlots, orderSetBinderOverview } from '@/lib/binder-view-policy';
 import { exactTrendPrice, type CollectionEntry, type TcgCardSummary, type TcgVariant } from '@/lib/domain';
 import { addExactCard } from '@/lib/collection';
 import { BinderView } from '@/components/web-app';
@@ -137,6 +138,62 @@ describe('master-set binder print-slot policy', () => {
     expect(slots).toHaveLength(20);
     expect(pages.map((page) => page.length)).toEqual([8, 8, 4]);
     expect(pages.flat().map((slot) => slot.slotId)).toEqual(slots.map((slot) => slot.slotId));
+  });
+});
+
+describe('binder view sorting and missing filter', () => {
+  it('filters missing slots before sorting them', () => {
+    const owned = entry('Normal', { syncId: 'owned', sourceCardId: 'sort-001', collectorNumber: '001' });
+    const slots = buildBinderSlots([
+      card({ id: 'sort-001', localId: '001', name: 'Besitzt' }),
+      card({ id: 'sort-099', localId: '099', name: 'Fehlt Z' }),
+      card({ id: 'sort-002', localId: '002', name: 'Fehlt B' }),
+    ], [owned], 100);
+    expect(orderBinderSlots(slots, 'number_asc', true, {})).toEqual(expect.arrayContaining([
+      expect.objectContaining({ card: expect.objectContaining({ localId: '002' }), owned: [] }),
+      expect.objectContaining({ card: expect.objectContaining({ localId: '099' }), owned: [] }),
+    ]));
+    expect(orderBinderSlots(slots, 'number_asc', true, {}).map((slot) => slot.owned.length)).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it('orders by real creation timestamps and puts legacy entries after evidenced additions', () => {
+    const old = entry('Normal', { syncId: 'old', sourceCardId: 'sort-a', collectorNumber: '001', createdAtClient: 10 });
+    const fresh = entry('Normal', { syncId: 'fresh', sourceCardId: 'sort-b', collectorNumber: '002', createdAtClient: 20 });
+    const legacy = entry('Normal', { syncId: 'legacy', sourceCardId: 'sort-c', collectorNumber: '003' });
+    const slots = buildBinderSlots([
+      card({ id: 'sort-a', localId: '001', name: 'Alt ex' }), card({ id: 'sort-b', localId: '002', name: 'Neu ex' }), card({ id: 'sort-c', localId: '003', name: 'Legacy ex' }),
+    ], [old, fresh, legacy], 3);
+    expect(orderBinderSlots(slots, 'last_added', false, {}).map((slot) => slot.card.name)).toEqual(['Neu ex', 'Alt ex', 'Legacy ex']);
+  });
+
+  it('orders promo-prefixed collector numbers by their printed numeric component', () => {
+    const slots = buildBinderSlots([
+      card({ id: 'promo', localId: 'TG01', name: 'Promo', printVariants: ['normal'] }),
+      card({ id: 'ordinary', localId: '002', name: 'Basis', printVariants: ['normal'] }),
+    ], [], 2);
+    expect(orderBinderSlots(slots, 'number_asc', false, {}).map((slot) => slot.card.localId)).toEqual(['TG01', '002']);
+  });
+});
+
+describe('set-binder overview sorting', () => {
+  const overview = (id: string, name: string, overrides: Record<string, unknown> = {}) => ({
+    id, name, entries: [], lastOpenedAt: null, releaseDate: null, collectedSlots: null, totalSlots: null, ...overrides,
+  } as Parameters<typeof orderSetBinderOverview>[0][number]);
+
+  it('uses real creation and provider release dates without fabricating legacy order', () => {
+    const older = overview('old', 'Alt', { releaseDate: '2024-01-01', entries: [entry('Normal', { createdAtClient: 10 })] });
+    const fresh = overview('new', 'Neu', { releaseDate: '2025-01-01', entries: [entry('Normal', { createdAtClient: 20 })] });
+    const legacy = overview('legacy', 'Legacy');
+    expect(orderSetBinderOverview([older, legacy, fresh], 'last_added').map((item) => item.id)).toEqual(['new', 'old', 'legacy']);
+    expect(orderSetBinderOverview([older, legacy, fresh], 'newest_set').map((item) => item.id)).toEqual(['new', 'old', 'legacy']);
+  });
+
+  it('sorts computed collection progress and missing slots deterministically', () => {
+    const complete = overview('complete', 'Komplett', { collectedSlots: 8, totalSlots: 10 });
+    const sparse = overview('sparse', 'Lücken', { collectedSlots: 2, totalSlots: 10 });
+    const unknown = overview('unknown', 'Unbekannt');
+    expect(orderSetBinderOverview([sparse, unknown, complete], 'progress_desc').map((item) => item.id)).toEqual(['complete', 'sparse', 'unknown']);
+    expect(orderSetBinderOverview([complete, unknown, sparse], 'missing_desc').map((item) => item.id)).toEqual(['sparse', 'complete', 'unknown']);
   });
 });
 

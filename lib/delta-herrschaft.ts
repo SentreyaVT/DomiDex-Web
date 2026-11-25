@@ -1,4 +1,5 @@
 import type { TcgCardDetail, TcgCardSummary, TcgSetDetail } from './domain';
+import { attachVerifiedDlrCardmarketPricing } from './dlr-cardmarket-mapping';
 
 /** Official German DLR corrections; TCGdex remains the technical feed. */
 export const DELTA_HERRSCHAFT = Object.freeze({
@@ -47,7 +48,7 @@ export function officializeDeltaSet<T extends TcgSetDetail>(set: T): T {
 export function officializeDeltaCard<T extends TcgCardDetail>(card: T): T {
   if (!isDelta(card.set?.id) && !isDelta(card.id.split('-')[0])) return card;
   const localId = localKey(card.localId || card.id.slice(card.id.lastIndexOf('-') + 1));
-  return {
+  return attachVerifiedDlrCardmarketPricing({
     ...card,
     name: names.get(localId) ?? card.name,
     rarity: rarity(localId, card.rarity),
@@ -57,7 +58,7 @@ export function officializeDeltaCard<T extends TcgCardDetail>(card: T): T {
       name: DELTA_HERRSCHAFT.name,
       cardCount: { ...card.set?.cardCount, official: DELTA_HERRSCHAFT.mainCards, total: DELTA_HERRSCHAFT.totalCards },
     },
-  };
+  });
 }
 
 /** A partial provider response must not masquerade as a complete 141-slot master set. */

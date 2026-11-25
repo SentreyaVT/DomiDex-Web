@@ -8,6 +8,8 @@ export interface CollectionEntry {
   revision: number;
   lastMutationId: string;
   updatedAtClient: number;
+  /** Original ownership creation time. Null is an explicit legacy-data fallback. */
+  createdAtClient?: number | null;
   deleted: boolean;
   deletedAtClient: number | null;
   name: string;
@@ -75,6 +77,8 @@ export interface TcgCardSummary {
 export interface TcgSetDetail {
   id: string;
   name: string;
+  /** Provider-supplied publication date; absent data is never guessed. */
+  releaseDate?: string;
   logo?: string;
   symbol?: string;
   cardCount?: { official?: number; total?: number };

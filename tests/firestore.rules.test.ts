@@ -45,6 +45,56 @@ describe('DomiDex Web Firestore rules', () => {
     await assertFails(deleteDoc(reference));
   });
 
+  it('rejects owner reassignment and schema-pollution attempts on collection entries', async () => {
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
+    const reference = doc(owner, 'users/owner/collectionEntries/schema-guard');
+    await setDoc(reference, entry('owner', 'schema-guard'));
+    await assertFails(updateDoc(reference, {
+      ownerUid: 'other', revision: 2, lastMutationId: crypto.randomUUID(),
+      updatedAt: serverTimestamp(), updatedAtClient: Date.now(),
+    }));
+    await assertFails(updateDoc(reference, {
+      unexpectedAdminFlag: true, revision: 2, lastMutationId: crypto.randomUUID(),
+      updatedAt: serverTimestamp(), updatedAtClient: Date.now(),
+    }));
+  });
+
+  it('accepts an optional positive client creation timestamp without weakening legacy entry validation', async () => {
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
+    await assertSucceeds(setDoc(
+      doc(owner, 'users/owner/collectionEntries/created-at'),
+      { ...entry('owner', 'created-at'), createdAtClient: Date.now() },
+    ));
+    await assertFails(setDoc(
+      doc(owner, 'users/owner/collectionEntries/invalid-created-at'),
+      { ...entry('owner', 'invalid-created-at'), createdAtClient: 0 },
+    ));
+    await assertFails(setDoc(
+      doc(owner, 'users/owner/collectionEntries/string-created-at'),
+      { ...entry('owner', 'string-created-at'), createdAtClient: 'yesterday' },
+    ));
+  });
+
+  it('allows one legacy creation-timestamp backfill but rejects later rewrites', async () => {
+    const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
+    const legacyReference = doc(owner, 'users/owner/collectionEntries/legacy-created-at');
+    await assertSucceeds(setDoc(legacyReference, entry('owner', 'legacy-created-at')));
+    await assertSucceeds(updateDoc(legacyReference, {
+      createdAtClient: 1_700_000_000_000,
+      revision: 2,
+      lastMutationId: crypto.randomUUID(),
+      updatedAt: serverTimestamp(),
+      updatedAtClient: Date.now(),
+    }));
+    await assertFails(updateDoc(legacyReference, {
+      createdAtClient: 1_800_000_000_000,
+      revision: 3,
+      lastMutationId: crypto.randomUUID(),
+      updatedAt: serverTimestamp(),
+      updatedAtClient: Date.now(),
+    }));
+  });
+
   it('keeps manual price selections owner-only, exact to the collection entry and revisioned', async () => {
     const owner = environment.authenticatedContext('owner', { appAccess: true }).firestore();
     const other = environment.authenticatedContext('other', { appAccess: true }).firestore();

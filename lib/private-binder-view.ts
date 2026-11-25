@@ -2,7 +2,7 @@ import type { CollectionEntry } from './domain';
 import { ownerDocumentState } from './owner-document-state';
 
 export type PrivateBinderView = { binderId: string; name: string; coverStyle: string; minimumPageCount: number };
-export type PrivatePlacementView = { placementId: string; binderId: string; entrySyncId: string; slotPosition: number; holoEffectId: string | null; holoIntensity: number };
+export type PrivatePlacementView = { placementId: string; binderId: string; entrySyncId: string; slotPosition: number; holoEffectId: string | null; holoIntensity: number; createdAtClient: number | null; updatedAtClient: number | null };
 export type PrivateBinderSnapshot = { binders: PrivateBinderView[]; placements: PrivatePlacementView[] };
 const validId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(value);
 const integer = (value: unknown, minimum: number): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
@@ -19,7 +19,9 @@ export function decodePrivatePlacement(data: Record<string, unknown>, id: string
   const effect = data.holoEffectId ?? null, intensity = data.holoIntensity ?? 0;
   if (effect !== null && (typeof effect !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(effect))) return null;
   if (typeof intensity !== 'number' || !Number.isFinite(intensity) || intensity < 0 || intensity > 1 || (effect === null && intensity !== 0)) return null;
-  return { placementId: id, binderId: data.binderId, entrySyncId: data.entrySyncId, slotPosition: data.slotPosition, holoEffectId: effect, holoIntensity: intensity };
+  const createdAtClient = typeof data.createdAtClient === 'number' && Number.isSafeInteger(data.createdAtClient) && data.createdAtClient > 0 ? data.createdAtClient : null;
+  const updatedAtClient = typeof data.updatedAtClient === 'number' && Number.isSafeInteger(data.updatedAtClient) && data.updatedAtClient > 0 ? data.updatedAtClient : null;
+  return { placementId: id, binderId: data.binderId, entrySyncId: data.entrySyncId, slotPosition: data.slotPosition, holoEffectId: effect, holoIntensity: intensity, createdAtClient, updatedAtClient };
 }
 
 /** Read the same owner-scoped documents as Android; never creates shares or writes data. */

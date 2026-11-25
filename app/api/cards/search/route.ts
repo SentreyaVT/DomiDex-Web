@@ -1,4 +1,5 @@
 import { supplementSearchResults } from '@/lib/catalog-supplement';
+import { officializeDeltaSummary } from '@/lib/delta-herrschaft';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/de';
 
@@ -29,5 +30,5 @@ export async function GET(request: Request) {
         if (fallback.ok) card.image = ((await fallback.json()) as { image?: string }).image;
       } catch { /* Some historic or regional cards have no official source image. */ }
   }));
-  return Response.json(supplementSearchResults(safe, query), { headers: { 'Cache-Control': 'public, max-age=60, s-maxage=600' } });
+  return Response.json(supplementSearchResults(safe, query).map(officializeDeltaSummary), { headers: { 'Cache-Control': 'public, max-age=60, s-maxage=600' } });
 }

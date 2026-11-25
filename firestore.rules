@@ -97,7 +97,7 @@ service cloud.firestore {
       return ownApp(uid)
         && data.keys().hasOnly([
           'syncId', 'ownerUid', 'revision', 'lastMutationId', 'updatedAt',
-          'updatedAtClient', 'deleted', 'deletedAtClient', 'name', 'setId',
+          'updatedAtClient', 'createdAtClient', 'deleted', 'deletedAtClient', 'name', 'setId',
           'setName', 'collectorNumber', 'language', 'finish', 'variant', 'rarity',
           'quantity', 'condition', 'notes', 'acquisitionPriceMinor',
           'acquisitionCurrency', 'acquisitionDateEpochDay', 'externalProductSource',
@@ -116,6 +116,9 @@ service cloud.firestore {
         && data.lastMutationId is string && data.lastMutationId.matches('[A-Za-z0-9._-]{1,128}')
         && data.updatedAt == request.time
         && data.updatedAtClient is int && data.updatedAtClient > 0
+        // Legacy entries may not carry a creation timestamp. Never invent one;
+        // newer Android/Web clients write it and must keep it a positive integer.
+        && (data.get('createdAtClient', null) == null || (data.createdAtClient is int && data.createdAtClient > 0))
         && data.deleted is bool
         && nullableInt(data.deletedAtClient)
         && (!data.deleted || data.deletedAtClient is int)
@@ -309,6 +312,13 @@ service cloud.firestore {
       allow update: if validCollectionEntry(uid, entryId)
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.syncId == resource.data.syncId
+        // A legacy entry may receive a creation timestamp exactly once. Once
+        // present, it is immutable so a client cannot reorder another device's
+        // "last added" view by rewriting historical creation evidence.
+        && (resource.data.get('createdAtClient', null) == request.resource.data.get('createdAtClient', null)
+          || (resource.data.get('createdAtClient', null) == null
+            && request.resource.data.createdAtClient is int
+            && request.resource.data.createdAtClient > 0))
         && request.resource.data.revision == resource.data.revision + 1
         && (!resource.data.deleted || request.resource.data.deleted);
       // Deletes are replicated as tombstones so an offline device cannot resurrect a card.

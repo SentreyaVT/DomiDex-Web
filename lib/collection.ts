@@ -71,13 +71,14 @@ export async function addExactCard(
       return;
     }
     const binderSetKey = `tcgdex-${card.set.id.toLowerCase()}`;
-    const created: Omit<CollectionEntry, 'updatedAtClient'> & { updatedAt: ReturnType<typeof serverTimestamp>; updatedAtClient: number } = {
+    const created: Omit<CollectionEntry, 'updatedAtClient' | 'createdAtClient'> & { updatedAt: ReturnType<typeof serverTimestamp>; updatedAtClient: number; createdAtClient: number } = {
       syncId,
       ownerUid: user.uid,
       revision: 1,
       lastMutationId: crypto.randomUUID(),
       updatedAt: serverTimestamp(),
       updatedAtClient: Date.now(),
+      createdAtClient: Date.now(),
       deleted: false,
       deletedAtClient: null,
       name: card.name.slice(0, 200),
@@ -146,7 +147,7 @@ function decodeEntry(data: DocumentData, id: string, uid: string): CollectionEnt
   if ((sourceSetId === null) !== (sourceCardId === null)) return null;
   return {
     syncId: id, ownerUid: uid, revision: data.revision, lastMutationId: String(data.lastMutationId ?? ''),
-    updatedAtClient: Number(data.updatedAtClient ?? 0), deleted: data.deleted === true,
+    updatedAtClient: Number(data.updatedAtClient ?? 0), createdAtClient: numberOrNull(data.createdAtClient) ?? numberOrNull(data.createdAtEpochMillis), deleted: data.deleted === true,
     deletedAtClient: numberOrNull(data.deletedAtClient), name: String(data.name ?? ''), setId: String(data.setId ?? ''),
     setName: String(data.setName ?? ''), collectorNumber: String(data.collectorNumber ?? ''), language: String(data.language ?? ''),
     finish: String(data.finish ?? ''), variant: String(data.variant ?? ''), rarity: String(data.rarity ?? 'UNKNOWN'),

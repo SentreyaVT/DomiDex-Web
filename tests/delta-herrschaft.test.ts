@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DELTA_HERRSCHAFT, hasCompleteDeltaHerrschaft, officializeDeltaCard, officializeDeltaSet } from '@/lib/delta-herrschaft';
-import type { TcgSetDetail } from '@/lib/domain';
+import { dlrCardmarketMappingRecords } from '@/lib/dlr-cardmarket-mapping';
+import type { TcgCardDetail, TcgSetDetail } from '@/lib/domain';
 
 describe('official Delta-Herrschaft catalogue contract', () => {
   const cards = Array.from({ length: 141 }, (_, index) => ({
@@ -33,5 +34,29 @@ describe('official Delta-Herrschaft catalogue contract', () => {
       id: 'me06-141', localId: '141', name: 'Mega-Rayquaza-ex', set: { id: 'me06', name: 'Delta-Herrschaft' },
     });
     expect(detail).toMatchObject({ rarity: 'Mega Hyper Rare', set: { name: DELTA_HERRSCHAFT.name } });
+  });
+
+  it('exposes only reviewed DLR normal printings as Cardmarket products', () => {
+    const records = dlrCardmarketMappingRecords();
+    expect(records).toHaveLength(141);
+    expect(records.filter((record) => record.status === 'VERIFIED')).toHaveLength(62);
+    expect(records.filter((record) => record.status === 'NEEDS_REVIEW')).toHaveLength(69);
+    expect(records.filter((record) => record.status === 'UNMATCHED')).toHaveLength(10);
+    const detail = officializeDeltaCard({
+      id: 'me06-001', localId: '001', name: 'Skaraborn',
+      set: { id: 'me06', name: 'Delta-Herrschaft' },
+      pricing: { cardmarket: { idProduct: 918810, trend: .02, unit: 'EUR' } },
+      variants_detailed: [{ type: 'normal', size: 'Standard' }, { type: 'reverse', size: 'Standard' }],
+    } as TcgCardDetail);
+    expect(detail.variants_detailed?.[0].pricing?.cardmarket?.idProduct).toBe(918810);
+    expect(detail.variants_detailed?.[0].pricing?.cardmarket?.trend).toBe(.02);
+    expect(detail.variants_detailed?.[1].pricing?.cardmarket).toBeUndefined();
+
+    const independentlyVerified = officializeDeltaCard({
+      id: 'me06-055', localId: '055', name: 'Nidoran♀',
+      set: { id: 'me06', name: 'Delta-Herrschaft' },
+      variants_detailed: [{ type: 'normal', size: 'Standard' }],
+    } as TcgCardDetail);
+    expect(independentlyVerified.variants_detailed?.[0].pricing?.cardmarket?.idProduct).toBe(918878);
   });
 });

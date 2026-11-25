@@ -259,6 +259,14 @@
 
 /* The binder itself retains its existing pages, pockets, artwork, and turning geometry. */
 .collector-app .interactive-binder { border-color: var(--collector-line); border-radius: 20px; background: radial-gradient(ellipse at 50% 35%, rgba(122, 68, 184, .12), transparent 65%), #0e0f1c; box-shadow: inset 0 1px rgba(255, 255, 255, .02); }
+.collector-app .binder-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 14px; color: #c7b8d8; font-size: 13px; }
+.collector-app .binder-view-controls label { display: inline-flex; align-items: center; gap: 7px; }
+.collector-app .binder-view-controls select { min-height: 36px; border: 1px solid rgba(195, 169, 226, .23); border-radius: 10px; background: #171426; color: #f0e9f7; padding: 0 10px; }
+.collector-app .binder-view-controls input { accent-color: #bf72ff; }
+.collector-app .binder-overview-controls { display: grid; grid-template-columns: minmax(170px, 1fr); gap: 8px; width: min(100%, 265px); }
+.collector-app .binder-overview-controls label { display: grid; gap: 4px; color: #c7b8d8; font-size: 11px; }
+.collector-app .binder-overview-controls select { width: 100%; }
+@media (max-width: 640px) { .collector-app .binder-overview-controls { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .collector-app .page-controls { gap: 12px; margin-top: 25px; }
 .collector-app .page-controls button { display: inline-flex; justify-content: center; align-items: center; min-width: 42px; height: 42px; border-color: rgba(195, 169, 226, .16); border-radius: 10px; background: #1a172b; color: #e7d8f6; }
 .collector-app .page-controls button:disabled { opacity: .4; }

@@ -25,5 +25,9 @@
 .pages button, .panel > [role=status] button { display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; border:1px solid #b08fce44; background:#21182f; border-radius:10px; color:#ead5ff; cursor:pointer; }
 .pages button:disabled { opacity:.35; cursor:default; }
 .pages svg { width:18px; }
+.sorted { max-width:750px; margin:28px auto 0; padding-top:18px; border-top:1px solid #b597cb26; }
+.sorted h3 { margin:0 0 4px; font-size:15px; }.sorted > small { color:#a89db6; font-size:11px; }
+.sorted button { display:grid; grid-template-columns:minmax(0,1fr) auto; width:100%; gap:3px 12px; margin-top:8px; padding:10px 12px; border:1px solid #dac2ed18; border-radius:10px; background:#0a0914; color:inherit; text-align:left; cursor:pointer; }
+.sorted button:hover { border-color:#b181df88; background:#171025; }.sorted button > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }.sorted button > small { color:#a89db6; font-size:11px; }.sorted button > strong { grid-column:2; grid-row:1 / span 2; align-self:center; color:#e7d8f6; font-size:12px; }
 .panel button:focus-visible, .summary select:focus-visible { outline:2px solid #bd8df4; outline-offset:4px; }
 @media(max-width:520px) { .summary { grid-template-columns:75px minmax(0,1fr); gap:16px; } .cover { padding:8px; } .cover img { width:30px; height:30px; } .cover strong { font-size:9px; } .summary select { font-size:16px; } .summary p { font-size:12px; } .slotName { font-size:10px; } .slot small { font-size:9px; } .heading h2 { font-size:23px; } }

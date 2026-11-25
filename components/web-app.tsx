@@ -10,6 +10,7 @@ import { useAuth } from './auth-provider';
 import { addExactCard, changeQuantity, collectionSyncIdForExactCard, subscribeCollection } from '@/lib/collection';
 import { canonicalTcgCardId, cardVariantsForSelection, collectionVariantLabel, exactCardmarketProductId, exactTrendPrice, variantForCollectionEntry, type CollectionEntry, type TcgCardDetail, type TcgCardSummary, type TcgVariant } from '@/lib/domain';
 import { buildBinderSlots, paginateBinderSlots, variantForBinderSlot, type BinderSlot } from '@/lib/binder';
+import { orderBinderSlots, orderSetBinderOverview, type SetBinderOverviewSort, type SetBinderSlotSort } from '@/lib/binder-view-policy';
 import { imageUrl, loadCard, loadSet, searchCards } from '@/lib/tcgdex';
 import { adminNavigation } from '@/lib/admin-navigation';
 import { useCollectionPrices } from './use-collection-prices';
@@ -175,9 +176,61 @@ function Overview({ entries, prices, priceSources, selections, total, binders, o
 }
 
 export function BinderView({ binders, entries = binders.flatMap((item) => item.entries), prices, priceSources = {}, selections = {}, user, onError }: { binders: BinderGroup[]; entries?: CollectionEntry[]; prices: Record<string, number | null>; priceSources?: Record<string, CollectionPriceResult['source']>; selections?: Record<string, CollectionPriceSelection>; user: NonNullable<ReturnType<typeof useAuth>['user']>; onError: (value: string) => void }) {
-  const [binderIndex, setBinderIndex] = useState(0); const [page, setPage] = useState(0); const [open, setOpen] = useState(false); const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [setCards, setSetCards] = useState<TcgCardSummary[]>([]); const [printedTotal, setPrintedTotal] = useState(0); const [setLoading, setSetLoading] = useState(false);
-  const binder = binders[Math.min(binderIndex, Math.max(0, binders.length - 1))];
-  useEffect(() => { setPage(0); setOpen(false); setSelectedSlotId(null); }, [binderIndex]);
+  const [binderId, setBinderId] = useState<string | null>(null); const [page, setPage] = useState(0); const [open, setOpen] = useState(false); const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [setCards, setSetCards] = useState<TcgCardSummary[]>([]); const [printedTotal, setPrintedTotal] = useState(0); const [setLoading, setSetLoading] = useState(false); const [slotSort, setSlotSort] = useState<SetBinderSlotSort>('number_asc'); const [onlyMissing, setOnlyMissing] = useState(false);
+  const [overviewSort, setOverviewSort] = useState<SetBinderOverviewSort>('name_asc');
+  const [lastOpenedById, setLastOpenedById] = useState<Record<string, number>>({});
+  const [catalogBySet, setCatalogBySet] = useState<Record<string, { cards: TcgCardSummary[]; official: number; releaseDate: string | null }>>({});
+  const sourceSetKey = useMemo(() => [...new Set(binders.map((item) => item.sourceSetId?.trim().toLowerCase()).filter((id): id is string => Boolean(id)))].sort().join('|'), [binders]);
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('domidex:set-binder-overview') ?? '{}') as { sort?: SetBinderOverviewSort; lastOpened?: Record<string, number> };
+      const allowed: SetBinderOverviewSort[] = ['last_opened', 'last_added', 'newest_set', 'oldest_set', 'name_asc', 'name_desc', 'progress_desc', 'progress_asc', 'collected_desc', 'collected_asc', 'missing_desc', 'missing_asc'];
+      if (allowed.includes(parsed.sort ?? 'name_asc')) setOverviewSort(parsed.sort ?? 'name_asc');
+      if (parsed.lastOpened && typeof parsed.lastOpened === 'object') setLastOpenedById(Object.fromEntries(Object.entries(parsed.lastOpened).filter(([, value]) => typeof value === 'number' && Number.isFinite(value) && value > 0)));
+    } catch { /* local preference is optional */ }
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const ids = sourceSetKey ? sourceSetKey.split('|') : [];
+    void (async () => {
+      for (let start = 0; start < ids.length; start += 4) {
+        const resolved = await Promise.all(ids.slice(start, start + 4).map(async (id) => {
+          try { const set = await loadSet(id); return [id, { cards: set.cards ?? [], official: set.cardCount?.official ?? 0, releaseDate: set.releaseDate ?? null }] as const; } catch { return null; }
+        }));
+        if (!active) return;
+        const available = resolved.filter((item): item is readonly [string, { cards: TcgCardSummary[]; official: number; releaseDate: string | null }] => item !== null);
+        if (available.length) setCatalogBySet((current) => ({ ...current, ...Object.fromEntries(available) }));
+      }
+    })();
+    return () => { active = false; };
+  }, [sourceSetKey]);
+  const overviewRecords = useMemo(() => binders.map((item) => {
+    const metadata = item.sourceSetId ? catalogBySet[item.sourceSetId.trim().toLowerCase()] : undefined;
+    if (!metadata) return { ...item, lastOpenedAt: lastOpenedById[item.id] ?? null, releaseDate: null, collectedSlots: null, totalSlots: null };
+    const slots = buildBinderSlots(metadata.cards, item.entries, metadata.official);
+    return { ...item, lastOpenedAt: lastOpenedById[item.id] ?? null, releaseDate: metadata.releaseDate, collectedSlots: slots.filter((slot) => slot.owned.length > 0).length, totalSlots: slots.length || metadata.official };
+  }), [binders, catalogBySet, lastOpenedById]);
+  const orderedBinders = useMemo(() => orderSetBinderOverview(overviewRecords, overviewSort), [overviewRecords, overviewSort]);
+  const binder = orderedBinders.find((item) => item.id === binderId) ?? orderedBinders[0];
+  useEffect(() => { if (binder && binderId !== binder.id) setBinderId(binder.id); }, [binder, binderId]);
+  useEffect(() => { setPage(0); setOpen(false); setSelectedSlotId(null); }, [binder?.id]);
+  useEffect(() => {
+    if (!binder) return;
+    const openedAt = Date.now();
+    setLastOpenedById((current) => {
+      const next = { ...current, [binder.id]: openedAt };
+      try { localStorage.setItem('domidex:set-binder-overview', JSON.stringify({ sort: overviewSort, lastOpened: next })); } catch { /* local preference is optional */ }
+      return next;
+    });
+  }, [binder?.id]);
+  useEffect(() => {
+    if (!binder) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`domidex:set-binder-view:${binder.id}`) ?? '{}') as { sort?: SetBinderSlotSort; onlyMissing?: boolean };
+      const allowed: SetBinderSlotSort[] = ['number_asc', 'number_desc', 'name_asc', 'name_desc', 'last_added', 'value_desc', 'value_asc', 'variant_asc', 'variant_desc'];
+      setSlotSort(allowed.includes(saved.sort ?? 'number_asc') ? saved.sort! : 'number_asc'); setOnlyMissing(saved.onlyMissing === true);
+    } catch { setSlotSort('number_asc'); setOnlyMissing(false); }
+  }, [binder?.id]);
   useEffect(() => {
     let active = true; setSetCards([]); setPrintedTotal(0); setSetLoading(false); if (!binder?.sourceSetId) return;
     setSetLoading(true); void loadSet(binder.sourceSetId).then((set) => { if (active) { setSetCards(set.cards ?? []); setPrintedTotal(set.cardCount?.official ?? 0); } }).catch(() => { if (active) onError('Das vollständige Set konnte nicht geladen werden. Der vorhandene Bestand bleibt sichtbar.'); }).finally(() => { if (active) setSetLoading(false); });
@@ -185,10 +238,11 @@ export function BinderView({ binders, entries = binders.flatMap((item) => item.e
   }, [binder?.sourceSetId, onError]);
   if (!binder) return <div className="app-view"><div className="view-title"><div><p>BINDER</p><h1>Deine Binder.</h1></div></div><Empty title="Noch kein Set-Binder" text="Füge eine Karte hinzu oder blende eine gesammelte Karte im Set-Binder ein." /><PrivateBinderGallery user={user} entries={entries} prices={prices} /><BinderSharingOwner key={user.uid} user={user} /></div>;
   const summaries = setCards.length ? setCards : binder.entries.map((entry) => ({ id: entry.sourceCardId ?? entry.syncId, localId: entry.collectorNumber, name: entry.name, rarity: entry.rarity, image: entry.imageUrl ?? undefined }));
-  const slots = buildBinderSlots(summaries, binder.entries, printedTotal); const pages = paginateBinderSlots(slots); const displayedPage = Math.min(page, Math.max(0, pages.length - 1)); const visible = pages[displayedPage] ?? []; const selected = selectedSlotId ? slots.find((slot) => slot.slotId === selectedSlotId) ?? null : null;
+  const slots = buildBinderSlots(summaries, binder.entries, printedTotal); const displayedSlots = orderBinderSlots(slots, slotSort, onlyMissing, prices); const pages = paginateBinderSlots(displayedSlots); const displayedPage = Math.min(page, Math.max(0, pages.length - 1)); const visible = pages[displayedPage] ?? []; const selected = selectedSlotId ? slots.find((slot) => slot.slotId === selectedSlotId) ?? null : null;
   const changePage = (nextPage: number) => { if (nextPage < 0 || nextPage >= pages.length) return; setPage(nextPage); };
   return <div className="app-view binder-view">
-    <div className="view-title"><div><p>MASTER-SET BINDER</p><h1>{binder.name}</h1><span>{binder.entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten · {slots.filter((slot) => slot.owned.length).length}/{slots.length || binder.entries.length} Plätze · {formatKnownValuation(sumKnownPrices(binder.entries, prices))}</span></div><select aria-label="Binder auswählen" value={binderIndex} onChange={(event) => setBinderIndex(Number(event.target.value))}>{binders.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}</select></div>
+    <div className="view-title"><div><p>MASTER-SET BINDER</p><h1>{binder.name}</h1><span>{binder.entries.reduce((sum, entry) => sum + entry.quantity, 0)} Karten · {slots.filter((slot) => slot.owned.length).length}/{slots.length || binder.entries.length} Plätze · {formatKnownValuation(sumKnownPrices(binder.entries, prices))}</span></div><div className="binder-overview-controls"><label>Binder-Übersicht<select aria-label="Set-Binder Übersicht sortieren" value={overviewSort} onChange={(event) => { const sort = event.target.value as SetBinderOverviewSort; setOverviewSort(sort); try { localStorage.setItem('domidex:set-binder-overview', JSON.stringify({ sort, lastOpened: lastOpenedById })); } catch {} }}><option value="last_opened">Zuletzt verwendet</option><option value="last_added">Zuletzt hinzugefügt</option><option value="newest_set">Neueste Sets</option><option value="oldest_set">Älteste Sets</option><option value="name_asc">Name A–Z</option><option value="name_desc">Name Z–A</option><option value="progress_desc">Fortschritt hoch → niedrig</option><option value="progress_asc">Fortschritt niedrig → hoch</option><option value="collected_desc">Meiste gesammelt</option><option value="collected_asc">Wenigste gesammelt</option><option value="missing_desc">Meiste fehlend</option><option value="missing_asc">Wenigste fehlend</option></select></label><select aria-label="Binder auswählen" value={binder.id} onChange={(event) => setBinderId(event.target.value)}>{orderedBinders.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></div></div>
+    <div className="binder-view-controls" aria-label="Set-Binder sortieren und filtern"><label>Sortierung<select aria-label="Set-Binder sortieren" value={slotSort} onChange={(event) => { const sort = event.target.value as SetBinderSlotSort; setSlotSort(sort); setPage(0); try { localStorage.setItem(`domidex:set-binder-view:${binder.id}`, JSON.stringify({ sort, onlyMissing })); } catch {} }}><option value="number_asc">Kartennummer ↑</option><option value="number_desc">Kartennummer ↓</option><option value="name_asc">Name A–Z</option><option value="name_desc">Name Z–A</option><option value="last_added">Zuletzt hinzugefügt</option><option value="value_desc">Höchster Kartenwert</option><option value="value_asc">Niedrigster Kartenwert</option><option value="variant_asc">Variante A–Z</option><option value="variant_desc">Variante Z–A</option></select></label><label><input aria-label="Nur fehlende Karten" type="checkbox" checked={onlyMissing} onChange={(event) => { const enabled = event.target.checked; setOnlyMissing(enabled); setPage(0); try { localStorage.setItem(`domidex:set-binder-view:${binder.id}`, JSON.stringify({ sort: slotSort, onlyMissing: enabled })); } catch {} }} /> Nur fehlende Karten</label></div>
     <section className={`interactive-binder ${open ? 'is-open' : ''}`}>
       {!open ? <button className="binder-cover" onClick={() => setOpen(true)}><img src="/domidex-logo.jpg" alt="" /><small>DOMIDEX BINDER</small><strong>{binder.name}</strong><span>Öffnen</span></button> : <>
         {setLoading ? <div className="binder-set-loading"><LoaderCircle className="spin" /><span>Alle Set-Karten werden geladen …</span></div> : <div className="binder-book"><div className="pocket-page">{[0,1,2,3].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div><div className="binder-spine"><i/><i/><i/><i/></div><div className="pocket-page">{[4,5,6,7].map((slot) => <BinderPocket slot={visible[slot]} onSelect={(item) => setSelectedSlotId(item.slotId)} key={visible[slot]?.slotId ?? slot} />)}</div></div>}
