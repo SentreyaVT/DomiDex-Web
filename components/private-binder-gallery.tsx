@@ -45,16 +45,17 @@ function OwnerGallery({ user, entries, prices }: Props) {
     return () => { active = false; stop(); };
   }, [user.uid, attempt]);
   const binder = snapshot?.binders.find((item) => item.binderId === binderId) ?? snapshot?.binders[0];
+  const selectedBinderId = binder?.binderId;
   // Changing/deleting the selected binder cannot carry an old page or modal into another one.
-  useEffect(() => { setPage(0); setSelectedId(null); }, [binder?.binderId]);
+  useEffect(() => { setPage(0); setSelectedId(null); }, [selectedBinderId]);
   useEffect(() => {
-    if (!binder) return;
+    if (!selectedBinderId) return;
     const allowed: PrivateBinderCardSort[] = ['saved', 'added_desc', 'added_asc', 'edited_desc', 'edited_asc', 'number_asc', 'number_desc', 'name_asc', 'name_desc', 'value_desc', 'value_asc'];
     try {
-      const saved = localStorage.getItem(`domidex:private-binder-sort:${binder.binderId}`) as PrivateBinderCardSort | null;
+      const saved = localStorage.getItem(`domidex:private-binder-sort:${selectedBinderId}`) as PrivateBinderCardSort | null;
       setCardSort(saved && allowed.includes(saved) ? saved : 'saved');
     } catch { setCardSort('saved'); }
-  }, [binder?.binderId]);
+  }, [selectedBinderId]);
   const view = binder && snapshot ? privateBinderPage(binder, snapshot.placements, entries, user.uid, page) : null;
   const selected = view?.slots.find((slot) => slot.placement?.placementId === selectedId && slot.entry);
   const price = selected?.entry ? prices[selected.entry.syncId] : undefined;

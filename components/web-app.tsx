@@ -212,25 +212,26 @@ export function BinderView({ binders, entries = binders.flatMap((item) => item.e
   }), [binders, catalogBySet, lastOpenedById]);
   const orderedBinders = useMemo(() => orderSetBinderOverview(overviewRecords, overviewSort), [overviewRecords, overviewSort]);
   const binder = orderedBinders.find((item) => item.id === binderId) ?? orderedBinders[0];
+  const selectedBinderId = binder?.id;
   useEffect(() => { if (binder && binderId !== binder.id) setBinderId(binder.id); }, [binder, binderId]);
-  useEffect(() => { setPage(0); setOpen(false); setSelectedSlotId(null); }, [binder?.id]);
+  useEffect(() => { setPage(0); setOpen(false); setSelectedSlotId(null); }, [selectedBinderId]);
   useEffect(() => {
-    if (!binder) return;
+    if (!selectedBinderId) return;
     const openedAt = Date.now();
     setLastOpenedById((current) => {
-      const next = { ...current, [binder.id]: openedAt };
+      const next = { ...current, [selectedBinderId]: openedAt };
       try { localStorage.setItem('domidex:set-binder-overview', JSON.stringify({ sort: overviewSort, lastOpened: next })); } catch { /* local preference is optional */ }
       return next;
     });
-  }, [binder?.id]);
+  }, [selectedBinderId, overviewSort]);
   useEffect(() => {
-    if (!binder) return;
+    if (!selectedBinderId) return;
     try {
-      const saved = JSON.parse(localStorage.getItem(`domidex:set-binder-view:${binder.id}`) ?? '{}') as { sort?: SetBinderSlotSort; onlyMissing?: boolean };
+      const saved = JSON.parse(localStorage.getItem(`domidex:set-binder-view:${selectedBinderId}`) ?? '{}') as { sort?: SetBinderSlotSort; onlyMissing?: boolean };
       const allowed: SetBinderSlotSort[] = ['number_asc', 'number_desc', 'name_asc', 'name_desc', 'last_added', 'value_desc', 'value_asc', 'variant_asc', 'variant_desc'];
       setSlotSort(allowed.includes(saved.sort ?? 'number_asc') ? saved.sort! : 'number_asc'); setOnlyMissing(saved.onlyMissing === true);
     } catch { setSlotSort('number_asc'); setOnlyMissing(false); }
-  }, [binder?.id]);
+  }, [selectedBinderId]);
   useEffect(() => {
     let active = true; setSetCards([]); setPrintedTotal(0); setSetLoading(false); if (!binder?.sourceSetId) return;
     setSetLoading(true); void loadSet(binder.sourceSetId).then((set) => { if (active) { setSetCards(set.cards ?? []); setPrintedTotal(set.cardCount?.official ?? 0); } }).catch(() => { if (active) onError('Das vollständige Set konnte nicht geladen werden. Der vorhandene Bestand bleibt sichtbar.'); }).finally(() => { if (active) setSetLoading(false); });
