@@ -1,9 +1,11 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { downloadProviderFile, downloadProviderSnapshot, PROVIDER_URLS, DOWNLOAD_POLICY } from './provider-download.mjs';
+
+const test = (...args) => { void nodeTest(...args); };
 
 // Real loopback HTTP transport. The test-only request seam checks the exact
 // production HTTPS URL/options before mapping it to one ephemeral local server.

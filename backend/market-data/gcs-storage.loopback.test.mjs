@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import https from 'node:https';
@@ -9,6 +9,8 @@ import { performance } from 'node:perf_hooks';
 import { Storage, CRC32C } from '@google-cloud/storage';
 import { createGcsStorage } from './gcs-storage.mjs';
 import { STORE_POLICY } from './snapshot-store.mjs';
+
+const test = (...args) => { void nodeTest(...args); };
 
 // Actual installed SDK + real loopback HTTP, not a Bucket/File/transport mock.
 // This proves this SDK's local transport behavior, NOT GCS IAM/server behavior,
@@ -61,7 +63,6 @@ async function fixture(t, { timeout = 2000 } = {}) {
   const sockets = new Set();
   const hooks = {};
   let counter = 100n;
-  let origin;
   const put = (name, bytes) => {
     const value = { name, bytes: Buffer.from(bytes), generation: String(++counter) };
     objects.set(name, value);
@@ -99,7 +100,7 @@ async function fixture(t, { timeout = 2000 } = {}) {
           assert.deepEqual([...url.searchParams.keys()].sort(), ['alt', 'generation']);
           const value = versions.get(`${name}@${url.searchParams.get('generation')}`);
           if (!value) { reject(response, 404, 'notFound'); return; }
-          let bytes = Buffer.from(value.bytes);
+          const bytes = Buffer.from(value.bytes);
           if (hooks.corruptMedia) bytes[0] ^= 1;
           const headers = {
             'content-type': 'application/json; charset=utf-8', 'content-length': String(bytes.length),
@@ -165,8 +166,6 @@ async function fixture(t, { timeout = 2000 } = {}) {
   server.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  let storage;
-  let clientPolicy;
   t.after(async () => {
     // Only this fixture's owned ephemeral server/sockets; no process/global stop.
     const closed = new Promise((resolve, rejectClose) => server.close((failure) => failure ? rejectClose(failure) : resolve()));
@@ -190,15 +189,15 @@ async function fixture(t, { timeout = 2000 } = {}) {
   const address = server.address();
   assert.equal(address.address, '127.0.0.1');
   assert.equal(address.family, 'IPv4');
-  origin = `http://127.0.0.1:${address.port}`;
-  storage = new Storage({ projectId: PROJECT, apiEndpoint: origin,
+  const origin = `http://127.0.0.1:${address.port}`;
+  const storage = new Storage({ projectId: PROJECT, apiEndpoint: origin,
     useAuthWithCustomEndpoint: false, retryOptions: { autoRetry: false }, timeout });
   assert.equal(storage.apiEndpoint, origin);
   assert.equal(storage.baseUrl, `${origin}/storage/v1`);
   assert.equal(storage.customEndpoint, true);
   assert.equal(storage.useAuthWithCustomEndpoint, false);
   assert.equal(storage.projectId, PROJECT);
-  clientPolicy = { timeout: storage.timeout, retryOptions: { ...storage.retryOptions } };
+  const clientPolicy = { timeout: storage.timeout, retryOptions: { ...storage.retryOptions } };
   // These instance-only deny guards do not fake authentication. Authentication is
   // explicitly disabled for this endpoint; an unexpected attempt fails BEFORE
   // ADC, key-file, token or metadata-server access. No global prototype is patched.

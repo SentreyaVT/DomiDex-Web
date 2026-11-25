@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
@@ -7,6 +7,8 @@ import {
   validateManifest, validatePage, validateSnapshot, encodeBoundedJson, parseBoundedJson,
   validateIdRequest, etagForBytes, matchesIfNoneMatch,
 } from './contract.mjs';
+
+const test = (...args) => { void nodeTest(...args); };
 
 const AT = '2026-10-04T02:48:57+0200';
 const CATALOG_AT = '2026-10-03T01:02:03.123456789+02:00';
@@ -232,10 +234,10 @@ test('source times, IDs, fields, page positions and counts are inside page integ
 test('even internally hashed pages cannot repeat an ID across a page boundary', () => {
   const { manifest, pages } = snapshot(Array.from({ length: 201 }, (_, i) => record(String(i + 1))));
   pages[1].records[0].productId = '200';
-  const { generation: ignoredPageGeneration, ...payload } = pages[1];
+  const { generation: _ignoredPageGeneration, ...payload } = pages[1];
   manifest.pages[1].sha256 = digest(payload);
   manifest.pages[1].bytes = encodeBoundedJson(payload).length;
-  const { generation: ignoredGeneration, ...body } = manifest;
+  const { generation: _ignoredGeneration, ...body } = manifest;
   manifest.generation = digest(body);
   pages.forEach((page) => { page.generation = manifest.generation; });
   assert.equal(validatePage(pages[1], manifest).records[0].productId, '200');

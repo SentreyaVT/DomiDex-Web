@@ -1,9 +1,11 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSnapshot, encodeBoundedJson } from './contract.mjs';
 import { ADMISSION_POLICY, reserveAdmission, validateAdmissionState } from './admission-budget.mjs';
 import { STORE_POLICY, publishSnapshot, readCurrentSnapshot } from './snapshot-store.mjs';
 import { publishAdmittedSnapshot } from './publisher.mjs';
+
+const test = (...args) => { void nodeTest(...args); };
 
 const A = 'a'.repeat(32);
 const B = 'b'.repeat(32);
@@ -111,7 +113,7 @@ test('invalid token, accessor, extra fields and coercible objects reject before 
 
 test('caller mutation during first await cannot change the token or already prepared snapshot bytes', async () => {
   const store = memoryStorage(); const value = snapshot(); const original = structuredClone(value);
-  const options = { attemptToken: A }; const read = store.read;
+  const options = { attemptToken: A }; const read = store.read.bind(store);
   store.read = async (...args) => {
     options.attemptToken = B;
     value.pages[0].records[0].name = 'Changed by caller';
@@ -168,7 +170,7 @@ test('same source timestamps with corrected content permit a distinct charged ge
 
 test('UNKNOWN admission before or after commit permits no snapshot uploads or pointer CAS', async () => {
   for (const commit of [false, true]) {
-    const store = memoryStorage(); const cas = store.compareAndSwap; const value = snapshot();
+    const store = memoryStorage(); const cas = store.compareAndSwap.bind(store); const value = snapshot();
     store.compareAndSwap = async (path, expected, bytes) => {
       assert.equal(path, ADMISSION_POLICY.path);
       if (commit) await cas(path, expected, bytes);
@@ -185,7 +187,7 @@ test('UNKNOWN admission before or after commit permits no snapshot uploads or po
 });
 
 test('acknowledged but unverifiable admission stays UNKNOWN with no generation upload', async () => {
-  const store = memoryStorage(); const read = store.read;
+  const store = memoryStorage(); const read = store.read.bind(store);
   let admissionReads = 0;
   store.read = async (path, options) => {
     const result = await read(path, options);
@@ -200,7 +202,7 @@ test('acknowledged but unverifiable admission stays UNKNOWN with no generation u
 });
 
 test('a known admission CAS conflict cannot begin generation uploads', async () => {
-  const store = memoryStorage(); const cas = store.compareAndSwap;
+  const store = memoryStorage(); const cas = store.compareAndSwap.bind(store);
   store.compareAndSwap = async (path, expected, bytes) => {
     assert.equal(path, ADMISSION_POLICY.path);
     putReservations(store, [seededEntry('0')]);
@@ -281,7 +283,7 @@ test('partial immutable failure keeps the full reservation charged and exact las
   const store = memoryStorage(); const good = snapshot(); const next = snapshot('102', 401);
   await publish(store, good);
   const pointer = structuredClone(store.objects.get(STORE_POLICY.pointerPath));
-  const create = store.createIfAbsent;
+  const create = store.createIfAbsent.bind(store);
   store.createIfAbsent = async (path, bytes) => {
     if (path.endsWith('/pages/1.json')) throw Error('synthetic partial upload failure');
     return create(path, bytes);
@@ -300,7 +302,7 @@ test('unknown pointer activation leaves both reservations charged without rollba
   for (const commit of [false, true]) {
     const store = memoryStorage(); const good = snapshot(); const next = snapshot('102');
     await publish(store, good);
-    const cas = store.compareAndSwap; store.calls.length = 0;
+    const cas = store.compareAndSwap.bind(store); store.calls.length = 0;
     store.compareAndSwap = async (path, expected, bytes) => {
       if (path === ADMISSION_POLICY.path) return cas(path, expected, bytes);
       if (commit) await cas(path, expected, bytes);
@@ -321,7 +323,7 @@ test('a newer concurrent activation fences the already admitted older publisher 
   const middle = snapshot('102', 1, '2026-10-02T00:00:00Z');
   const newer = snapshot('103', 1, '2026-10-03T00:00:00Z');
   await publish(store, old);
-  const create = store.createIfAbsent;
+  const create = store.createIfAbsent.bind(store);
   let raced = false;
   store.createIfAbsent = async (path, bytes) => {
     if (!raced && path.includes(middle.manifest.generation)) {
@@ -343,7 +345,7 @@ test('a newer concurrent activation fences the already admitted older publisher 
 test('two concurrent publishers for the last slot allow only the admitted winner to upload', async () => {
   const store = memoryStorage();
   putReservations(store, ['0', '1', '2'].map((digit) => seededEntry(digit)));
-  const read = store.read;
+  const read = store.read.bind(store);
   let reads = 0; let release;
   const gate = new Promise((resolve) => { release = resolve; });
   store.read = async (path, options) => {

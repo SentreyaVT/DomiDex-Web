@@ -1,10 +1,12 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { setImmediate as turn } from 'node:timers/promises';
 import { LIMITS, buildSnapshot, encodeBoundedJson } from './contract.mjs';
 import { STORE_POLICY, publishSnapshot, readCurrentManifest, readSnapshotPage,
   readCurrentSnapshot } from './snapshot-store.mjs';
+
+const test = (...args) => { void nodeTest(...args); };
 
 const record = (id, price = '101') => ({ productId: String(id), categoryId: '51',
   expansionId: '99', metacardId: null, name: 'Synthetic product',
@@ -98,7 +100,7 @@ test('invalid schema, sparse/empty pages, cross-generation data and over-budget 
 test('at most four immutable creates overlap and manifest waits for all pages', async () => {
   const value = snapshot(801);
   const store = memoryStorage();
-  const create = store.createIfAbsent;
+  const create = store.createIfAbsent.bind(store);
   let active = 0;
   let maximum = 0;
   let completedPages = 0;
@@ -120,7 +122,7 @@ test('partial immutable write failure settles in-flight work and preserves the e
   const good = snapshot();
   await publishSnapshot(store, good);
   const before = structuredClone(store.objects.get(STORE_POLICY.pointerPath));
-  const create = store.createIfAbsent;
+  const create = store.createIfAbsent.bind(store);
   const next = snapshot(801, '102');
   let active = 0;
   store.calls.length = 0;
@@ -169,7 +171,7 @@ test('acknowledged but missing or corrupt immutable writes fail their readback',
 test('a corrupt second full-generation verification cannot activate even after successful individual readbacks', async () => {
   const store = memoryStorage();
   const value = snapshot();
-  const read = store.read;
+  const read = store.read.bind(store);
   let pageReads = 0;
   store.read = async (path, options) => {
     const result = await read(path, options);
@@ -196,7 +198,7 @@ test('same-generation publish is verified idempotence without any creates or CAS
 
 async function racePublishers(left, right) {
   const store = memoryStorage();
-  const read = store.read;
+  const read = store.read.bind(store);
   let initialReads = 0;
   let release;
   const ready = new Promise((resolve) => { release = resolve; });
@@ -229,7 +231,7 @@ test('concurrent same-generation publishers verify the winner without a blind CA
   const value = snapshot(201);
   const { store, results } = await racePublishers(value, value);
   assert.equal(results.every(({ status }) => status === 'fulfilled'), true);
-  assert.deepEqual(results.map(({ value: result }) => result.status).sort(), ['ACTIVATED', 'ALREADY_ACTIVE']);
+  assert.deepEqual(results.map(({ value: result }) => result.status).sort((left, right) => left.localeCompare(right)), ['ACTIVATED', 'ALREADY_ACTIVE']);
   assert.equal(store.calls.filter(({ operation }) => operation === 'cas').length, 2);
   assert.deepEqual(await readCurrentSnapshot(store), value);
 });
@@ -243,7 +245,7 @@ test('failed CAS never reverts a newer pointer or retries an earlier expected ve
   const winnerStore = memoryStorage();
   await publishSnapshot(winnerStore, winner);
   for (const [path, value] of winnerStore.objects) if (path !== STORE_POLICY.pointerPath) store.put(path, value.bytes);
-  const cas = store.compareAndSwap;
+  const cas = store.compareAndSwap.bind(store);
   store.calls.length = 0;
   store.compareAndSwap = async (path, expected, bytes) => {
     store.put(STORE_POLICY.pointerPath, pointerBytes(winner));
@@ -262,7 +264,7 @@ test('CAS exceptions before and after commit both report unknown outcome without
     const next = snapshot(1, '102');
     await publishSnapshot(store, old);
     store.calls.length = 0;
-    const cas = store.compareAndSwap;
+    const cas = store.compareAndSwap.bind(store);
     store.compareAndSwap = async (path, expected, bytes) => {
       if (committed) await cas(path, expected, bytes);
       else store.calls.push({ operation: 'cas', path, expectedVersion: expected });
@@ -318,7 +320,7 @@ test('current reads reject pointer change even if bytes are identical but versio
       const store = memoryStorage();
       const value = snapshot();
       await publishSnapshot(store, value);
-      const read = store.read;
+      const read = store.read.bind(store);
       let pointerReads = 0;
       store.read = async (path, options) => {
         if (path === STORE_POLICY.pointerPath && ++pointerReads === 2) {
@@ -421,7 +423,7 @@ test('oversized stored page fails bounded read and is never truncated into a pas
   await publishSnapshot(store, value);
   store.put(pagePath(value.manifest.generation, 0), Buffer.alloc(LIMITS.pageBytes + 1));
   await rejects(readSnapshotPage(store, value.manifest.generation, 0), 'STORAGE_READ');
-  const read = store.read;
+  const read = store.read.bind(store);
   store.read = async (path, options) => path.includes('/pages/')
     ? { bytes: Buffer.alloc(LIMITS.pageBytes + 1), version: 'lying-adapter' } : read(path, options);
   await rejects(readSnapshotPage(store, value.manifest.generation, 0), 'STORAGE_RESPONSE');
@@ -431,7 +433,7 @@ test('prepared bytes are owned before the first await and caller mutation cannot
   const value = snapshot();
   const expected = structuredClone(value);
   const store = memoryStorage();
-  const read = store.read;
+  const read = store.read.bind(store);
   let mutated = false;
   store.read = async (path, options) => {
     if (!mutated) {

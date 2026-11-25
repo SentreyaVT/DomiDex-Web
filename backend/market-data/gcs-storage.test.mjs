@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
@@ -8,9 +8,10 @@ import { GCS_POLICY, createGcsStorage } from './gcs-storage.mjs';
 import { ADMISSION_POLICY } from './admission-budget.mjs';
 import { publishAdmittedSnapshot } from './publisher.mjs';
 
+const test = (...args) => { void nodeTest(...args); };
+
 const ROOT = `${STORE_POLICY.namespace}/generations/${'a'.repeat(64)}`;
 const PAGE = `${ROOT}/pages/0.json`;
-const MANIFEST = `${ROOT}/manifest.json`;
 const POINTER = STORE_POLICY.pointerPath;
 const BODY = Buffer.from('{"synthetic":true}');
 const md5 = (bytes) => createHash('md5').update(bytes).digest('base64');
@@ -94,9 +95,10 @@ function fakeBucket() {
         },
       };
       return new Proxy(methods, { get(target, property) {
-        if (['delete', 'download', 'request', 'requestStream', 'setMetadata', 'getSignedUrl'].includes(property)) {
-          forbidden.push(property);
-          throw Error(`forbidden SDK operation ${property}`);
+        const operation = String(property);
+        if (['delete', 'download', 'request', 'requestStream', 'setMetadata', 'getSignedUrl'].includes(operation)) {
+          forbidden.push(operation);
+          throw Error(`forbidden SDK operation ${operation}`);
         }
         return target[property];
       } });
@@ -403,11 +405,11 @@ test('snapshot-store composes with adapter: exact publish/read and a transport e
   assert.deepEqual(await readCurrentSnapshot(adapter), value);
   assert.deepEqual(f.forbidden, []);
   const failed = fakeBucket();
-  const originalFile = failed.bucket.file;
+  const originalFile = failed.bucket.file.bind(failed.bucket);
   failed.bucket.file = (path, options) => {
     const file = originalFile(path, options);
     if (path !== POINTER) return file;
-    return { getMetadata: file.getMetadata, createReadStream: file.createReadStream,
+    return { getMetadata: file.getMetadata.bind(file), createReadStream: file.createReadStream.bind(file),
       save: async (...args) => { await file.save(...args); throw httpError('ECONNRESET'); } };
   };
   const failedAdapter = createGcsStorage(failed.bucket);

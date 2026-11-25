@@ -1,9 +1,11 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { validateSnapshot } from './contract.mjs';
 import { PROVIDER_LIMITS, assertNativeJsonLexemeSupport, parseProviderProducts,
   parseProviderPrices, normalizeProviderSnapshot } from './ingestion.mjs';
+
+const test = (...args) => { void nodeTest(...args); };
 
 const AT = '2026-10-03T02:41:55+0200';
 const CATALOG_AT = '2026-10-03T11:44:53+0200';

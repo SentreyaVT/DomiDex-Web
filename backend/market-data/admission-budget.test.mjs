@@ -1,7 +1,9 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeBoundedJson } from './contract.mjs';
 import { ADMISSION_POLICY, reserveAdmission, validateAdmissionState } from './admission-budget.mjs';
+
+const test = (...args) => { void nodeTest(...args); };
 
 const entry = (id, wireBytes = 1, token = id) => ({ generation: id.toString(16).padStart(64, '0'),
   wireBytes, attemptToken: token.toString(16).padStart(32, '0') });
@@ -121,7 +123,7 @@ test('malformed persisted schema, missing/extra fields, empty/sparse state and c
     state(...Array.from({ length: 5 }, (_, index) => entry(index + 1))),
     { schema: 1, reservations: Array(1) },
   ];
-  const sparse = [entry(1), entry(2)]; delete sparse[0]; invalid.push({ schema: 1, reservations: sparse });
+  const sparse = []; sparse.length = 2; sparse[1] = entry(2); invalid.push({ schema: 1, reservations: sparse });
   const accessor = [];
   Object.defineProperty(accessor, '0', { enumerable: true, get() { throw Error('must not execute'); } });
   invalid.push({ schema: 1, reservations: accessor });
@@ -215,7 +217,7 @@ test('concurrent same tuple is idempotent, but different writer tokens never ado
     const results = await race(storage, entry(1), entry(1, 1, sameToken ? 1 : 2));
     if (sameToken) {
       assert.equal(results.every(({ status }) => status === 'fulfilled'), true);
-      assert.deepEqual(results.map(({ value }) => value.status).sort(), ['ALREADY_RESERVED', 'RESERVED']);
+      assert.deepEqual(results.map(({ value }) => value.status).sort((left, right) => left.localeCompare(right)), ['ALREADY_RESERVED', 'RESERVED']);
     } else {
       assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
       assert.match(results.find(({ status }) => status === 'rejected').reason.message, /GENERATION_RESERVATION_CONFLICT/);
@@ -227,7 +229,7 @@ test('concurrent same tuple is idempotent, but different writer tokens never ado
 
 test('CAS exceptions before or after commit remain unknown, and any committed orphan stays fully charged', async () => {
   for (const committed of [false, true]) {
-    const storage = memoryStorage(); const cas = storage.compareAndSwap;
+    const storage = memoryStorage(); const cas = storage.compareAndSwap.bind(storage);
     storage.compareAndSwap = async (...args) => {
       if (committed) await cas(...args);
       else storage.calls.push({ operation: 'cas', path: args[0], expectedVersion: args[1] });
@@ -245,7 +247,7 @@ test('CAS exceptions before or after commit remain unknown, and any committed or
 });
 
 test('a late-applied unknown first CAS still consumes budget and never gains a timeout release', async () => {
-  const storage = memoryStorage(); const cas = storage.compareAndSwap;
+  const storage = memoryStorage(); const cas = storage.compareAndSwap.bind(storage);
   let applyLate;
   storage.compareAndSwap = async (...args) => { applyLate = () => cas(...args); throw Error('lost completion'); };
   await rejects(reserveAdmission(storage, entry(1, ADMISSION_POLICY.maxReservedWireBytes)), 'CAS_OUTCOME_UNKNOWN');
@@ -258,7 +260,7 @@ test('a late-applied unknown first CAS still consumes budget and never gains a t
 });
 
 test('a late unknown CAS cannot overwrite a newer reservation made before its delayed application', async () => {
-  const storage = memoryStorage(); const cas = storage.compareAndSwap;
+  const storage = memoryStorage(); const cas = storage.compareAndSwap.bind(storage);
   let applyLate;
   storage.compareAndSwap = async (...args) => { applyLate = () => cas(...args); throw Error('lost completion'); };
   await rejects(reserveAdmission(storage, entry(1)), 'CAS_OUTCOME_UNKNOWN');
@@ -275,7 +277,7 @@ test('non-boolean CAS and missing/corrupt post-commit readback never authorize a
     await rejects(reserveAdmission(storage, entry(1)), 'CAS_OUTCOME_UNKNOWN');
   }
   for (const kind of ['missing', 'corrupt', 'read-error']) {
-    const storage = memoryStorage(); const cas = storage.compareAndSwap;
+    const storage = memoryStorage(); const cas = storage.compareAndSwap.bind(storage);
     storage.compareAndSwap = async (...args) => {
       const applied = await cas(...args);
       if (kind === 'missing') storage.read = async () => null;
@@ -294,7 +296,7 @@ test('post-CAS removal/mutation of an old tuple or changed bytes under an old ve
     const storage = memoryStorage();
     await reserveAdmission(storage, entry(1));
     const version = storage.value.version;
-    const cas = storage.compareAndSwap;
+    const cas = storage.compareAndSwap.bind(storage);
     storage.compareAndSwap = async (...args) => {
       await cas(...args);
       if (kind === 'removed') storage.put(encodeBoundedJson(state(entry(2))));
@@ -308,7 +310,7 @@ test('post-CAS removal/mutation of an old tuple or changed bytes under an old ve
 
 test('input mutation during first read cannot alter the owned reservation tuple', async () => {
   const storage = memoryStorage(); const requested = entry(1, 123);
-  const expected = structuredClone(requested); const read = storage.read;
+  const expected = structuredClone(requested); const read = storage.read.bind(storage);
   storage.read = async (...args) => {
     requested.wireBytes = 1;
     requested.generation = 'f'.repeat(64);
