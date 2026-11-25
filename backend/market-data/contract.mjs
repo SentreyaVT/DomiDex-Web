@@ -48,9 +48,17 @@ function integer(value, minimum, maximum) {
   return value;
 }
 
+function hasAsciiControlCharacter(value) {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint <= 0x1f || codePoint === 0x7f) return true;
+  }
+  return false;
+}
+
 function boundedString(value, maximum) {
   if (typeof value !== 'string' || value.length === 0 || !value.isWellFormed() ||
-      Buffer.byteLength(value, 'utf8') > maximum || /[\u0000-\u001f\u007f]/u.test(value)) fail('STRING');
+      Buffer.byteLength(value, 'utf8') > maximum || hasAsciiControlCharacter(value)) fail('STRING');
   return value;
 }
 

@@ -23,6 +23,14 @@ class NumericLexeme {
   constructor(value) { this.value = value; Object.freeze(this); }
 }
 
+function hasAsciiControlCharacter(value) {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint <= 0x1f || codePoint === 0x7f) return true;
+  }
+  return false;
+}
+
 /** Node 22 must provide native reviver source context; never guess from its
  * version or recover a rounded Number using toString. The optional parser is
  * only a feature-probe seam; provider parsing itself always uses native JSON.parse. */
@@ -148,7 +156,7 @@ export function parseProviderProducts(bytes, options = {}) {
     if (categoryId !== SINGLES_CATEGORY) fail('PRODUCT_CATEGORY');
     for (const field of ['categoryName', 'dateAdded']) {
       if (Object.hasOwn(row, field) && (typeof row[field] !== 'string' || !row[field].isWellFormed() ||
-          Buffer.byteLength(row[field], 'utf8') > LIMITS.nameBytes || /[\u0000-\u001f\u007f]/.test(row[field]))) fail('METADATA');
+          Buffer.byteLength(row[field], 'utf8') > LIMITS.nameBytes || hasAsciiControlCharacter(row[field]))) fail('METADATA');
     }
     const metadata = { productId, categoryId, expansionId: optionalSourceId(row.idExpansion),
       metacardId: optionalSourceId(row.idMetacard), name: row.name };
@@ -156,7 +164,7 @@ export function parseProviderProducts(bytes, options = {}) {
     const checked = validateRecord({ ...metadata,
       normal: Object.fromEntries(Object.keys(NORMAL).map((key) => [key, null])),
       reverse: Object.fromEntries(Object.keys(REVERSE).map((key) => [key, null])) });
-    const { normal: ignoredNormal, reverse: ignoredReverse, ...product } = checked;
+    const { normal: _ignoredNormal, reverse: _ignoredReverse, ...product } = checked;
     return product;
   }));
   return { source, products };
